@@ -16,9 +16,18 @@ import (
 
 // Send starts a run for prompt in a thread.
 func (s *Service) Send(ctx context.Context, threadID, prompt string) (proto.Run, error) {
+	return s.SendWith(ctx, threadID, prompt, nil)
+}
+
+// SendWith starts a run for prompt and the attachments it names.
+func (s *Service) SendWith(ctx context.Context, threadID, prompt string, attachmentIDs []string) (proto.Run, error) {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return proto.Run{}, ErrEmpty
+	}
+	attachments, providerPrompt, err := s.resolveAttachments(ctx, prompt, attachmentIDs)
+	if err != nil {
+		return proto.Run{}, err
 	}
 	t, err := s.Store.Thread(ctx, threadID)
 	if err != nil {
@@ -53,7 +62,8 @@ func (s *Service) Send(ctx context.Context, threadID, prompt string) (proto.Run,
 		ID: id.New("run"), ThreadID: t.ID, Status: proto.RunRunning, Provider: t.Provider, Model: t.Model,
 		Permission: t.Permission, Prompt: prompt, StartedAt: now,
 	}
-	userMsg := proto.Message{ID: id.New("msg"), ThreadID: t.ID, RunID: run.ID, Role: proto.RoleUser, Kind: proto.KindText, Content: prompt, CreatedAt: now}
+	userMsg := proto.Message{ID: id.New("msg"), ThreadID: t.ID, RunID: run.ID, Role: proto.RoleUser, Kind: proto.KindText,
+		Content: prompt, Attachments: attachments, CreatedAt: now}
 	assistant := proto.Message{ID: id.New("msg"), ThreadID: t.ID, RunID: run.ID, Role: proto.RoleAssistant, Kind: proto.KindText,
 		Status: "running", CreatedAt: now.Add(time.Millisecond)}
 	if err := s.Store.CreateRun(ctx, run); err != nil {
@@ -92,9 +102,48 @@ func (s *Service) Send(ctx context.Context, threadID, prompt string) (proto.Run,
 	s.publish(ctx, proto.Event{Type: proto.EventMessage, ThreadID: t.ID, Data: userMsg})
 	s.publish(ctx, proto.Event{Type: proto.EventMessage, ThreadID: t.ID, Data: assistant})
 
-	go s.execute(runCtx, t, dir, runner, run, assistant, done)
+	go s.execute(runCtx, t, dir, runner, run, providerPrompt, assistant, done)
 	return run, nil
 }
+
+// resolveAttachments loads the uploads a prompt names and writes the list
+// of paths the provider can read.
+func (s *Service) resolveAttachments(ctx context.Context, prompt string, attachmentIDs []string) ([]proto.Attachment, string, error) {
+	if len(attachmentIDs) == 0 {
+		return nil, prompt, nil
+	}
+	if len(attachmentIDs) > maxAttachments {
+		return nil, "", fmt.Errorf("at most %d attachments per message", maxAttachments)
+	}
+	seen := make(map[string]bool, len(attachmentIDs))
+	attachments := make([]proto.Attachment, 0, len(attachmentIDs))
+	var withFiles strings.Builder
+	withFiles.WriteString(prompt)
+	withFiles.WriteString("\n\nAttached files:\n")
+	for _, uploadID := range attachmentIDs {
+		if uploadID == "" || seen[uploadID] {
+			continue
+		}
+		seen[uploadID] = true
+		a, err := s.Store.Upload(ctx, uploadID)
+		if err != nil {
+			return nil, "", ErrBadAttachment
+		}
+		attachments = append(attachments, a)
+		fmt.Fprintf(&withFiles, "- %s (%s", s.UploadPath(a.ID), a.Name)
+		if a.MimeType != "" {
+			fmt.Fprintf(&withFiles, ", %s", a.MimeType)
+		}
+		withFiles.WriteString(")\n")
+	}
+	if len(attachments) == 0 {
+		return nil, prompt, nil
+	}
+	return attachments, withFiles.String(), nil
+}
+
+// maxAttachments is the most files one prompt carries.
+const maxAttachments = 10
 
 func providerInstalled(list []proto.Provider, id string) bool {
 	for _, p := range list {
@@ -105,7 +154,7 @@ func providerInstalled(list []proto.Provider, id string) bool {
 	return false
 }
 
-func (s *Service) execute(ctx context.Context, thread proto.Thread, dir string, runner provider.Runner, run proto.Run, assistant proto.Message, done chan struct{}) {
+func (s *Service) execute(ctx context.Context, thread proto.Thread, dir string, runner provider.Runner, run proto.Run, prompt string, assistant proto.Message, done chan struct{}) {
 	defer close(done)
 	defer func() {
 		s.mu.Lock()
@@ -122,7 +171,7 @@ func (s *Service) execute(ctx context.Context, thread proto.Thread, dir string, 
 
 	sink := &runSink{svc: s, thread: thread, run: &run, text: assistant, ctx: ctx, tools: map[string]*proto.Message{}}
 	err := runner.Run(ctx, provider.Turn{
-		ThreadID: thread.ID, RunID: run.ID, CWD: dir, Prompt: run.Prompt, Model: thread.Model,
+		ThreadID: thread.ID, RunID: run.ID, CWD: dir, Prompt: prompt, Model: thread.Model,
 		Permission: thread.Permission, SessionID: thread.ProviderSession,
 	}, sink)
 	sink.finish(err)

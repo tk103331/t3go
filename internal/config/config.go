@@ -46,7 +46,7 @@ func Load(home, listen string, noAuth bool) (Config, error) {
 		return Config{}, err
 	}
 	home = abs
-	for _, dir := range []string{home, filepath.Join(home, "worktrees"), filepath.Join(home, "logs")} {
+	for _, dir := range []string{home, filepath.Join(home, "worktrees"), filepath.Join(home, "logs"), filepath.Join(home, "uploads")} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return Config{}, fmt.Errorf("config: create %s: %w", dir, err)
 		}
@@ -95,6 +95,9 @@ func readOrCreateToken(path string) (string, error) {
 
 // TokenPath is where a machine keeps its token.
 func TokenPath(home string) string { return filepath.Join(home, "token") }
+
+// UploadsDir is where prompt attachments are stored.
+func UploadsDir(home string) string { return filepath.Join(home, "uploads") }
 
 // DBPath is the environment's SQLite file.
 func DBPath(home string) string { return filepath.Join(home, "t3go.sqlite") }

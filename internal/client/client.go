@@ -89,6 +89,11 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	return c.send(req, out)
+}
+
+// send runs req and decodes out from its answer.
+func (c *Client) send(req *http.Request, out any) error {
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
@@ -225,9 +230,39 @@ func (c *Client) DeleteThread(ctx context.Context, id string) error {
 
 // Send starts a run with prompt.
 func (c *Client) Send(ctx context.Context, threadID, prompt string) (proto.Run, error) {
+	return c.SendWith(ctx, threadID, prompt, nil)
+}
+
+// SendWith sends a prompt with the attachments it names.
+func (c *Client) SendWith(ctx context.Context, threadID, prompt string, attachmentIDs []string) (proto.Run, error) {
 	var out proto.Run
-	err := c.do(ctx, http.MethodPost, "/api/v1/threads/"+url.PathEscape(threadID)+"/messages", map[string]string{"content": prompt}, &out)
+	err := c.do(ctx, http.MethodPost, "/api/v1/threads/"+url.PathEscape(threadID)+"/messages", map[string]any{
+		"content": prompt, "attachmentIds": attachmentIDs,
+	}, &out)
 	return out, err
+}
+
+// Upload stores a file and returns its attachment metadata.
+func (c *Client) Upload(ctx context.Context, name, mimeType string, r io.Reader) (proto.Attachment, error) {
+	var out proto.Attachment
+	if c.BaseURL == "" {
+		return out, fmt.Errorf("t3go: no server URL")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api/v1/uploads?name="+url.QueryEscape(name), r)
+	if err != nil {
+		return out, err
+	}
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	req.Header.Set("Content-Type", mimeType)
+	err = c.send(req, &out)
+	return out, err
+}
+
+// DeleteUpload removes an uploaded file that was never sent.
+func (c *Client) DeleteUpload(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/uploads/"+url.PathEscape(id), nil, nil)
 }
 
 // Stop cancels a thread's run.

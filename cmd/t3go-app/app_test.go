@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -651,4 +652,80 @@ func TestUIConnectWithPairLink(t *testing.T) {
 		v, ok := app.Storage().GetItem("serverUrl")
 		return ok && v == ts.URL
 	})
+}
+
+// TestUIComposerAttachment drops a file on the composer, sends it with a
+// prompt, and checks the message kept the upload.
+func TestUIComposerAttachment(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	srv.Service.Providers.Register(uiRunner{started: make(chan struct{}, 1)})
+
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Demo", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Files", Provider: "ui-fake", Model: "ui-fake-1", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	defer srv.Service.Stop(thread.ID)
+
+	path := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(path, []byte("hello attachment"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:composer-drop", 10*time.Second)
+
+	app.Type("label:Message", "Read this")
+	uri := (&url.URL{Scheme: "file", Path: path}).String()
+	app.DropFiles("id:composer-drop", uri)
+	app.WaitFor("text:note.txt", 10*time.Second)
+
+	// Removing the chip deletes the upload that was never sent.
+	uploads := filepath.Join(cfg.Home, "uploads")
+	entries, err := os.ReadDir(uploads)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("uploads = %v, %v", entries, err)
+	}
+	app.Press("id:remove-attachment-" + entries[0].Name())
+	app.WaitForGone("text:note.txt", 5*time.Second)
+	app.WaitUntil(5*time.Second, func() bool {
+		entries, err := os.ReadDir(uploads)
+		return err == nil && len(entries) == 0
+	})
+
+	app.DropFiles("id:composer-drop", uri)
+	app.WaitFor("text:note.txt", 10*time.Second)
+	app.Press("text:Send")
+	app.Settle()
+	var sent proto.Message
+	app.WaitUntil(10*time.Second, func() bool {
+		detail, err := srv.Service.Detail(ctx, thread.ID)
+		if err != nil {
+			return false
+		}
+		for _, m := range detail.Messages {
+			if m.Role == proto.RoleUser && len(m.Attachments) == 1 {
+				sent = m
+				return true
+			}
+		}
+		return false
+	})
+	if sent.Attachments[0].Name != "note.txt" || sent.Content != "Read this" {
+		t.Fatalf("message = %#v", sent)
+	}
+	if _, err := os.Stat(srv.Service.UploadPath(sent.Attachments[0].ID)); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
 }

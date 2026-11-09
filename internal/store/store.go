@@ -103,10 +103,18 @@ CREATE TABLE IF NOT EXISTS messages (
   title TEXT NOT NULL DEFAULT '',
   detail TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT '',
+  attachments TEXT NOT NULL DEFAULT '',
   seq INTEGER NOT NULL,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id, seq);
+CREATE TABLE IF NOT EXISTS uploads (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  mime TEXT NOT NULL DEFAULT '',
+  size INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -123,6 +131,38 @@ CREATE INDEX IF NOT EXISTS events_thread ON events(thread_id, seq);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
+	}
+	// Databases from before attachments have the column added here.
+	if err := s.ensureColumn(ctx, "messages", "attachments", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ensureColumn adds a column to a table that does not have it yet.
+func (s *Store) ensureColumn(ctx context.Context, table, column, decl string) error {
+	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return fmt.Errorf("store: %s columns: %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, kind string
+		var notNull, pk int
+		var def sql.NullString
+		if err := rows.Scan(&cid, &name, &kind, &notNull, &def, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, "ALTER TABLE "+table+" ADD COLUMN "+column+" "+decl); err != nil {
+		return fmt.Errorf("store: add %s.%s: %w", table, column, err)
 	}
 	return nil
 }
@@ -408,6 +448,33 @@ func (s *Store) Runs(ctx context.Context, threadID string) ([]proto.Run, error) 
 	return out, rows.Err()
 }
 
+// CreateUpload records an uploaded file.
+func (s *Store) CreateUpload(ctx context.Context, a proto.Attachment) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO uploads(id,name,mime,size,created_at) VALUES(?,?,?,?,?)`,
+		a.ID, a.Name, a.MimeType, a.Size, now())
+	if err != nil {
+		return fmt.Errorf("store: create upload: %w", err)
+	}
+	return nil
+}
+
+// Upload returns an uploaded file's metadata.
+func (s *Store) Upload(ctx context.Context, id string) (proto.Attachment, error) {
+	var a proto.Attachment
+	err := s.db.QueryRowContext(ctx, `SELECT id,name,mime,size FROM uploads WHERE id=?`, id).
+		Scan(&a.ID, &a.Name, &a.MimeType, &a.Size)
+	if errors.Is(err, sql.ErrNoRows) {
+		return a, ErrNotFound
+	}
+	return a, err
+}
+
+// DeleteUpload forgets an uploaded file's metadata.
+func (s *Store) DeleteUpload(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM uploads WHERE id=?`, id)
+	return err
+}
+
 // AppendMessage inserts a message and returns its sequence.
 func (s *Store) AppendMessage(ctx context.Context, m proto.Message) (int64, error) {
 	var seq int64
@@ -415,9 +482,10 @@ func (s *Store) AppendMessage(ctx context.Context, m proto.Message) (int64, erro
 	if err != nil {
 		return 0, err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO messages(id,thread_id,run_id,role,kind,content,title,detail,status,seq,created_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?)`, m.ID, m.ThreadID, m.RunID, m.Role, m.Kind, m.Content, m.Title, m.Detail, m.Status, seq,
-		m.CreatedAt.UTC().Format(time.RFC3339Nano))
+	rawAttachments, _ := json.Marshal(m.Attachments)
+	_, err = s.db.ExecContext(ctx, `INSERT INTO messages(id,thread_id,run_id,role,kind,content,title,detail,status,attachments,seq,created_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, m.ID, m.ThreadID, m.RunID, m.Role, m.Kind, m.Content, m.Title, m.Detail, m.Status,
+		string(rawAttachments), seq, m.CreatedAt.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return 0, fmt.Errorf("store: append message: %w", err)
 	}
@@ -441,12 +509,12 @@ func (s *Store) UpdateMessage(ctx context.Context, m proto.Message) error {
 // Messages lists a thread's transcript oldest first, at most limit entries
 // when limit is positive.
 func (s *Store) Messages(ctx context.Context, threadID string, limit int) ([]proto.Message, error) {
-	q := `SELECT id,thread_id,run_id,role,kind,content,title,detail,status,created_at FROM messages WHERE thread_id=? ORDER BY seq`
+	q := `SELECT id,thread_id,run_id,role,kind,content,title,detail,status,attachments,created_at FROM messages WHERE thread_id=? ORDER BY seq`
 	args := []any{threadID}
 	if limit > 0 {
 		// Keep the newest limit, then restore chronological order.
-		q = `SELECT id,thread_id,run_id,role,kind,content,title,detail,status,created_at FROM (` +
-			`SELECT id,thread_id,run_id,role,kind,content,title,detail,status,created_at,seq FROM messages WHERE thread_id=? ORDER BY seq DESC LIMIT ?` +
+		q = `SELECT id,thread_id,run_id,role,kind,content,title,detail,status,attachments,created_at FROM (` +
+			`SELECT id,thread_id,run_id,role,kind,content,title,detail,status,attachments,created_at,seq FROM messages WHERE thread_id=? ORDER BY seq DESC LIMIT ?` +
 			`) ORDER BY seq`
 		args = append(args, limit)
 	}
@@ -468,18 +536,23 @@ func (s *Store) Messages(ctx context.Context, threadID string, limit int) ([]pro
 
 func scanMessage(row scanner) (proto.Message, error) {
 	var m proto.Message
-	var created string
-	err := row.Scan(&m.ID, &m.ThreadID, &m.RunID, &m.Role, &m.Kind, &m.Content, &m.Title, &m.Detail, &m.Status, &created)
+	var created, attachments string
+	err := row.Scan(&m.ID, &m.ThreadID, &m.RunID, &m.Role, &m.Kind, &m.Content, &m.Title, &m.Detail, &m.Status, &attachments, &created)
 	if err != nil {
 		return m, err
 	}
 	m.CreatedAt = parseTime(created)
+	if attachments != "" {
+		if err := json.Unmarshal([]byte(attachments), &m.Attachments); err != nil {
+			return m, fmt.Errorf("store: read message attachments: %w", err)
+		}
+	}
 	return m, nil
 }
 
 // Message returns one message.
 func (s *Store) Message(ctx context.Context, id string) (proto.Message, error) {
-	m, err := scanMessage(s.db.QueryRowContext(ctx, `SELECT id,thread_id,run_id,role,kind,content,title,detail,status,created_at FROM messages WHERE id=?`, id))
+	m, err := scanMessage(s.db.QueryRowContext(ctx, `SELECT id,thread_id,run_id,role,kind,content,title,detail,status,attachments,created_at FROM messages WHERE id=?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return m, ErrNotFound
 	}

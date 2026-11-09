@@ -295,3 +295,59 @@ func TestCloseEndsStreams(t *testing.T) {
 		t.Fatalf("the stream stayed open %v after Close", time.Since(start))
 	}
 }
+
+// TestUploadRoundTrip stores a file, reads it back and deletes it.
+func TestUploadRoundTrip(t *testing.T) {
+	e := newTestEnv(t)
+	const body = "hello attachment"
+
+	req, _ := http.NewRequest(http.MethodPost, e.http.URL+"/api/v1/uploads?name=note.txt", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+e.token)
+	req.Header.Set("Content-Type", "text/plain")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("upload status = %d", resp.StatusCode)
+	}
+	var attachment proto.Attachment
+	if err := json.NewDecoder(resp.Body).Decode(&attachment); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if attachment.ID == "" || attachment.Name != "note.txt" || attachment.MimeType != "text/plain" || attachment.Size != int64(len(body)) {
+		t.Fatalf("attachment = %#v", attachment)
+	}
+
+	req, _ = http.NewRequest(http.MethodGet, e.http.URL+"/api/v1/uploads/"+attachment.ID, nil)
+	req.Header.Set("Authorization", "Bearer "+e.token)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("download: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("download status = %d", resp.StatusCode)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(raw) != body {
+		t.Fatalf("download = %q", raw)
+	}
+	if disposition := resp.Header.Get("Content-Disposition"); !strings.Contains(disposition, "note.txt") {
+		t.Fatalf("content disposition = %q", disposition)
+	}
+
+	if code := e.request(t, http.MethodGet, "/api/v1/uploads/"+attachment.ID, nil, "", nil); code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized download = %d", code)
+	}
+	if code := e.request(t, http.MethodDelete, "/api/v1/uploads/"+attachment.ID, nil, e.token, nil); code != http.StatusNoContent {
+		t.Fatalf("delete = %d", code)
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/uploads/"+attachment.ID, nil, e.token, nil); code != http.StatusNotFound {
+		t.Fatalf("missing upload = %d", code)
+	}
+}

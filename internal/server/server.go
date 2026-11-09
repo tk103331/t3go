@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -188,6 +189,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/settings", s.auth(s.handleSettings))
 	mux.HandleFunc("PATCH /api/v1/settings", s.auth(s.handleUpdateSettings))
 	mux.HandleFunc("GET /api/v1/fs", s.auth(s.handleListDir))
+	mux.HandleFunc("POST /api/v1/uploads", s.auth(s.handleCreateUpload))
+	mux.HandleFunc("GET /api/v1/uploads/{id}", s.auth(s.handleUpload))
+	mux.HandleFunc("DELETE /api/v1/uploads/{id}", s.auth(s.handleDeleteUpload))
 	mux.HandleFunc("GET /api/v1/events", s.auth(s.handleSSE))
 	mux.HandleFunc("GET /ws", s.auth(s.handleWS))
 	return withLogging(withCORS(mux), s.Log)
@@ -466,13 +470,14 @@ func (s *Server) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Content string `json:"content"`
+		Content       string   `json:"content"`
+		AttachmentIDs []string `json:"attachmentIds"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		writeError(w, 400, "invalid", err.Error())
 		return
 	}
-	run, err := s.Service.Send(r.Context(), r.PathValue("id"), in.Content)
+	run, err := s.Service.SendWith(r.Context(), r.PathValue("id"), in.Content, in.AttachmentIDs)
 	if err != nil {
 		writeError(w, statusFor(err), "run", err.Error())
 		return
@@ -492,6 +497,58 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]string{"diff": diff})
+}
+
+// maxUploadSize is a prompt attachment's limit.
+const maxUploadSize = 25 << 20
+
+// handleCreateUpload stores one request body as an attachment.
+func (s *Server) handleCreateUpload(w http.ResponseWriter, r *http.Request) {
+	mimeType := r.Header.Get("Content-Type")
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	body := http.MaxBytesReader(w, r.Body, maxUploadSize)
+	attachment, err := s.Service.SaveUpload(r.Context(), r.URL.Query().Get("name"), mimeType, body)
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "too-large", "attachments are limited to 25 MB")
+			return
+		}
+		writeError(w, 500, "upload", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, attachment)
+}
+
+// handleUpload serves an attachment's bytes.
+func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	attachment, err := s.Store.Upload(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), "upload", err.Error())
+		return
+	}
+	f, err := os.Open(s.Service.UploadPath(attachment.ID))
+	if err != nil {
+		writeError(w, 404, "upload", "the attachment is gone")
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Content-Type", attachment.MimeType)
+	if disposition := mime.FormatMediaType("attachment", map[string]string{"filename": attachment.Name}); disposition != "" {
+		w.Header().Set("Content-Disposition", disposition)
+	}
+	http.ServeContent(w, r, attachment.Name, time.Time{}, f)
+}
+
+// handleDeleteUpload removes an attachment that was never sent.
+func (s *Server) handleDeleteUpload(w http.ResponseWriter, r *http.Request) {
+	if err := s.Service.DeleteUpload(r.Context(), r.PathValue("id")); err != nil {
+		writeError(w, statusFor(err), "upload", err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
@@ -545,7 +602,7 @@ func statusFor(err error) int {
 		return 404
 	case errors.Is(err, orchestrator.ErrBusy):
 		return 409
-	case errors.Is(err, orchestrator.ErrEmpty), errors.Is(err, orchestrator.ErrBadPath):
+	case errors.Is(err, orchestrator.ErrEmpty), errors.Is(err, orchestrator.ErrBadPath), errors.Is(err, orchestrator.ErrBadAttachment):
 		return 400
 	case errors.Is(err, orchestrator.ErrArchived), errors.Is(err, orchestrator.ErrNoProvider):
 		return 422

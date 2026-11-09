@@ -2,8 +2,10 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -275,5 +277,90 @@ func TestRecoverInterrupted(t *testing.T) {
 
 	if runs, threads, err := svc.RecoverInterrupted(ctx); err != nil || runs != 0 || threads != 0 {
 		t.Fatalf("second recover = %d, %d, %v", runs, threads, err)
+	}
+}
+
+type capturingRunner struct {
+	prompts chan string
+}
+
+func (c *capturingRunner) ID() string   { return "capture" }
+func (c *capturingRunner) Name() string { return "Capture Agent" }
+
+func (c *capturingRunner) Snapshot(context.Context) proto.Provider {
+	return proto.Provider{ID: "capture", Name: "Capture Agent", Installed: true, Version: "1.0",
+		Models: []proto.Model{{ID: "capture-1", Name: "Capture One", Provider: "capture", Default: true}}}
+}
+
+func (c *capturingRunner) Run(ctx context.Context, turn provider.Turn, sink provider.Sink) error {
+	c.prompts <- turn.Prompt
+	sink.Text("done")
+	return nil
+}
+
+// TestSendWithAttachments lets the provider read the uploaded file's path
+// and keeps the attachment on the user message.
+func TestSendWithAttachments(t *testing.T) {
+	ctx := context.Background()
+	runner := &capturingRunner{prompts: make(chan string, 1)}
+	svc := newTestService(t, runner)
+	project, err := svc.CreateProject(ctx, "demo", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := svc.CreateThread(ctx, CreateThreadInput{ProjectID: project.ID, Title: "Files",
+		Provider: "capture", Model: "capture-1", Permission: proto.PermissionFullAccess})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	attachment, err := svc.SaveUpload(ctx, "notes.txt", "text/plain", strings.NewReader("hello"))
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	path := svc.UploadPath(attachment.ID)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("upload file: %v", err)
+	}
+
+	run, err := svc.SendWith(ctx, thread.ID, "Read the notes", []string{attachment.ID})
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := svc.Wait(waitCtx, thread.ID); err != nil {
+		t.Fatalf("wait: %v", err)
+	}
+	prompt := <-runner.prompts
+	if !strings.Contains(prompt, path) || !strings.Contains(prompt, "notes.txt") {
+		t.Fatalf("provider prompt = %q", prompt)
+	}
+
+	detail, err := svc.Detail(ctx, thread.ID)
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	var user *proto.Message
+	for i := range detail.Messages {
+		if detail.Messages[i].RunID == run.ID && detail.Messages[i].Role == proto.RoleUser {
+			user = &detail.Messages[i]
+		}
+	}
+	if user == nil {
+		t.Fatal("no user message")
+	}
+	if user.Content != "Read the notes" || len(user.Attachments) != 1 || user.Attachments[0].ID != attachment.ID {
+		t.Fatalf("user message = %#v", user)
+	}
+
+	if _, err := svc.SendWith(ctx, thread.ID, "Another", []string{"upl_missing"}); !errors.Is(err, ErrBadAttachment) {
+		t.Fatalf("missing attachment error = %v", err)
+	}
+
+	if err := svc.DeleteThread(ctx, thread.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("upload file still there: %v", err)
 	}
 }

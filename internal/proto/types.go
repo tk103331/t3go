@@ -82,19 +82,29 @@ const (
 	RoleSystem    Role = "system"
 )
 
+// Attachment is a file uploaded to the environment and sent with a
+// prompt, which providers read from its path on disk.
+type Attachment struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	MimeType string `json:"mimeType,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+}
+
 // Message is one transcript entry. A running assistant message grows as
 // its provider streams tokens.
 type Message struct {
-	ID        string      `json:"id"`
-	ThreadID  string      `json:"threadId"`
-	RunID     string      `json:"runId,omitempty"`
-	Role      Role        `json:"role"`
-	Kind      MessageKind `json:"kind"`
-	Content   string      `json:"content,omitempty"`
-	Title     string      `json:"title,omitempty"`
-	Detail    string      `json:"detail,omitempty"`
-	Status    string      `json:"status,omitempty"`
-	CreatedAt time.Time   `json:"createdAt"`
+	ID          string       `json:"id"`
+	ThreadID    string       `json:"threadId"`
+	RunID       string       `json:"runId,omitempty"`
+	Role        Role         `json:"role"`
+	Kind        MessageKind  `json:"kind"`
+	Content     string       `json:"content,omitempty"`
+	Title       string       `json:"title,omitempty"`
+	Detail      string       `json:"detail,omitempty"`
+	Status      string       `json:"status,omitempty"`
+	Attachments []Attachment `json:"attachments,omitempty"`
+	CreatedAt   time.Time    `json:"createdAt"`
 }
 
 // RunStatus is one user-to-agent cycle's state.

@@ -17,13 +17,13 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - Git：工作区状态、每个 run 的 checkpoint（`git stash create` + 隐藏 ref）、run diff、worktree
 - HTTP REST API、SSE 事件流、WebSocket 事件流、Bearer token 鉴权、CORS
 - `t3go` CLI：`serve`、`pair`、`doctor`、`version`
-- NSGo 客户端：连接页、项目/线程侧栏、聊天流、新建/重命名/删除项目与线程、新建线程可选项目与 worktree 分支、线程归档与筛选、命令面板与快捷键、记住侧栏宽度与显隐、设置（环境名、默认 provider/model/权限、主题）、运行历史与逐次 diff、运行中排队发送、断线重连提示、窄屏布局、错误提示条
+- NSGo 客户端：连接页、项目/线程侧栏、聊天流、新建/重命名/删除项目与线程、新建线程可选项目与 worktree 分支、线程归档与筛选、命令面板与快捷键、记住侧栏宽度与显隐、设置（环境名、默认 provider/model/权限、主题）、运行历史与逐次 diff、运行中排队发送、附件（选择或拖入文件并随消息发送）、断线重连提示、窄屏布局、错误提示条
 - 测试：store、orchestrator（fake provider）、provider 流解析、HTTP/SSE/WS、Go 客户端、NSGo UI 集成
 
 尚未实现（有意留到后续）：
 
 - 交互式权限审批（supervised 模式下 CLI 进程内的确认框）
-- 附件、图片、语音输入
+- 语音输入（文件与图片已支持，按文件路径交给 provider 读取）
 - Web 目标（`js/wasm` 不能直接用 `net/http`，需要浏览器 fetch/EventSource 适配层）
 - 与上游 t3code 客户端协议的兼容
 
@@ -108,6 +108,7 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
   token          # 32 字节随机 token
   t3go.sqlite    # 状态与事件
   worktrees/     # 线程独立 worktree
+  uploads/       # 随消息发送的附件
   logs/t3go.log   # 服务日志
 ```
 
@@ -124,12 +125,14 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
 | `PATCH/DELETE /api/v1/projects/{id}` | 更新/删除项目 |
 | `GET/POST /api/v1/threads` | 列出/创建线程 |
 | `GET/PATCH/DELETE /api/v1/threads/{id}` | 线程详情/更新/删除 |
-| `POST /api/v1/threads/{id}/messages` | 发送消息，启动一次 run |
+| `POST /api/v1/threads/{id}/messages` | 发送消息（`content` + `attachmentIds`），启动一次 run |
 | `POST /api/v1/threads/{id}/stop` | 停止当前 run |
 | `GET /api/v1/threads/{id}/diff?runId=` | 某次 run 的 checkpoint diff |
 | `GET /api/v1/providers` | provider 与模型 |
 | `GET/PATCH /api/v1/settings` | 环境默认设置 |
 | `GET /api/v1/fs?path=` | 列出子目录，供目录选择器使用 |
+| `POST /api/v1/uploads?name=` | 上传一个附件（请求体为文件内容，上限 25 MB） |
+| `GET/DELETE /api/v1/uploads/{id}` | 下载/删除附件 |
 | `GET /api/v1/events?after=<seq>` | SSE 事件流 |
 | `GET /ws` | WebSocket 事件流 |
 
@@ -187,13 +190,15 @@ gofmt -l .
 
 UI 集成测试用 `nsgotest` 在无头环境里启动真实 server，验证连接、侧栏、线程
 transcript 的渲染，命令面板与快捷键，运行中排队并自动发送，运行历史里某次 run
-的 diff，断线后的重连提示，新建线程时选项目与 worktree 分支，
+的 diff，附件随消息发送，断线后的重连提示，新建线程时选项目与 worktree 分支，
 设置默认 provider/model/权限后新线程继承，以及重命名、归档、删除线程和项目
 后服务端状态的变化。
 
 ## 已知限制
 
 - 一次线程同时只允许一个 run（`409 thread is already running`）。
+- 附件上限 25 MB、每条消息最多 10 个；provider 通过本地文件路径读取，不做内联图片消息。
+- 上传文件保存在环境的数据目录，删除线程或项目时一起清理；从输入框移除的附件会立即删除。
 - 事件保留最近约 5000 条；断线太久时需要重新取快照。
 - 流式文本每 200ms 落一次库；token 级 delta 也会写事件表，长回复会产生较多写入。
 - checkpoint 使用 `git stash create`，只覆盖 Git 项目；非 Git 项目没有 diff。

@@ -61,6 +61,14 @@ client POST /threads/{id}/messages
   然后推送 `event` 帧。客户端可发 `ping`、`subscribe`、`unsubscribe` 做线程过滤。
 - 两个通道都不接受写操作，避免同一业务出现第二套入口。
 
+## 附件
+
+客户端把文件上传到 `POST /api/v1/uploads`，环境把内容存到 `$T3GO_HOME/uploads/<id>`，
+元数据写入 `uploads` 表。发送消息时只传 `attachmentIds`；orchestrator 校验后把
+用户消息的内容与附件元数据一起落库，并在给 provider 的 prompt 末尾追加一行
+`- /abs/path (name, mime)`，让 CLI 用自己的文件读取工具打开。删除线程或项目时，
+其消息引用的上传文件与元数据一并清理。
+
 ## Provider 适配
 
 `internal/provider` 定义了 `Provider`（探测版本/模型）和 `Runner`（执行 turn）。

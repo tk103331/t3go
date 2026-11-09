@@ -4,6 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"mime"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,13 +44,14 @@ type app struct {
 	showArchived *core.Signal[bool]
 
 	// the open thread
-	selected *core.Signal[string]
-	detail   *core.Signal[proto.ThreadDetail]
-	messages *core.Signal[[]proto.Message]
-	running  *core.Signal[bool]
-	draft    *core.Signal[string]
-	queue    *core.Signal[[]string]
-	queued   map[string][]string
+	selected    *core.Signal[string]
+	detail      *core.Signal[proto.ThreadDetail]
+	messages    *core.Signal[[]proto.Message]
+	running     *core.Signal[bool]
+	draft       *core.Signal[string]
+	queue       *core.Signal[[]queuedPrompt]
+	queued      map[string][]queuedPrompt
+	attachments *core.Signal[[]proto.Attachment]
 
 	// dialogs
 	showNewProject *core.Signal[bool]
@@ -103,13 +108,14 @@ func newApp(cx *core.Scope) *app {
 
 		showArchived: core.NewSignal(cx, false),
 
-		selected: core.NewSignal(cx, ""),
-		detail:   core.NewSignalFunc(cx, proto.ThreadDetail{}, func(proto.ThreadDetail, proto.ThreadDetail) bool { return false }),
-		messages: sliceSignal[proto.Message](cx),
-		running:  core.NewSignal(cx, false),
-		draft:    core.NewSignal(cx, ""),
-		queue:    sliceSignal[string](cx),
-		queued:   map[string][]string{},
+		selected:    core.NewSignal(cx, ""),
+		detail:      core.NewSignalFunc(cx, proto.ThreadDetail{}, func(proto.ThreadDetail, proto.ThreadDetail) bool { return false }),
+		messages:    sliceSignal[proto.Message](cx),
+		running:     core.NewSignal(cx, false),
+		draft:       core.NewSignal(cx, ""),
+		queue:       sliceSignal[queuedPrompt](cx),
+		queued:      map[string][]queuedPrompt{},
+		attachments: sliceSignal[proto.Attachment](cx),
 
 		showNewProject: core.NewSignal(cx, false),
 		showNewThread:  core.NewSignal(cx, false),
@@ -241,6 +247,14 @@ func (a *app) startStream(c *client.Client, after int64) {
 }
 
 func (a *app) disconnect() {
+	// Files the user attached but never sent go with the connection.
+	pending := append([]proto.Attachment(nil), a.attachments.GetUntracked()...)
+	for _, queue := range a.queued {
+		for _, prompt := range queue {
+			pending = append(pending, prompt.Attachments...)
+		}
+	}
+	a.discardAttachments(pending)
 	a.mu.Lock()
 	if a.streamCancel != nil {
 		a.streamCancel()
@@ -252,8 +266,9 @@ func (a *app) disconnect() {
 	a.store.RemoveItem("token")
 	a.connected.Set(false)
 	a.offline.Set(false)
-	a.queued = map[string][]string{}
+	a.queued = map[string][]queuedPrompt{}
 	a.queue.Set(nil)
+	a.attachments.Set(nil)
 	a.selected.Set("")
 	a.messages.Set(nil)
 	a.detail.Set(proto.ThreadDetail{})
@@ -525,6 +540,9 @@ func (a *app) call(fn func(ctx context.Context, c *client.Client) error, done fu
 }
 
 func (a *app) selectThread(id string) {
+	if id != a.selected.GetUntracked() {
+		a.attachments.Set(nil)
+	}
 	a.selected.Set(id)
 	a.messages.Set(nil)
 	a.detail.Set(proto.ThreadDetail{})
@@ -560,36 +578,49 @@ func (a *app) loadDetail(id string) {
 	}()
 }
 
+// queuedPrompt is a message waiting for the live run to end.
+type queuedPrompt struct {
+	Text        string
+	Attachments []proto.Attachment
+}
+
 func (a *app) send() {
 	id := a.selected.GetUntracked()
 	text := strings.TrimSpace(a.draft.GetUntracked())
 	if id == "" || text == "" || a.client() == nil {
 		return
 	}
+	attachments := a.attachments.GetUntracked()
 	a.draft.Set("")
+	a.attachments.Set(nil)
 	a.connErr.Set("")
 	// A prompt sent while the agent works waits its turn here; the next
 	// run finishes before the client posts it.
 	if a.running.GetUntracked() {
-		a.queued[id] = append(a.queued[id], text)
+		a.queued[id] = append(a.queued[id], queuedPrompt{Text: text, Attachments: attachments})
 		a.refreshQueue()
 		return
 	}
-	a.sendPrompt(id, text)
+	a.sendPrompt(id, text, attachments)
 }
 
 // sendPrompt posts a prompt to a thread that has no live run.
-func (a *app) sendPrompt(threadID, text string) {
+func (a *app) sendPrompt(threadID, text string, attachments []proto.Attachment) {
+	ids := make([]string, 0, len(attachments))
+	for _, a := range attachments {
+		ids = append(ids, a.ID)
+	}
 	a.running.Set(true)
 	a.call(func(ctx context.Context, c *client.Client) error {
-		_, err := c.Send(ctx, threadID, text)
+		_, err := c.SendWith(ctx, threadID, text, ids)
 		return err
 	}, func(err error) {
 		if err != nil {
 			a.running.Set(false)
 			a.connErr.Set(friendlyError(err))
 			// Keep the prompt rather than losing it to a failed request.
-			a.queued[threadID] = append([]string{text}, a.queued[threadID]...)
+			next := queuedPrompt{Text: text, Attachments: attachments}
+			a.queued[threadID] = append([]queuedPrompt{next}, a.queued[threadID]...)
 			a.refreshQueue()
 		}
 	})
@@ -608,7 +639,7 @@ func (a *app) maybeFlush(threadID string) {
 	next := queue[0]
 	a.queued[threadID] = queue[1:]
 	a.refreshQueue()
-	a.sendPrompt(threadID, next)
+	a.sendPrompt(threadID, next.Text, next.Attachments)
 }
 
 // refreshQueue shows the open thread's queued prompts.
@@ -618,7 +649,7 @@ func (a *app) refreshQueue() {
 		a.queue.Set(nil)
 		return
 	}
-	next := make([]string, len(queue))
+	next := make([]queuedPrompt, len(queue))
 	copy(next, queue)
 	a.queue.Set(next)
 }
@@ -630,8 +661,115 @@ func (a *app) dropQueued(i int) {
 	if i < 0 || i >= len(queue) {
 		return
 	}
+	removed := queue[i]
 	a.queued[id] = append(queue[:i:i], queue[i+1:]...)
 	a.refreshQueue()
+	a.discardAttachments(removed.Attachments)
+}
+
+// pickAttachments opens the system's file picker for the composer.
+func (a *app) pickAttachments() {
+	if a.client() == nil {
+		return
+	}
+	a.connErr.Set("")
+	a.cx.PickFiles(core.PickFilesOptions{Multiple: true}, func(files []core.File, err error) {
+		if err != nil {
+			a.connErr.Set(err.Error())
+			return
+		}
+		a.attachFiles(files)
+	})
+}
+
+// attachPaths takes files dropped on the composer, as file:// URLs or
+// paths.
+func (a *app) attachPaths(uris []string) {
+	files := make([]core.File, 0, len(uris))
+	for _, uri := range uris {
+		path := uri
+		if u, err := url.Parse(uri); err == nil {
+			if u.Scheme == "file" {
+				path = u.Path
+			} else if u.Scheme != "" {
+				continue
+			}
+		}
+		if unescaped, err := url.PathUnescape(path); err == nil {
+			path = unescaped
+		}
+		st, err := os.Stat(path)
+		if err != nil || st.IsDir() {
+			continue
+		}
+		mimeType := mime.TypeByExtension(filepath.Ext(path))
+		files = append(files, core.File{Name: filepath.Base(path), MIME: mimeType, Size: st.Size(), Path: path})
+	}
+	a.attachFiles(files)
+}
+
+// attachFiles uploads picked files and shows them above the composer.
+func (a *app) attachFiles(files []core.File) {
+	c := a.client()
+	if c == nil || len(files) == 0 {
+		return
+	}
+	if a.client() != nil {
+		a.connErr.Set("")
+	}
+	for _, f := range files {
+		f := f
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			src, err := f.Open()
+			if err != nil {
+				a.cx.Post(func() { a.connErr.Set("Could not read " + f.Name + ": " + err.Error()) })
+				return
+			}
+			attachment, uploadErr := c.Upload(ctx, f.Name, f.MIME, src)
+			_ = src.Close()
+			if f.Temporary && f.Path != "" {
+				_ = os.Remove(f.Path)
+			}
+			a.cx.Post(func() {
+				if uploadErr != nil {
+					a.connErr.Set(friendlyError(uploadErr))
+					return
+				}
+				a.attachments.Set(append(a.attachments.GetUntracked(), attachment))
+			})
+		}()
+	}
+}
+
+// removeAttachment drops a file from the composer and the environment.
+func (a *app) removeAttachment(id string) {
+	list := a.attachments.GetUntracked()
+	next := make([]proto.Attachment, 0, len(list))
+	for _, attachment := range list {
+		if attachment.ID != id {
+			next = append(next, attachment)
+		}
+	}
+	a.attachments.Set(next)
+	a.discardAttachments([]proto.Attachment{{ID: id}})
+}
+
+// discardAttachments deletes uploaded files that were never sent.
+func (a *app) discardAttachments(attachments []proto.Attachment) {
+	c := a.client()
+	if c == nil || len(attachments) == 0 {
+		return
+	}
+	for _, attachment := range attachments {
+		id := attachment.ID
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_ = c.DeleteUpload(ctx, id)
+		}()
+	}
 }
 
 func (a *app) stop() {
@@ -640,8 +778,12 @@ func (a *app) stop() {
 		return
 	}
 	// Stop ends the turn and what was queued behind it.
+	queued := a.queued[id]
 	a.queued[id] = nil
 	a.refreshQueue()
+	for _, prompt := range queued {
+		a.discardAttachments(prompt.Attachments)
+	}
 	a.call(func(ctx context.Context, c *client.Client) error {
 		_, err := c.Stop(ctx, id)
 		return err

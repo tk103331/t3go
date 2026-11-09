@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -24,11 +25,12 @@ import (
 
 // Errors callers can match.
 var (
-	ErrBusy       = errors.New("thread is already running")
-	ErrEmpty      = errors.New("message is empty")
-	ErrArchived   = errors.New("thread is archived")
-	ErrBadPath    = errors.New("path is not a directory")
-	ErrNoProvider = errors.New("provider is not installed")
+	ErrBusy          = errors.New("thread is already running")
+	ErrEmpty         = errors.New("message is empty")
+	ErrArchived      = errors.New("thread is archived")
+	ErrBadPath       = errors.New("path is not a directory")
+	ErrNoProvider    = errors.New("provider is not installed")
+	ErrBadAttachment = errors.New("attachment not found")
 )
 
 // Service is the environment's orchestration layer.
@@ -117,6 +119,72 @@ func (s *Service) SaveSettings(ctx context.Context, settings proto.Settings) err
 	return nil
 }
 
+// UploadPath is an uploaded file's place on disk.
+func (s *Service) UploadPath(id string) string { return filepath.Join(s.Home, "uploads", id) }
+
+// SaveUpload stores a prompt attachment and returns its metadata.
+func (s *Service) SaveUpload(ctx context.Context, name, mime string, r io.Reader) (proto.Attachment, error) {
+	name = cleanFilename(name)
+	if name == "" {
+		name = "file"
+	}
+	if err := os.MkdirAll(filepath.Join(s.Home, "uploads"), 0o700); err != nil {
+		return proto.Attachment{}, fmt.Errorf("upload: directory: %w", err)
+	}
+	uploadID := id.New("upl")
+	path := s.UploadPath(uploadID)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return proto.Attachment{}, fmt.Errorf("upload: create: %w", err)
+	}
+	size, copyErr := io.Copy(f, r)
+	closeErr := f.Close()
+	if copyErr != nil || closeErr != nil {
+		_ = os.Remove(path)
+		if copyErr != nil {
+			return proto.Attachment{}, fmt.Errorf("upload: write: %w", copyErr)
+		}
+		return proto.Attachment{}, fmt.Errorf("upload: close: %w", closeErr)
+	}
+	attachment := proto.Attachment{ID: uploadID, Name: name, MimeType: strings.TrimSpace(mime), Size: size}
+	if err := s.Store.CreateUpload(ctx, attachment); err != nil {
+		_ = os.Remove(path)
+		return proto.Attachment{}, err
+	}
+	return attachment, nil
+}
+
+// DeleteUpload removes an uploaded file and its metadata.
+func (s *Service) DeleteUpload(ctx context.Context, uploadID string) error {
+	if uploadID == "" {
+		return nil
+	}
+	_ = os.Remove(s.UploadPath(uploadID))
+	return s.Store.DeleteUpload(ctx, uploadID)
+}
+
+func (s *Service) deleteAttachments(ctx context.Context, messages []proto.Message) {
+	for _, m := range messages {
+		for _, a := range m.Attachments {
+			_ = s.DeleteUpload(ctx, a.ID)
+		}
+	}
+}
+
+// cleanFilename keeps a name to one line and a sensible length.
+func cleanFilename(name string) string {
+	name = strings.TrimSpace(strings.ReplaceAll(name, "\r", " "))
+	name = strings.ReplaceAll(name, "\x00", "")
+	if i := strings.IndexAny(name, "/\\"); i >= 0 {
+		name = name[i+1:]
+	}
+	r := []rune(name)
+	if len(r) > 120 {
+		name = string(r[:119]) + "…"
+	}
+	return name
+}
+
 // CreateProject registers a directory.
 func (s *Service) CreateProject(ctx context.Context, name, path string) (proto.Project, error) {
 	path = store.NormalizePath(path)
@@ -175,12 +243,17 @@ func (s *Service) DeleteProject(ctx context.Context, projectID string) error {
 	}
 	// Stop live runs before their rows go away.
 	threads, _ := s.Store.Threads(ctx, projectID, true)
+	var messages []proto.Message
 	for _, t := range threads {
 		s.Stop(t.ID)
+		if msgs, err := s.Store.Messages(ctx, t.ID, 0); err == nil {
+			messages = append(messages, msgs...)
+		}
 	}
 	if err := s.Store.DeleteProject(ctx, projectID); err != nil {
 		return err
 	}
+	s.deleteAttachments(ctx, messages)
 	s.publish(ctx, proto.Event{Type: proto.EventProject, ProjectID: p.ID, Data: map[string]string{"deleted": p.ID}})
 	return nil
 }
@@ -308,9 +381,11 @@ func (s *Service) DeleteThread(ctx context.Context, threadID string) error {
 			_ = git.RemoveWorktree(ctx, p.Path, t.WorktreePath)
 		}
 	}
+	messages, _ := s.Store.Messages(ctx, threadID, 0)
 	if err := s.Store.DeleteThread(ctx, threadID); err != nil {
 		return err
 	}
+	s.deleteAttachments(ctx, messages)
 	s.publish(ctx, proto.Event{Type: proto.EventThreadDeleted, ThreadID: threadID})
 	return nil
 }

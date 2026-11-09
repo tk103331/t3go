@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/oneo-me/nsgo/core"
+	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/oneo-me/nsgo/ui/chat"
 	"github.com/tk/t3go/internal/proto"
@@ -55,6 +56,13 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 		Draft: a.draft.Get, OnDraftChange: a.draft.Set,
 		Label: "Message", Placeholder: "Ask the agent…", SendLabel: "Send", StopLabel: "Stop",
 		Running: a.running.Get, OnSend: a.send, OnStop: a.stop,
+		Attachments:    func(cx *core.Scope) core.Node { return a.attachmentChips(cx) },
+		HasAttachments: func() bool { return len(a.attachments.Get()) > 0 },
+		Accessory: func(cx *core.Scope) core.Node {
+			return ui.IconButton{Icon: lucide.Paperclip, Label: "Attach files", TestID: "attach", OnPress: a.pickAttachments}
+		},
+		OnDropFiles: a.attachPaths,
+		TestID:      "composer-card",
 	}
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
 		core.View{Style: ui.FillRest, Children: []core.Node{
@@ -70,10 +78,57 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 		}},
 		core.View{Style: core.Style{Padding: core.Edges{Top: 8, Right: 16, Bottom: 16, Left: 16}, AlignItems: core.AlignCenter}, Children: []core.Node{
 			core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(chat.ContentWidth)}, Children: []core.Node{
-				a.queuedBlock(cx), composer,
+				a.queuedBlock(cx),
+				core.View{TestID: "composer-drop", OnFileDrop: a.attachPaths, Children: []core.Node{composer}},
 			}},
 		}},
 	}}
+}
+
+// attachmentChips are the files the next message carries.
+func (a *app) attachmentChips(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	files := a.attachments.Get()
+	rows := make([]core.Node, 0, len(files))
+	for _, f := range files {
+		f := f
+		rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+			Padding: core.Symmetric(4, 8), Background: colors.Field(), CornerRadius: 8, MaxWidth: core.Pt(280)}, Children: []core.Node{
+			ui.Icon(lucide.Paperclip, 12, colors.Muted),
+			core.Text{Content: f.Name + " · " + humanSize(f.Size), MaxLines: 1, Style: core.Style{FontSize: 11.5},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+			ui.Button{Text: "×", Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Remove attachment",
+				TestID: "remove-attachment-" + f.ID, OnPress: func() { a.removeAttachment(f.ID) }},
+		}})
+	}
+	return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: rows}
+}
+
+// attachmentSummary names files in one line.
+func attachmentSummary(attachments []proto.Attachment) string {
+	names := make([]string, 0, len(attachments))
+	for _, a := range attachments {
+		names = append(names, a.Name)
+	}
+	line := strings.Join(names, ", ")
+	r := []rune(line)
+	if len(r) > 80 {
+		line = string(r[:79]) + "…"
+	}
+	return line
+}
+
+// humanSize writes a byte count in the largest fitting unit.
+func humanSize(size int64) string {
+	switch {
+	case size >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(size)/(1<<20))
+	case size >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(size)/(1<<10))
+	case size > 0:
+		return fmt.Sprintf("%d B", size)
+	}
+	return "0 B"
 }
 
 // queuedBlock shows the prompts waiting for the running turn to end.
@@ -84,11 +139,17 @@ func (a *app) queuedBlock(cx *core.Scope) core.Node {
 		rows := make([]core.Node, 0, len(queue))
 		for i, prompt := range queue {
 			i, prompt := i, prompt
+			lines := []core.Node{
+				core.Text{Content: prompt.Text, MaxLines: 2, Style: core.Style{FontSize: 12, LineHeight: 17},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+			}
+			if len(prompt.Attachments) > 0 {
+				lines = append(lines, ui.Text(attachmentSummary(prompt.Attachments), 11, ui.Regular, colors.Faint))
+			}
 			rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
 				Padding: core.Symmetric(6, 10), Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{
 				ui.Text("Queued", 11, ui.Semibold, colors.Faint),
-				core.Text{Content: prompt, MaxLines: 2, Style: core.Style{FontSize: 12, LineHeight: 17, FlexGrow: 1},
-					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+				core.View{Style: core.Style{Direction: core.Column, Gap: 2, FlexGrow: 1, MinWidth: core.Pt(0)}, Children: lines},
 				ui.Button{Text: "×", Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Remove queued message",
 					TestID: fmt.Sprintf("queued-remove-%d", i), OnPress: func() { a.dropQueued(i) }},
 			}})
@@ -100,11 +161,21 @@ func (a *app) queuedBlock(cx *core.Scope) core.Node {
 func (a *app) renderMessage(cx *core.Scope, m proto.Message) core.Node {
 	colors := ui.ColorsOf(cx)
 	if m.Role == proto.RoleUser {
+		body := []core.Node{}
+		if m.Content != "" {
+			body = append(body, core.Text{Content: m.Content, Selectable: core.SelectableOn, Style: core.Style{FontSize: 13, LineHeight: 19},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }})
+		}
+		if len(m.Attachments) > 0 {
+			files := make([]core.Node, 0, len(m.Attachments))
+			for _, f := range m.Attachments {
+				files = append(files, ui.Text(f.Name+" · "+humanSize(f.Size), 11, ui.Regular, colors.Faint))
+			}
+			body = append(body, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 8}, Children: files})
+		}
 		return core.View{Style: core.Style{Direction: core.Row, JustifyContent: core.JustifyEnd, MinWidth: core.Pt(0)}, Children: []core.Node{
-			core.View{Style: core.Style{MaxWidth: core.Pt(560), Background: colors.Inset(), Padding: core.Symmetric(10, 14), CornerRadius: 14}, Children: []core.Node{
-				core.Text{Content: m.Content, Selectable: core.SelectableOn, Style: core.Style{FontSize: 13, LineHeight: 19},
-					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-			}},
+			core.View{Style: core.Style{MaxWidth: core.Pt(560), Background: colors.Inset(), Padding: core.Symmetric(10, 14), CornerRadius: 14,
+				Direction: core.Column, Gap: 6}, Children: body},
 		}}
 	}
 	switch m.Kind {
