@@ -47,6 +47,8 @@ type app struct {
 	showNewProject *core.Signal[bool]
 	showNewThread  *core.Signal[bool]
 	showSettings   *core.Signal[bool]
+	settingsDraft  *core.Signal[proto.Settings]
+	settingsTitle  *core.Signal[string]
 	showDiff       *core.Signal[bool]
 	diffText       *core.Signal[string]
 	pendingDelete  *core.Signal[itemTarget]
@@ -102,6 +104,8 @@ func newApp(cx *core.Scope) *app {
 		showNewProject: core.NewSignal(cx, false),
 		showNewThread:  core.NewSignal(cx, false),
 		showSettings:   core.NewSignal(cx, false),
+		settingsDraft:  core.NewSignal(cx, proto.DefaultSettings()),
+		settingsTitle:  core.NewSignal(cx, ""),
 		showDiff:       core.NewSignal(cx, false),
 		diffText:       core.NewSignal(cx, ""),
 		pendingDelete: core.NewSignalFunc(cx, itemTarget{}, func(a, b itemTarget) bool {
@@ -688,6 +692,31 @@ func (a *app) openNewThread() {
 	a.showNewThread.Set(true)
 }
 
+// openSettings starts a draft from the environment's settings, so closing
+// the dialog keeps what was typed out of the saved values.
+func (a *app) openSettings() {
+	a.connErr.Set("")
+	s := a.settings.GetUntracked()
+	a.settingsDraft.Set(s)
+	// The name has its own signal: a field follows it without rebuilding
+	// the rest of the dialog on every keystroke.
+	a.settingsTitle.Set(s.Title)
+	a.showSettings.Set(true)
+}
+
+func (a *app) closeSettings() {
+	a.showSettings.Set(false)
+}
+
+// saveSettingsDraft writes the dialog's draft, name included, into the
+// environment.
+func (a *app) saveSettingsDraft() {
+	s := a.settingsDraft.GetUntracked()
+	s.Title = a.settingsTitle.GetUntracked()
+	a.saveSettings(s)
+}
+
+// saveSettings writes the draft and its values into the environment.
 func (a *app) saveSettings(s proto.Settings) {
 	a.settings.Set(s)
 	a.call(func(ctx context.Context, c *client.Client) error {

@@ -111,6 +111,59 @@ func TestUICreateThreadInProject(t *testing.T) {
 	}
 }
 
+// TestUISettingsDefaults renames the environment, changes the default
+// permission, and checks a new thread takes it; closing the dialog
+// without saving drops the edit.
+func TestUISettingsDefaults(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+
+	ctx := context.Background()
+	if _, err := srv.Service.CreateProject(ctx, "Demo", t.TempDir()); err != nil {
+		t.Fatalf("project: %v", err)
+	}
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:settings", 15*time.Second)
+
+	app.Press("id:settings")
+	app.WaitFor("id:settings-save", 5*time.Second)
+	app.Clear("label:Environment name")
+	app.Type("label:Environment name", "Team env")
+	app.Press("id:settings-perm-accept-edits")
+	app.Press("id:settings-save")
+	app.WaitFor("id:content-header >> text:Team env", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		s := srv.Service.Settings(ctx)
+		return s.Title == "Team env" && s.DefaultPermission == string(proto.PermissionAcceptEdits)
+	})
+
+	// A closed dialog keeps its draft out of the environment.
+	app.Press("id:settings")
+	app.WaitFor("id:settings-save", 5*time.Second)
+	app.Clear("label:Environment name")
+	app.Type("label:Environment name", "Draft name")
+	app.Press("text:Close")
+	app.WaitForGone("id:settings-save", 5*time.Second)
+	app.WaitFor("id:content-header >> text:Team env", 5*time.Second)
+
+	// The new thread inherits the saved permission.
+	app.Press("id:new-thread")
+	app.WaitFor("id:create-thread", 5*time.Second)
+	app.Type("label:Thread title", "Inherits defaults")
+	app.Press("id:create-thread")
+	app.WaitFor("id:content-header >> text:Inherits defaults", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		threads, err := srv.Store.Threads(ctx, "", false)
+		if err != nil || len(threads) != 1 {
+			return false
+		}
+		return threads[0].Permission == proto.PermissionAcceptEdits
+	})
+}
+
 // gitRepo makes a temporary repository with one commit, for worktrees.
 func gitRepo(t *testing.T) string {
 	t.Helper()

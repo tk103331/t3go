@@ -77,6 +77,15 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 	}}
 }
 
+// envName is what the environment calls itself, the brand until it is
+// renamed in settings.
+func (a *app) envName() string {
+	if name := a.settings.Get().Title; name != "" {
+		return name
+	}
+	return "T3Go"
+}
+
 // errorBanner shows an action's failure above the content, with a way to
 // dismiss it.
 func (a *app) errorBanner(cx *core.Scope) core.Node {
@@ -170,7 +179,7 @@ func (a *app) sidebarFooter(cx *core.Scope) core.Node {
 		ui.Button{Text: "+ Thread", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "new-thread", OnPress: a.openNewThread},
 		ui.Spacer{},
 		ui.Button{Text: a.archivedLabel(), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "toggle-archived", OnPress: a.toggleShowArchived},
-		ui.Button{Text: "Settings", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.showSettings.Set(true) }},
+		ui.Button{Text: "Settings", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "settings", OnPress: a.openSettings},
 		core.Text{Content: "·", Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 	}}
 }
@@ -180,7 +189,7 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 	d := a.detail.Get()
 	if d.Thread.ID == "" {
 		return core.View{Style: core.Style{Height: core.Pt(32), AlignItems: core.AlignCenter}, Children: []core.Node{
-			ui.Text("T3Go", 13, ui.Semibold, colors.Muted),
+			ui.Text(a.envName(), 13, ui.Semibold, colors.Muted),
 		}}
 	}
 	meta := d.Thread.Provider
@@ -240,8 +249,8 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 	}
 	return core.View{Style: core.Style{FlexGrow: 1, Direction: core.Column}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Padding: core.Symmetric(8, 12), Gap: 8}, Children: []core.Node{
-			ui.Text("T3Go", 16, ui.Bold, colors.Text), ui.Spacer{},
-			ui.Button{Text: "Settings", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.showSettings.Set(true) }},
+			ui.Text(a.envName(), 16, ui.Bold, colors.Text), ui.Spacer{},
+			ui.Button{Text: "Settings", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "settings", OnPress: a.openSettings},
 		}},
 		core.View{Style: ui.FillRest, Children: []core.Node{a.sidebar(cx)}},
 	}}
@@ -374,28 +383,101 @@ func (a *app) newThreadDialog(cx *core.Scope) core.Node {
 
 func (a *app) settingsDialog(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	settings := a.settings.Get()
-	title := settings.Title
-	return ui.Dialog{Open: a.showSettings.Get, OnOpenChange: closeDialog(a.showSettings), Title: "Settings",
-		Description: "Defaults for new threads in this environment.", Children: []core.Node{
-			ui.Input{Input: base.Input{Value: func() string { return a.settings.Get().Title }, OnChange: func(v string) {
-				a.settings.Update(func(s proto.Settings) proto.Settings { s.Title = v; return s })
-			}, Placeholder: "Environment name", Label: "Environment name"}},
-			core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{
-				core.Text{Content: "Server", Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-				core.Text{Content: a.serverURL.Get(), MaxLines: 1, Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-			}},
-			core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{
-				core.Text{Content: "Environment", Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-				core.Text{Content: title, MaxLines: 1, Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-			}},
-		}, Footer: []core.Node{
-			ui.Button{Text: "Disconnect", Variant: ui.ButtonGhost, OnPress: func() { a.showSettings.Set(false); a.disconnect() }},
+	draft := a.settingsDraft.Get()
+	update := func(fn func(*proto.Settings)) {
+		a.settingsDraft.Update(func(s proto.Settings) proto.Settings {
+			fn(&s)
+			return s
+		})
+	}
+	provider := draft.DefaultProvider
+	var providerButtons []core.Node
+	for _, p := range a.providers.Get() {
+		p := p
+		variant := ui.ButtonSecondary
+		if p.ID == provider {
+			variant = ui.ButtonPrimary
+		}
+		label := p.Name
+		if !p.Installed {
+			label += " (missing)"
+		}
+		providerButtons = append(providerButtons, ui.Button{Text: label, Variant: variant, Size: ui.SizeSmall,
+			Disabled: func() bool { return !p.Installed }, TestID: "settings-provider-" + p.ID, OnPress: func() {
+				update(func(s *proto.Settings) {
+					s.DefaultProvider = p.ID
+					s.DefaultModel = ""
+					for _, m := range a.models.GetUntracked() {
+						if m.Provider == p.ID {
+							s.DefaultModel = m.ID
+							break
+						}
+					}
+				})
+			}})
+	}
+	var modelButtons []core.Node
+	for _, m := range a.models.Get() {
+		if m.Provider != provider {
+			continue
+		}
+		m := m
+		variant := ui.ButtonSecondary
+		if m.ID == draft.DefaultModel {
+			variant = ui.ButtonPrimary
+		}
+		modelButtons = append(modelButtons, ui.Button{Text: m.Name, Variant: variant, Size: ui.SizeSmall,
+			TestID: "settings-model-" + m.ID, OnPress: func() {
+				update(func(s *proto.Settings) { s.DefaultModel = m.ID })
+			}})
+	}
+	perm := proto.PermissionMode(draft.DefaultPermission)
+	if !perm.Valid() {
+		perm = proto.PermissionFullAccess
+	}
+	permissions := []proto.PermissionMode{proto.PermissionSupervised, proto.PermissionAcceptEdits, proto.PermissionAuto, proto.PermissionFullAccess}
+	var permButtons []core.Node
+	for _, p := range permissions {
+		p := p
+		variant := ui.ButtonSecondary
+		if p == perm {
+			variant = ui.ButtonPrimary
+		}
+		permButtons = append(permButtons, ui.Button{Text: string(p), Variant: variant, Size: ui.SizeSmall,
+			TestID: "settings-perm-" + string(p), OnPress: func() {
+				update(func(s *proto.Settings) { s.DefaultPermission = string(p) })
+			}})
+	}
+	fields := []core.Node{
+		ui.Input{Input: base.Input{Value: a.settingsTitle.Get, OnChange: a.settingsTitle.Set,
+			Placeholder: "Environment name", Label: "Environment name"}},
+		ui.Text("Default provider", 11, ui.Semibold, colors.Muted),
+		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: providerButtons},
+	}
+	if len(modelButtons) > 0 {
+		fields = append(fields, ui.Text("Default model", 11, ui.Semibold, colors.Muted),
+			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: modelButtons})
+	}
+	fields = append(fields,
+		ui.Text("Default permission", 11, ui.Semibold, colors.Muted),
+		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: permButtons},
+		core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{
+			core.Text{Content: "Server", Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+			core.Text{Content: a.serverURL.Get(), MaxLines: 1, Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+		}},
+	)
+	return ui.Dialog{Open: a.showSettings.Get, OnOpenChange: func(open bool, _ base.Reason) {
+		if !open {
+			a.closeSettings()
+		}
+	}, Title: "Settings", Description: "Defaults for new threads in this environment.",
+		Children: fields, Footer: []core.Node{
+			ui.Button{Text: "Disconnect", Variant: ui.ButtonGhost, TestID: "disconnect", OnPress: func() { a.closeSettings(); a.disconnect() }},
 			ui.Spacer{},
-			ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: func() { a.showSettings.Set(false) }},
-			ui.Button{Text: "Save", Variant: ui.ButtonPrimary, OnPress: func() {
-				a.saveSettings(a.settings.Get())
-				a.showSettings.Set(false)
+			ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: a.closeSettings},
+			ui.Button{Text: "Save", Variant: ui.ButtonPrimary, TestID: "settings-save", OnPress: func() {
+				a.closeSettings()
+				a.saveSettingsDraft()
 			}},
 		}}
 }
