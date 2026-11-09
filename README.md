@@ -17,7 +17,7 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - Git：工作区状态、每个 run 的 checkpoint（`git stash create` + 隐藏 ref）、run diff、worktree
 - HTTP REST API、SSE 事件流、WebSocket 事件流、Bearer token 鉴权、CORS
 - `t3go` CLI：`serve`、`pair`、`doctor`、`version`
-- NSGo 客户端：连接页、项目/线程侧栏、聊天流、新建/重命名/删除项目与线程、新建线程可选项目与 worktree 分支、线程归档与筛选、设置（环境名与默认 provider/model/权限）、diff 查看、窄屏布局、错误提示条
+- NSGo 客户端：连接页、项目/线程侧栏、聊天流、新建/重命名/删除项目与线程、新建线程可选项目与 worktree 分支、线程归档与筛选、命令面板与快捷键、设置（环境名与默认 provider/model/权限）、diff 查看、窄屏布局、错误提示条
 - 测试：store、orchestrator（fake provider）、provider 流解析、HTTP/SSE/WS、Go 客户端、NSGo UI 集成
 
 尚未实现（有意留到后续）：
@@ -64,6 +64,14 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
 
 在连接页填入服务地址和 token（也可以直接粘贴 `t3go://pair?...` 链接），
 点击 Connect。之后可以添加项目目录、创建线程、选择 provider/model/权限并开始对话。
+
+快捷键（非 Apple 平台把 `⌘` 换成 `Ctrl`）：
+
+- `⌘K`：搜索线程和命令
+- `⌘N`：新建线程
+- `⌘⇧N`：新建项目
+- `⌘,`：设置
+- `⌘B`：显示或隐藏侧栏
 
 再次获取配对信息：
 
@@ -176,8 +184,9 @@ gofmt -l .
 ```
 
 UI 集成测试用 `nsgotest` 在无头环境里启动真实 server，验证连接、侧栏、线程
-transcript 的渲染，新建线程时选项目与 worktree 分支，设置默认 provider/model/
-权限后新线程继承，以及重命名、归档、删除线程和项目后服务端状态的变化。
+transcript 的渲染，命令面板与快捷键，新建线程时选项目与 worktree 分支，
+设置默认 provider/model/权限后新线程继承，以及重命名、归档、删除线程和项目
+后服务端状态的变化。
 
 ## 已知限制
 

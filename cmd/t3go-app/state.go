@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/ui/chat"
 	"github.com/tk/t3go/internal/client"
@@ -47,6 +48,7 @@ type app struct {
 	showNewProject *core.Signal[bool]
 	showNewThread  *core.Signal[bool]
 	showSettings   *core.Signal[bool]
+	showPalette    *core.Signal[bool]
 	settingsDraft  *core.Signal[proto.Settings]
 	settingsTitle  *core.Signal[string]
 	showDiff       *core.Signal[bool]
@@ -104,6 +106,7 @@ func newApp(cx *core.Scope) *app {
 		showNewProject: core.NewSignal(cx, false),
 		showNewThread:  core.NewSignal(cx, false),
 		showSettings:   core.NewSignal(cx, false),
+		showPalette:    core.NewSignal(cx, false),
 		settingsDraft:  core.NewSignal(cx, proto.DefaultSettings()),
 		settingsTitle:  core.NewSignal(cx, ""),
 		showDiff:       core.NewSignal(cx, false),
@@ -131,6 +134,7 @@ func newApp(cx *core.Scope) *app {
 		sidebarWidth: core.NewSignal(cx, core.Points(260)),
 	}
 	a.conv = chat.NewConversationState(cx)
+	a.bindKeys()
 	url, _ := a.store.GetItem("serverUrl")
 	token, _ := a.store.GetItem("token")
 	a.serverURL.Set(url)
@@ -690,6 +694,94 @@ func (a *app) openNewThread() {
 	}
 	a.newThreadPerm.Set(perm)
 	a.showNewThread.Set(true)
+}
+
+// bindKeys gives the app its keyboard shortcuts.
+func (a *app) bindKeys() {
+	a.cx.OnKey("mod+k", func() {
+		if a.connected.GetUntracked() {
+			a.openPalette()
+		}
+	})
+	a.cx.OnKey("mod+n", func() {
+		if a.connected.GetUntracked() {
+			a.openNewThread()
+		}
+	})
+	a.cx.OnKey("mod+shift+n", func() {
+		if a.connected.GetUntracked() {
+			a.openNewProject()
+		}
+	})
+	a.cx.OnKey("mod+,", func() {
+		if a.connected.GetUntracked() {
+			a.openSettings()
+		}
+	})
+	a.cx.OnKey("mod+b", func() {
+		if a.connected.GetUntracked() {
+			a.sidebarOpen.Set(!a.sidebarOpen.GetUntracked())
+		}
+	})
+}
+
+// openPalette searches the environment's threads and commands.
+func (a *app) openPalette() {
+	a.connErr.Set("")
+	a.showPalette.Set(true)
+}
+
+func (a *app) closePalette() {
+	a.showPalette.Set(false)
+}
+
+// runCommand runs the palette row with id, closing the palette first so
+// the dialog or thread it opens has the screen.
+func (a *app) runCommand(id string) {
+	a.closePalette()
+	switch {
+	case id == "new-thread":
+		a.openNewThread()
+	case id == "new-project":
+		a.openNewProject()
+	case id == "settings":
+		a.openSettings()
+	case id == "toggle-archived":
+		a.toggleShowArchived()
+	case id == "toggle-sidebar":
+		a.sidebarOpen.Set(!a.sidebarOpen.GetUntracked())
+	case strings.HasPrefix(id, "thread:"):
+		if threadID := strings.TrimPrefix(id, "thread:"); threadID != "" {
+			a.selectThread(threadID)
+		}
+	}
+}
+
+// commandItems are the palette's rows: the app's actions, then the
+// environment's threads.
+func (a *app) commandItems() []base.CommandItem {
+	projects := make(map[string]string, len(a.projects.Get()))
+	for _, p := range a.projects.Get() {
+		projects[p.ID] = p.Name
+	}
+	items := []base.CommandItem{
+		{ID: "new-thread", Label: "New thread", Group: "Actions", Keywords: []string{"create", "start"}, Shortcut: "mod+n"},
+		{ID: "new-project", Label: "New project", Group: "Actions", Keywords: []string{"create", "add", "folder"}, Shortcut: "mod+shift+n"},
+		{ID: "settings", Label: "Settings", Group: "Actions", Keywords: []string{"defaults", "environment"}, Shortcut: "mod+,"},
+		{ID: "toggle-archived", Label: a.archivedLabel(), Group: "View", Keywords: []string{"archive", "filter"}},
+		{ID: "toggle-sidebar", Label: "Toggle sidebar", Group: "View", Keywords: []string{"panel"}, Shortcut: "mod+b"},
+	}
+	showArchived := a.showArchived.Get()
+	for _, t := range a.threads.Get() {
+		if t.Archived && !showArchived {
+			continue
+		}
+		items = append(items, base.CommandItem{
+			ID: "thread:" + t.ID, Label: t.Title, Description: projects[t.ProjectID], Group: "Threads",
+			Keywords: []string{projects[t.ProjectID], t.Provider},
+		})
+	}
+	return items
 }
 
 // openSettings starts a draft from the environment's settings, so closing

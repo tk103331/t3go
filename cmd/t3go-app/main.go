@@ -179,6 +179,7 @@ func (a *app) sidebarFooter(cx *core.Scope) core.Node {
 		ui.Button{Text: "+ Thread", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "new-thread", OnPress: a.openNewThread},
 		ui.Spacer{},
 		ui.Button{Text: a.archivedLabel(), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "toggle-archived", OnPress: a.toggleShowArchived},
+		ui.Button{Text: "Search", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "open-palette", OnPress: a.openPalette},
 		ui.Button{Text: "Settings", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "settings", OnPress: a.openSettings},
 		core.Text{Content: "·", Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 	}}
@@ -250,6 +251,7 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{FlexGrow: 1, Direction: core.Column}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Padding: core.Symmetric(8, 12), Gap: 8}, Children: []core.Node{
 			ui.Text(a.envName(), 16, ui.Bold, colors.Text), ui.Spacer{},
+			ui.Button{Text: "Search", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "open-palette", OnPress: a.openPalette},
 			ui.Button{Text: "Settings", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "settings", OnPress: a.openSettings},
 		}},
 		core.View{Style: ui.FillRest, Children: []core.Node{a.sidebar(cx)}},
@@ -257,11 +259,24 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 }
 
 func (a *app) dialogs(cx *core.Scope) core.Node {
-	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.renameDialog(cx), a.deleteDialog(cx)}
+	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx)}
 }
 
 func closeDialog(sig *core.Signal[bool]) func(bool, base.Reason) {
 	return func(open bool, _ base.Reason) { sig.Set(open) }
+}
+
+// paletteDialog searches the environment's threads and actions.
+func (a *app) paletteDialog(cx *core.Scope) core.Node {
+	return ui.CommandDialog{
+		Open: a.showPalette.Get, OnOpenChange: closeDialog(a.showPalette),
+		TestID: "palette",
+		Command: ui.Command{
+			Items: a.commandItems, OnSelect: a.runCommand,
+			Placeholder: "Search threads and actions…", SearchLabel: "Search commands",
+			Empty: "No threads or commands match.", Label: "Commands", TestID: "palette-command",
+		},
+	}
 }
 
 func (a *app) newProjectDialog(cx *core.Scope) core.Node {

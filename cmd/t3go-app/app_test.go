@@ -345,3 +345,43 @@ func TestUIRenameAndDelete(t *testing.T) {
 		return err != nil
 	})
 }
+
+// TestUIPalette searches a thread by name and opens it, then checks the
+// new-thread shortcut.
+func TestUIPalette(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Demo Project", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	for _, title := range []string{"First thread", "Second thread"} {
+		if _, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+			ProjectID: project.ID, Title: title, Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+		}); err != nil {
+			t.Fatalf("thread: %v", err)
+		}
+	}
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("text:Demo Project", 15*time.Second)
+
+	app.Press("id:open-palette")
+	app.WaitFor("id:palette", 5*time.Second)
+	app.Type("label:Search commands", "Second")
+	app.Key("enter")
+	app.WaitFor("id:content-header >> text:Second thread", 10*time.Second)
+	app.WaitForGone("id:palette", 5*time.Second)
+
+	app.Key("mod+n")
+	app.WaitFor("id:create-thread", 5*time.Second)
+	app.Press("text:Cancel")
+	app.WaitForGone("id:create-thread", 5*time.Second)
+
+	app.Key("mod+k")
+	app.WaitFor("id:palette", 5*time.Second)
+}
