@@ -491,9 +491,23 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 		fields = append(fields, ui.Text("Default model", 11, ui.Semibold, colors.Muted),
 			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: modelButtons})
 	}
+	var themeButtons []core.Node
+	for _, theme := range []string{"system", "light", "dark"} {
+		theme := theme
+		variant := ui.ButtonSecondary
+		if theme == draft.Theme {
+			variant = ui.ButtonPrimary
+		}
+		themeButtons = append(themeButtons, ui.Button{Text: theme, Variant: variant, Size: ui.SizeSmall,
+			TestID: "settings-theme-" + theme, OnPress: func() {
+				update(func(s *proto.Settings) { s.Theme = theme })
+			}})
+	}
 	fields = append(fields,
 		ui.Text("Default permission", 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: permButtons},
+		ui.Text("Theme", 11, ui.Semibold, colors.Muted),
+		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: themeButtons},
 		core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{
 			core.Text{Content: "Server", Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 			core.Text{Content: a.serverURL.Get(), MaxLines: 1, Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},

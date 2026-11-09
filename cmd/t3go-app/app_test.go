@@ -135,11 +135,12 @@ func TestUISettingsDefaults(t *testing.T) {
 	app.Clear("label:Environment name")
 	app.Type("label:Environment name", "Team env")
 	app.Press("id:settings-perm-accept-edits")
+	app.Press("id:settings-theme-dark")
 	app.Press("id:settings-save")
 	app.WaitFor("id:content-header >> text:Team env", 10*time.Second)
 	app.WaitUntil(10*time.Second, func() bool {
 		s := srv.Service.Settings(ctx)
-		return s.Title == "Team env" && s.DefaultPermission == string(proto.PermissionAcceptEdits)
+		return s.Title == "Team env" && s.DefaultPermission == string(proto.PermissionAcceptEdits) && s.Theme == "dark"
 	})
 
 	// A closed dialog keeps its draft out of the environment.

@@ -254,6 +254,7 @@ func (a *app) client() *client.Client {
 }
 
 func (a *app) applyState(st proto.State) {
+	a.applyTheme(st.Settings.Theme)
 	// One rebuild for the whole snapshot: each signal on its own would
 	// redraw the screen five times.
 	a.cx.Batch(func() {
@@ -943,9 +944,22 @@ func (a *app) saveSettingsDraft() {
 	a.saveSettings(s)
 }
 
+// applyTheme follows the environment's theme, system by default.
+func (a *app) applyTheme(theme string) {
+	switch theme {
+	case "light":
+		a.cx.SetAppearance(core.AppearanceLight)
+	case "dark":
+		a.cx.SetAppearance(core.AppearanceDark)
+	default:
+		a.cx.SetAppearance(core.AppearanceSystem)
+	}
+}
+
 // saveSettings writes the draft and its values into the environment.
 func (a *app) saveSettings(s proto.Settings) {
 	a.settings.Set(s)
+	a.applyTheme(s.Theme)
 	a.call(func(ctx context.Context, c *client.Client) error {
 		_, err := c.SaveSettings(ctx, s)
 		return err
