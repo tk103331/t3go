@@ -775,6 +775,15 @@ func (a *app) openNewProject() {
 	a.showNewProject.Set(true)
 }
 
+// openNewThreadIn starts a thread in a named project, for a project's
+// own action.
+func (a *app) openNewThreadIn(projectID string) {
+	a.openNewThread()
+	if projectID != "" {
+		a.newThreadProj.Set(projectID)
+	}
+}
+
 func (a *app) openNewThread() {
 	a.connErr.Set("")
 	a.newThreadTitle.Set("")

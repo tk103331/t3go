@@ -565,3 +565,46 @@ func TestUIQueuedPrompt(t *testing.T) {
 		t.Fatalf("runs after removing = %d, %v", len(runs), err)
 	}
 }
+
+// TestUINewThreadInProject starts a thread from a project's own menu, so
+// the project is chosen before the dialog opens.
+func TestUINewThreadInProject(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+
+	ctx := context.Background()
+	alpha, err := srv.Service.CreateProject(ctx, "Alpha", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	beta, err := srv.Service.CreateProject(ctx, "Beta", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("text:Beta", 15*time.Second)
+	app.Press("id:project-menu-" + beta.ID)
+	app.WaitFor("id:new-thread-in-"+beta.ID, 5*time.Second)
+	app.Press("id:new-thread-in-" + beta.ID)
+	app.WaitFor("id:create-thread", 5*time.Second)
+	app.Type("label:Thread title", "From the menu")
+	app.Press("id:create-thread")
+	app.WaitFor("id:content-header >> text:From the menu", 10*time.Second)
+
+	app.WaitUntil(10*time.Second, func() bool {
+		threads, err := srv.Store.Threads(ctx, beta.ID, false)
+		if err != nil || len(threads) != 1 {
+			return false
+		}
+		if threads[0].ProjectID != beta.ID {
+			t.Fatalf("thread project = %q, want %q", threads[0].ProjectID, beta.ID)
+		}
+		return true
+	})
+	if threads, err := srv.Store.Threads(ctx, alpha.ID, false); err != nil || len(threads) != 0 {
+		t.Fatalf("alpha threads = %d, %v", len(threads), err)
+	}
+}

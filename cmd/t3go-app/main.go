@@ -152,6 +152,7 @@ func (a *app) sidebar(cx *core.Scope) core.Node {
 			TestID:  "project-menu-" + p.ID,
 			Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Project actions", TestID: "project-actions-" + p.ID},
 			Children: []core.Node{
+				ui.MenuItem{Text: "New thread…", TestID: "new-thread-in-" + p.ID, OnSelect: func() { a.openNewThreadIn(p.ID) }},
 				ui.MenuItem{Text: "Rename project…", TestID: "rename-project-" + p.ID, OnSelect: func() { a.askRenameProject(p) }},
 				ui.MenuItem{Text: "Delete project", Variant: ui.MenuItemDanger,
 					TestID: "delete-project-" + p.ID, OnSelect: func() { a.askDeleteProject(p) }},
