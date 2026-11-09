@@ -17,7 +17,7 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - Git：工作区状态、每个 run 的 checkpoint（`git stash create` + 隐藏 ref）、run diff、worktree
 - HTTP REST API、SSE 事件流、WebSocket 事件流、Bearer token 鉴权、CORS
 - `t3go` CLI：`serve`、`pair`、`doctor`、`version`
-- NSGo 客户端：连接页、项目/线程侧栏、聊天流、新建/重命名/删除项目与线程、新建线程可选项目与 worktree 分支、线程归档与筛选、命令面板与快捷键、设置（环境名与默认 provider/model/权限）、diff 查看、窄屏布局、错误提示条
+- NSGo 客户端：连接页、项目/线程侧栏、聊天流、新建/重命名/删除项目与线程、新建线程可选项目与 worktree 分支、线程归档与筛选、命令面板与快捷键、记住侧栏宽度与显隐、设置（环境名与默认 provider/model/权限）、diff 查看、窄屏布局、错误提示条
 - 测试：store、orchestrator（fake provider）、provider 流解析、HTTP/SSE/WS、Go 客户端、NSGo UI 集成
 
 尚未实现（有意留到后续）：

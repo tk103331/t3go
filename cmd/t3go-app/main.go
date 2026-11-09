@@ -62,9 +62,9 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 			Sidebar: []core.Node{a.sidebar(cx)},
 			Header:  []core.Node{a.contentHeader(cx)},
 			Content: []core.Node{a.content(cx)},
-			Open:    a.sidebarOpen.Get, OnOpenChange: a.sidebarOpen.Set,
+			Open:    a.sidebarOpen.Get, OnOpenChange: a.setSidebarOpen,
 			ToggleLabel: "Toggle sidebar",
-			Width:       a.sidebarWidth.Get, OnWidthChange: a.sidebarWidth.Set,
+			Width:       a.sidebarWidth.Get, OnWidthChange: a.setSidebarWidth,
 			DefaultWidth: 260, MinWidth: 220, MaxWidth: 380,
 			ResizeLabel: "Resize sidebar",
 		}

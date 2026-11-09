@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -135,6 +136,15 @@ func newApp(cx *core.Scope) *app {
 	}
 	a.conv = chat.NewConversationState(cx)
 	a.bindKeys()
+	// The sidebar keeps the size and state it had last time.
+	if raw, ok := a.store.GetItem("sidebarOpen"); ok {
+		a.sidebarOpen.Set(raw != "false")
+	}
+	if raw, ok := a.store.GetItem("sidebarWidth"); ok {
+		if w, err := strconv.ParseFloat(raw, 64); err == nil && w > 0 {
+			a.sidebarWidth.Set(core.Points(w))
+		}
+	}
 	url, _ := a.store.GetItem("serverUrl")
 	token, _ := a.store.GetItem("token")
 	a.serverURL.Set(url)
@@ -720,9 +730,21 @@ func (a *app) bindKeys() {
 	})
 	a.cx.OnKey("mod+b", func() {
 		if a.connected.GetUntracked() {
-			a.sidebarOpen.Set(!a.sidebarOpen.GetUntracked())
+			a.setSidebarOpen(!a.sidebarOpen.GetUntracked())
 		}
 	})
+}
+
+// setSidebarOpen shows or hides the sidebar, and remembers it.
+func (a *app) setSidebarOpen(open bool) {
+	a.sidebarOpen.Set(open)
+	_ = a.store.SetItem("sidebarOpen", strconv.FormatBool(open))
+}
+
+// setSidebarWidth resizes the sidebar, and remembers the size.
+func (a *app) setSidebarWidth(w core.Points) {
+	a.sidebarWidth.Set(w)
+	_ = a.store.SetItem("sidebarWidth", strconv.FormatFloat(float64(w), 'f', 1, 64))
 }
 
 // openPalette searches the environment's threads and commands.
@@ -749,7 +771,7 @@ func (a *app) runCommand(id string) {
 	case id == "toggle-archived":
 		a.toggleShowArchived()
 	case id == "toggle-sidebar":
-		a.sidebarOpen.Set(!a.sidebarOpen.GetUntracked())
+		a.setSidebarOpen(!a.sidebarOpen.GetUntracked())
 	case strings.HasPrefix(id, "thread:"):
 		if threadID := strings.TrimPrefix(id, "thread:"); threadID != "" {
 			a.selectThread(threadID)

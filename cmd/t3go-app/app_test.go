@@ -385,3 +385,26 @@ func TestUIPalette(t *testing.T) {
 	app.Key("mod+k")
 	app.WaitFor("id:palette", 5*time.Second)
 }
+
+// TestUISidebarRemembers hides the sidebar and checks the client kept
+// that choice for the next launch.
+func TestUISidebarRemembers(t *testing.T) {
+	_, ts, cfg := startEnv(t)
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:settings", 15*time.Second)
+
+	app.Key("mod+b")
+	app.WaitUntil(5*time.Second, func() bool {
+		v, ok := app.Storage().GetItem("sidebarOpen")
+		return ok && v == "false"
+	})
+	app.Key("mod+b")
+	app.WaitUntil(5*time.Second, func() bool {
+		v, ok := app.Storage().GetItem("sidebarOpen")
+		return ok && v == "true"
+	})
+}
