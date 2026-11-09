@@ -76,6 +76,7 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 	}
 	return core.View{Style: core.Style{FlexGrow: 1, Direction: core.Column, Background: colors.Background()}, Children: []core.Node{
 		core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node { return a.errorBanner(cx) }},
+		core.Show{When: a.offline.Get, Then: func(*core.Scope) core.Node { return a.offlineBanner(cx) }},
 		core.View{Style: core.Style{FlexGrow: 1}, Children: []core.Node{layout, a.dialogs(cx)}},
 	}}
 }
@@ -87,6 +88,17 @@ func (a *app) envName() string {
 		return name
 	}
 	return "T3Go"
+}
+
+// offlineBanner says the event stream dropped and is retrying.
+func (a *app) offlineBanner(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.View{TestID: "offline", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
+		Padding: core.Symmetric(6, 12), Background: colors.Inset()}, Children: []core.Node{
+		ui.Spinner{Size: 12, Label: "Reconnecting"},
+		core.Text{Content: "Connection lost. Reconnecting…", Style: core.Style{FontSize: 12},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+	}}
 }
 
 // errorBanner shows an action's failure above the content, with a way to

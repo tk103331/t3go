@@ -458,3 +458,21 @@ func TestUIRunHistory(t *testing.T) {
 	app.Press("id:run-diff-" + runID)
 	app.WaitFor("text:changed by the agent", 10*time.Second)
 }
+
+// TestUIOfflineBanner stops the environment and checks the client says it
+// is reconnecting.
+func TestUIOfflineBanner(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:settings", 15*time.Second)
+	app.WaitForGone("id:offline", 5*time.Second)
+
+	if err := srv.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	app.WaitFor("id:offline", 15*time.Second)
+}

@@ -27,6 +27,7 @@ type app struct {
 	token      *core.Signal[string]
 	connected  *core.Signal[bool]
 	connecting *core.Signal[bool]
+	offline    *core.Signal[bool]
 	connErr    *core.Signal[string]
 
 	// environment snapshot
@@ -89,6 +90,7 @@ func newApp(cx *core.Scope) *app {
 		token:      core.NewSignal(cx, ""),
 		connected:  core.NewSignal(cx, false),
 		connecting: core.NewSignal(cx, false),
+		offline:    core.NewSignal(cx, false),
 		connErr:    core.NewSignal(cx, ""),
 
 		projects:  sliceSignal[proto.Project](cx),
@@ -190,6 +192,7 @@ func (a *app) connect(url, token string) {
 			a.serverURL.Set(c.BaseURL)
 			a.token.Set(c.Token)
 			a.applyState(st)
+			a.offline.Set(false)
 			a.connected.Set(true)
 			a.startStream(c, st.Seq)
 		})
@@ -205,12 +208,17 @@ func (a *app) startStream(c *client.Client, after int64) {
 	a.streamCancel = cancel
 	a.mu.Unlock()
 	go c.Stream(ctx, after, func(e proto.Event) {
-		a.cx.Post(func() { a.applyEvent(e) })
+		a.cx.Post(func() {
+			a.offline.Set(false)
+			a.applyEvent(e)
+		})
 	}, func(err error) {
 		a.cx.Post(func() {
 			if errors.Is(err, client.ErrUnauthorized) {
 				a.connErr.Set("The token is no longer valid.")
+				return
 			}
+			a.offline.Set(true)
 		})
 	})
 }
@@ -226,6 +234,7 @@ func (a *app) disconnect() {
 	a.store.RemoveItem("serverUrl")
 	a.store.RemoveItem("token")
 	a.connected.Set(false)
+	a.offline.Set(false)
 	a.selected.Set("")
 	a.messages.Set(nil)
 	a.detail.Set(proto.ThreadDetail{})
