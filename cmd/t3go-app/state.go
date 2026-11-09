@@ -34,6 +34,8 @@ type app struct {
 	models    *core.Signal[[]proto.Model]
 	settings  *core.Signal[proto.Settings]
 
+	showArchived *core.Signal[bool]
+
 	// the open thread
 	selected *core.Signal[string]
 	detail   *core.Signal[proto.ThreadDetail]
@@ -86,6 +88,8 @@ func newApp(cx *core.Scope) *app {
 		providers: sliceSignal[proto.Provider](cx),
 		models:    sliceSignal[proto.Model](cx),
 		settings:  core.NewSignal(cx, proto.DefaultSettings()),
+
+		showArchived: core.NewSignal(cx, false),
 
 		selected: core.NewSignal(cx, ""),
 		detail:   core.NewSignalFunc(cx, proto.ThreadDetail{}, func(proto.ThreadDetail, proto.ThreadDetail) bool { return false }),
@@ -722,6 +726,39 @@ func (a *app) askRenameProject(p proto.Project) {
 
 func (a *app) cancelRename() {
 	a.pendingRename.Set(itemTarget{})
+}
+
+// setArchived files a thread away or brings it back. Archiving the open
+// thread closes it when the list hides archived ones.
+func (a *app) setArchived(t proto.Thread, archived bool) {
+	if t.ID == "" {
+		return
+	}
+	a.connErr.Set("")
+	var updated proto.Thread
+	a.call(func(ctx context.Context, c *client.Client) error {
+		u, err := c.UpdateThread(ctx, t.ID, map[string]any{"archived": archived})
+		updated = u
+		return err
+	}, func(err error) {
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
+			return
+		}
+		if updated.ID != "" {
+			a.upsertThread(updated)
+		}
+		if archived && !a.showArchived.GetUntracked() && a.selected.GetUntracked() == t.ID {
+			a.selected.Set("")
+			a.messages.Set(nil)
+			a.detail.Set(proto.ThreadDetail{})
+			a.running.Set(false)
+		}
+	})
+}
+
+func (a *app) toggleShowArchived() {
+	a.showArchived.Set(!a.showArchived.GetUntracked())
 }
 
 // confirmRename saves the pending thread's or project's new name.

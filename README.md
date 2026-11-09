@@ -17,7 +17,7 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - Git：工作区状态、每个 run 的 checkpoint（`git stash create` + 隐藏 ref）、run diff、worktree
 - HTTP REST API、SSE 事件流、WebSocket 事件流、Bearer token 鉴权、CORS
 - `t3go` CLI：`serve`、`pair`、`doctor`、`version`
-- NSGo 客户端：连接页、项目/线程侧栏、聊天流、新建/重命名/删除项目与线程、设置、diff 查看、窄屏布局、错误提示条
+- NSGo 客户端：连接页、项目/线程侧栏、聊天流、新建/重命名/删除项目与线程、线程归档与筛选、设置、diff 查看、窄屏布局、错误提示条
 - 测试：store、orchestrator（fake provider）、provider 流解析、HTTP/SSE/WS、Go 客户端、NSGo UI 集成
 
 尚未实现（有意留到后续）：
@@ -176,7 +176,7 @@ gofmt -l .
 ```
 
 UI 集成测试用 `nsgotest` 在无头环境里启动真实 server，验证连接、侧栏、线程
-transcript 的渲染，以及重命名、删除线程和项目后服务端状态的变化。
+transcript 的渲染，以及重命名、归档、删除线程和项目后服务端状态的变化。
 
 ## 已知限制
 

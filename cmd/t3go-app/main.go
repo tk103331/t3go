@@ -94,11 +94,12 @@ func (a *app) sidebar(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	projects := a.projects.Get()
 	allThreads := a.threads.Get()
+	showArchived := a.showArchived.Get()
 	var sections []ui.SidebarSection
 	for _, p := range projects {
 		var items []ui.SidebarItem
 		for _, t := range allThreads {
-			if t.ProjectID != p.ID {
+			if t.ProjectID != p.ID || (t.Archived && !showArchived) {
 				continue
 			}
 			t := t
@@ -108,9 +109,17 @@ func (a *app) sidebar(cx *core.Scope) core.Node {
 			} else if t.Status == proto.ThreadFailed {
 				title = "! " + title
 			}
+			if t.Archived {
+				title = "◌ " + title
+			}
+			archiveText := "Archive thread"
+			if t.Archived {
+				archiveText = "Unarchive thread"
+			}
 			items = append(items, ui.SidebarItem{ID: t.ID, Text: title, TestID: "thread-" + t.ID,
 				Menu: []core.Node{
 					ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread-" + t.ID, OnSelect: func() { a.askRenameThread(t) }},
+					ui.MenuItem{Text: archiveText, TestID: "archive-thread-" + t.ID, OnSelect: func() { a.setArchived(t, !t.Archived) }},
 					ui.MenuItem{Text: "Delete thread", Variant: ui.MenuItemDanger,
 						TestID: "delete-thread-" + t.ID, OnSelect: func() { a.askDeleteThread(t) }},
 				}})
@@ -126,7 +135,14 @@ func (a *app) sidebar(cx *core.Scope) core.Node {
 			},
 		}
 		if len(items) == 0 {
-			section.Note = ui.Text("No threads yet", 12, ui.Regular, colors.Faint)
+			note := "No threads yet"
+			for _, t := range allThreads {
+				if t.ProjectID == p.ID {
+					note = "No threads shown"
+					break
+				}
+			}
+			section.Note = ui.Text(note, 12, ui.Regular, colors.Faint)
 		}
 		sections = append(sections, section)
 	}
@@ -138,12 +154,20 @@ func (a *app) sidebar(cx *core.Scope) core.Node {
 	}}
 }
 
+func (a *app) archivedLabel() string {
+	if a.showArchived.Get() {
+		return "Hide archived"
+	}
+	return "Archived"
+}
+
 func (a *app) sidebarFooter(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{Style: core.Style{Direction: core.Row, Width: core.Pct(100), Padding: core.Symmetric(6, 4), Gap: 4, AlignItems: core.AlignCenter}, Children: []core.Node{
 		ui.Button{Text: "+ Project", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.openNewProject},
 		ui.Button{Text: "+ Thread", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.openNewThread},
 		ui.Spacer{},
+		ui.Button{Text: a.archivedLabel(), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "toggle-archived", OnPress: a.toggleShowArchived},
 		ui.Button{Text: "Settings", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.showSettings.Set(true) }},
 		core.Text{Content: "·", Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 	}}
@@ -215,6 +239,7 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{FlexGrow: 1, Direction: core.Column}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Padding: core.Symmetric(8, 12), Gap: 8}, Children: []core.Node{
 			ui.Text("T3Go", 16, ui.Bold, colors.Text), ui.Spacer{},
+			ui.Button{Text: a.archivedLabel(), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "toggle-archived", OnPress: a.toggleShowArchived},
 			ui.Button{Text: "+ Project", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.openNewProject},
 			ui.Button{Text: "Settings", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.showSettings.Set(true) }},
 		}},

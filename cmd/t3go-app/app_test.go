@@ -68,6 +68,52 @@ func TestUIListAndThread(t *testing.T) {
 	app.WaitFor("text:Hello from the agent", 15*time.Second)
 }
 
+// TestUIArchiveThread hides a finished thread from the sidebar, shows it
+// again with the archived filter, and unarchives it from its menu.
+func TestUIArchiveThread(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Demo Project", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Disposable thread", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+
+	app.LongPress("id:thread-" + thread.ID)
+	app.WaitFor("id:archive-thread-"+thread.ID, 5*time.Second)
+	app.Press("id:archive-thread-" + thread.ID)
+	app.WaitForGone("id:thread-"+thread.ID, 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		th, err := srv.Store.Thread(ctx, thread.ID)
+		return err == nil && th.Archived
+	})
+
+	app.Press("id:toggle-archived")
+	app.WaitFor("id:thread-"+thread.ID, 10*time.Second)
+	app.WaitFor("text:◌ Disposable thread", 5*time.Second)
+
+	app.LongPress("id:thread-" + thread.ID)
+	app.WaitFor("id:archive-thread-"+thread.ID, 5*time.Second)
+	app.Press("id:archive-thread-" + thread.ID)
+	app.WaitForGone("text:◌ Disposable thread", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		th, err := srv.Store.Thread(ctx, thread.ID)
+		return err == nil && !th.Archived
+	})
+}
+
 // TestUIRenameAndDelete renames a thread and a project, then removes
 // both, checking the server kept each change.
 func TestUIRenameAndDelete(t *testing.T) {
