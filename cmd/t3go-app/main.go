@@ -72,7 +72,22 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 	} else {
 		layout = a.narrowView(cx)
 	}
-	return core.View{Style: core.Style{FlexGrow: 1, Background: colors.Background()}, Children: []core.Node{layout, a.dialogs(cx)}}
+	return core.View{Style: core.Style{FlexGrow: 1, Direction: core.Column, Background: colors.Background()}, Children: []core.Node{
+		core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node { return a.errorBanner(cx) }},
+		core.View{Style: core.Style{FlexGrow: 1}, Children: []core.Node{layout, a.dialogs(cx)}},
+	}}
+}
+
+// errorBanner shows an action's failure above the content, with a way to
+// dismiss it.
+func (a *app) errorBanner(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
+		Padding: core.Symmetric(6, 12), Background: colors.Inset()}, Children: []core.Node{
+		core.Text{Content: a.connErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 12, FlexGrow: 1},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }},
+		ui.Button{Text: "Dismiss", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.connErr.Set("") }},
+	}}
 }
 
 func (a *app) sidebar(cx *core.Scope) core.Node {
@@ -86,15 +101,24 @@ func (a *app) sidebar(cx *core.Scope) core.Node {
 			if t.ProjectID != p.ID {
 				continue
 			}
+			t := t
 			title := t.Title
 			if t.Status == proto.ThreadRunning {
 				title = "● " + title
 			} else if t.Status == proto.ThreadFailed {
 				title = "! " + title
 			}
-			items = append(items, ui.SidebarItem{ID: t.ID, Text: title, TestID: "thread-" + t.ID})
+			items = append(items, ui.SidebarItem{ID: t.ID, Text: title, TestID: "thread-" + t.ID,
+				Menu: []core.Node{ui.MenuItem{Text: "Delete thread", Variant: ui.MenuItemDanger,
+					TestID: "delete-thread-" + t.ID, OnSelect: func() { a.askDeleteThread(t) }}}})
 		}
 		section := ui.SidebarSection{Title: p.Name, Items: items}
+		section.Actions = ui.Menu{
+			TestID:  "project-menu-" + p.ID,
+			Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Project actions", TestID: "project-actions-" + p.ID},
+			Children: []core.Node{ui.MenuItem{Text: "Delete project", Variant: ui.MenuItemDanger,
+				TestID: "delete-project-" + p.ID, OnSelect: func() { a.askDeleteProject(p) }}},
+		}
 		if len(items) == 0 {
 			section.Note = ui.Text("No threads yet", 12, ui.Regular, colors.Faint)
 		}
@@ -142,7 +166,9 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 			core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 11},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 		}},
-		ui.Button{Text: "Diff", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.openDiff},
+		ui.Button{Text: "Delete", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "delete-thread",
+			OnPress: func() { a.askDeleteThread(d.Thread) }},
+		ui.Button{Text: "Diff", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "open-diff", OnPress: a.openDiff},
 	}}
 }
 
@@ -189,7 +215,7 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 }
 
 func (a *app) dialogs(cx *core.Scope) core.Node {
-	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx)}
+	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.deleteDialog(cx)}
 }
 
 func closeDialog(sig *core.Signal[bool]) func(bool, base.Reason) {
@@ -328,4 +354,42 @@ func (a *app) diffDialog(cx *core.Scope) core.Node {
 		}, Footer: []core.Node{
 			ui.Button{Text: "Close", Variant: ui.ButtonSecondary, OnPress: func() { a.showDiff.Set(false) }},
 		}}
+}
+
+func (a *app) deleteDialog(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	target := a.pendingDelete.Get()
+	title, description := "Delete", ""
+	switch target.Kind {
+	case "thread":
+		title = "Delete thread"
+		name := target.Name
+		if name == "" {
+			name = "This thread"
+		}
+		description = name + " and its transcript will be removed. This cannot be undone."
+	case "project":
+		title = "Delete project"
+		name := target.Name
+		if name == "" {
+			name = "This project"
+		}
+		description = name + " and all of its threads will be removed. This cannot be undone."
+	}
+	return ui.AlertDialog{
+		Open: func() bool { return target.Kind != "" },
+		OnOpenChange: func(open bool, _ base.Reason) {
+			if !open {
+				a.cancelDelete()
+			}
+		},
+		Title:       title,
+		Description: description,
+		Actions: []ui.AlertAction{
+			{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: a.cancelDelete, TestID: "cancel-delete"},
+			{Text: "Delete", Variant: ui.ButtonPrimary, Color: func() core.Color { return colors.Danger() },
+				OnPress: a.confirmDelete, TestID: "confirm-delete"},
+		},
+		TestID: "delete-dialog",
+	}
 }

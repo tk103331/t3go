@@ -47,6 +47,7 @@ type app struct {
 	showSettings   *core.Signal[bool]
 	showDiff       *core.Signal[bool]
 	diffText       *core.Signal[string]
+	pendingDelete  *core.Signal[deleteTarget]
 
 	newProjectName *core.Signal[string]
 	newProjectPath *core.Signal[string]
@@ -95,6 +96,9 @@ func newApp(cx *core.Scope) *app {
 		showSettings:   core.NewSignal(cx, false),
 		showDiff:       core.NewSignal(cx, false),
 		diffText:       core.NewSignal(cx, ""),
+		pendingDelete: core.NewSignalFunc(cx, deleteTarget{}, func(a, b deleteTarget) bool {
+			return a == b
+		}),
 
 		newProjectName: core.NewSignal(cx, ""),
 		newProjectPath: core.NewSignal(cx, ""),
@@ -433,6 +437,7 @@ func (a *app) send() {
 		return
 	}
 	a.draft.Set("")
+	a.connErr.Set("")
 	a.running.Set(true)
 	a.call(func(ctx context.Context, c *client.Client) error {
 		_, err := c.Send(ctx, id, text)
@@ -610,6 +615,83 @@ func (a *app) saveSettings(s proto.Settings) {
 	}, func(err error) {
 		if err != nil {
 			a.connErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// deleteTarget is a thread or project waiting for delete confirmation.
+type deleteTarget struct {
+	Kind string // "thread" or "project"
+	ID   string
+	Name string
+}
+
+func (a *app) askDeleteThread(t proto.Thread) {
+	if t.ID == "" {
+		return
+	}
+	a.connErr.Set("")
+	a.pendingDelete.Set(deleteTarget{Kind: "thread", ID: t.ID, Name: t.Title})
+}
+
+func (a *app) askDeleteProject(p proto.Project) {
+	if p.ID == "" {
+		return
+	}
+	a.connErr.Set("")
+	a.pendingDelete.Set(deleteTarget{Kind: "project", ID: p.ID, Name: p.Name})
+}
+
+func (a *app) cancelDelete() {
+	a.pendingDelete.Set(deleteTarget{})
+}
+
+// confirmDelete removes the pending thread or project, after the dialog
+// asked. A project takes its threads with it.
+func (a *app) confirmDelete() {
+	target := a.pendingDelete.GetUntracked()
+	if target.Kind == "" {
+		return
+	}
+	a.pendingDelete.Set(deleteTarget{})
+	var removed []string
+	if target.Kind == "project" {
+		for _, t := range a.threads.GetUntracked() {
+			if t.ProjectID == target.ID {
+				removed = append(removed, t.ID)
+			}
+		}
+	}
+	a.call(func(ctx context.Context, c *client.Client) error {
+		if target.Kind == "project" {
+			return c.DeleteProject(ctx, target.ID)
+		}
+		return c.DeleteThread(ctx, target.ID)
+	}, func(err error) {
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
+			return
+		}
+		if target.Kind == "project" {
+			if a.selected.GetUntracked() != "" {
+				for _, id := range removed {
+					if id == a.selected.GetUntracked() {
+						a.selected.Set("")
+						a.messages.Set(nil)
+						a.detail.Set(proto.ThreadDetail{})
+						break
+					}
+				}
+			}
+			a.reload()
+			return
+		}
+		a.removeThread(target.ID)
+		if a.selected.GetUntracked() == target.ID {
+			a.selected.Set("")
+			a.messages.Set(nil)
+			a.detail.Set(proto.ThreadDetail{})
+			a.running.Set(false)
 		}
 	})
 }
