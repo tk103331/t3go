@@ -636,3 +636,19 @@ func TestUISettingsFromAnotherClient(t *testing.T) {
 		t.Fatalf("environment name field = %q", got)
 	}
 }
+
+// TestUIConnectWithPairLink starts with only a pair link in storage and
+// checks connecting fills in both the address and the token.
+func TestUIConnectWithPairLink(t *testing.T) {
+	_, ts, cfg := startEnv(t)
+	link := "t3go://pair?url=" + ts.URL + "&token=" + cfg.Token
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{"token": link}))
+	app.WaitFor(`text:"Connect"`, 5*time.Second)
+	app.Press(`text:"Connect"`)
+	app.WaitFor("id:settings", 15*time.Second)
+	app.WaitUntil(5*time.Second, func() bool {
+		v, ok := app.Storage().GetItem("serverUrl")
+		return ok && v == ts.URL
+	})
+}

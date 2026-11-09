@@ -171,6 +171,19 @@ func sliceSignal[T any](cx *core.Scope) *core.Signal[[]T] {
 func (a *app) connect(url, token string) {
 	url = strings.TrimSpace(url)
 	token = strings.TrimSpace(token)
+	// A pair link pasted into either field fills in both.
+	if u, t, ok := client.ParsePairing(url); ok {
+		url = u
+		if token == "" {
+			token = t
+		}
+	}
+	if u, t, ok := client.ParsePairing(token); ok {
+		if url == "" {
+			url = u
+		}
+		token = t
+	}
 	if url == "" {
 		a.connErr.Set("Enter the server address.")
 		return
