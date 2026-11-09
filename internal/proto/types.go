@@ -181,7 +181,10 @@ func DefaultSettings() Settings {
 
 // State is everything a client needs to render the home screen.
 type State struct {
-	Version    int        `json:"version"`
+	Version int `json:"version"`
+	// Seq is the newest event the environment recorded when it built the
+	// snapshot; a client streams after it to catch what changed since.
+	Seq        int64      `json:"seq"`
 	ServerID   string     `json:"serverId"`
 	Name       string     `json:"name"`
 	Projects   []Project  `json:"projects"`

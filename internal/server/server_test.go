@@ -112,6 +112,24 @@ func TestHealthAndAuth(t *testing.T) {
 	}
 }
 
+// TestStateCarriesLastSeq pins the snapshot's sequence: a client that
+// streams after it sees only what changed since, not the whole history.
+func TestStateCarriesLastSeq(t *testing.T) {
+	e := newTestEnv(t)
+	e.project(t)
+
+	var st proto.State
+	if code := e.request(t, http.MethodGet, "/api/v1/state", nil, e.token, &st); code != http.StatusOK {
+		t.Fatalf("state = %d", code)
+	}
+	if want := e.server.Bus.LastSeq(context.Background()); st.Seq != want {
+		t.Fatalf("state seq = %d, want %d", st.Seq, want)
+	}
+	if st.Seq == 0 {
+		t.Fatal("state seq is 0 after a project's event")
+	}
+}
+
 func TestProjectThreadAndDetail(t *testing.T) {
 	e := newTestEnv(t)
 	p := e.project(t)

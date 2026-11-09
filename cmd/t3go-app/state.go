@@ -56,11 +56,13 @@ type app struct {
 	newProjectName *core.Signal[string]
 	newProjectPath *core.Signal[string]
 
-	newThreadTitle *core.Signal[string]
-	newThreadProv  *core.Signal[string]
-	newThreadModel *core.Signal[string]
-	newThreadPerm  *core.Signal[proto.PermissionMode]
-	newThreadWT    *core.Signal[bool]
+	newThreadTitle  *core.Signal[string]
+	newThreadProv   *core.Signal[string]
+	newThreadModel  *core.Signal[string]
+	newThreadPerm   *core.Signal[proto.PermissionMode]
+	newThreadWT     *core.Signal[bool]
+	newThreadProj   *core.Signal[string]
+	newThreadBranch *core.Signal[string]
 
 	sidebarOpen  *core.Signal[bool]
 	sidebarWidth *core.Signal[core.Points]
@@ -113,11 +115,13 @@ func newApp(cx *core.Scope) *app {
 		newProjectName: core.NewSignal(cx, ""),
 		newProjectPath: core.NewSignal(cx, ""),
 
-		newThreadTitle: core.NewSignal(cx, ""),
-		newThreadProv:  core.NewSignal(cx, ""),
-		newThreadModel: core.NewSignal(cx, ""),
-		newThreadPerm:  core.NewSignal(cx, proto.PermissionFullAccess),
-		newThreadWT:    core.NewSignal(cx, false),
+		newThreadTitle:  core.NewSignal(cx, ""),
+		newThreadProv:   core.NewSignal(cx, ""),
+		newThreadModel:  core.NewSignal(cx, ""),
+		newThreadPerm:   core.NewSignal(cx, proto.PermissionFullAccess),
+		newThreadWT:     core.NewSignal(cx, false),
+		newThreadProj:   core.NewSignal(cx, ""),
+		newThreadBranch: core.NewSignal(cx, ""),
 
 		sidebarOpen:  core.NewSignal(cx, true),
 		sidebarWidth: core.NewSignal(cx, core.Points(260)),
@@ -167,12 +171,12 @@ func (a *app) connect(url, token string) {
 			a.token.Set(c.Token)
 			a.applyState(st)
 			a.connected.Set(true)
-			a.startStream(c)
+			a.startStream(c, st.Seq)
 		})
 	}()
 }
 
-func (a *app) startStream(c *client.Client) {
+func (a *app) startStream(c *client.Client, after int64) {
 	a.mu.Lock()
 	if a.streamCancel != nil {
 		a.streamCancel()
@@ -180,7 +184,7 @@ func (a *app) startStream(c *client.Client) {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.streamCancel = cancel
 	a.mu.Unlock()
-	go c.Stream(ctx, 0, func(e proto.Event) {
+	go c.Stream(ctx, after, func(e proto.Event) {
 		a.cx.Post(func() { a.applyEvent(e) })
 	}, func(err error) {
 		a.cx.Post(func() {
@@ -215,11 +219,15 @@ func (a *app) client() *client.Client {
 }
 
 func (a *app) applyState(st proto.State) {
-	a.projects.Set(st.Projects)
-	a.threads.Set(st.Threads)
-	a.providers.Set(st.Providers)
-	a.models.Set(st.Models)
-	a.settings.Set(st.Settings)
+	// One rebuild for the whole snapshot: each signal on its own would
+	// redraw the screen five times.
+	a.cx.Batch(func() {
+		a.projects.Set(st.Projects)
+		a.threads.Set(st.Threads)
+		a.providers.Set(st.Providers)
+		a.models.Set(st.Models)
+		a.settings.Set(st.Settings)
+	})
 }
 
 // reload fetches the environment snapshot again.
@@ -263,7 +271,15 @@ func (a *app) applyEvent(e proto.Event) {
 			a.detail.Set(proto.ThreadDetail{})
 		}
 	case proto.EventProject:
-		a.reload()
+		if p, ok := decodeData[proto.Project](e.Data); ok && p.ID != "" {
+			a.upsertProject(p)
+			return
+		}
+		if gone, ok := decodeData[map[string]string](e.Data); ok {
+			if id := gone["deleted"]; id != "" {
+				a.removeProject(id)
+			}
+		}
 	case proto.EventMessage:
 		m, ok := decodeData[proto.Message](e.Data)
 		if ok && m.ThreadID == a.selected.GetUntracked() {
@@ -311,6 +327,53 @@ func (a *app) upsertThread(t proto.Thread) {
 		}
 	}
 	a.threads.Set(append(next, t))
+}
+
+func (a *app) upsertProject(p proto.Project) {
+	list := a.projects.GetUntracked()
+	next := make([]proto.Project, len(list), len(list)+1)
+	copy(next, list)
+	for i := range next {
+		if next[i].ID == p.ID {
+			next[i] = p
+			a.projects.Set(next)
+			return
+		}
+	}
+	a.projects.Set(append(next, p))
+}
+
+// removeProject drops a project and the threads that went with it.
+func (a *app) removeProject(id string) {
+	list := a.projects.GetUntracked()
+	next := make([]proto.Project, 0, len(list))
+	for _, p := range list {
+		if p.ID != id {
+			next = append(next, p)
+		}
+	}
+	var keptThreads []proto.Thread
+	var dropped []string
+	for _, t := range a.threads.GetUntracked() {
+		if t.ProjectID == id {
+			dropped = append(dropped, t.ID)
+			continue
+		}
+		keptThreads = append(keptThreads, t)
+	}
+	a.cx.Batch(func() {
+		a.projects.Set(next)
+		a.threads.Set(keptThreads)
+	})
+	for _, id := range dropped {
+		if a.selected.GetUntracked() == id {
+			a.selected.Set("")
+			a.messages.Set(nil)
+			a.detail.Set(proto.ThreadDetail{})
+			a.running.Set(false)
+			break
+		}
+	}
 }
 
 func (a *app) removeThread(id string) {
@@ -534,7 +597,10 @@ func (a *app) browseProject() {
 }
 
 func (a *app) createThread() {
-	projectID := a.currentProject()
+	projectID := a.newThreadProj.GetUntracked()
+	if projectID == "" {
+		projectID = a.currentProject()
+	}
 	if projectID == "" {
 		a.connErr.Set("Add a project first.")
 		return
@@ -545,6 +611,7 @@ func (a *app) createThread() {
 		Provider:   a.newThreadProv.GetUntracked(),
 		Model:      a.newThreadModel.GetUntracked(),
 		Permission: a.newThreadPerm.GetUntracked(),
+		Branch:     strings.TrimSpace(a.newThreadBranch.GetUntracked()),
 		Worktree:   a.newThreadWT.GetUntracked(),
 	}
 	var created proto.Thread
@@ -559,6 +626,7 @@ func (a *app) createThread() {
 		}
 		a.showNewThread.Set(false)
 		a.newThreadTitle.Set("")
+		a.newThreadBranch.Set("")
 		a.reload()
 		if created.ID != "" {
 			a.selectThread(created.ID)
@@ -588,6 +656,9 @@ func (a *app) openNewProject() {
 func (a *app) openNewThread() {
 	a.connErr.Set("")
 	a.newThreadTitle.Set("")
+	a.newThreadBranch.Set("")
+	a.newThreadWT.Set(false)
+	a.newThreadProj.Set(a.currentProject())
 	settings := a.settings.GetUntracked()
 	provider := settings.DefaultProvider
 	model := settings.DefaultModel

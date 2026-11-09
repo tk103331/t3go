@@ -47,6 +47,8 @@ client POST /threads/{id}/messages
 
 每次状态变化都会先写 `events` 表再广播，因此新客户端可以用 `after` 重放
 最近的窗口；窗口之外的旧事件由快照（`GET /state`、`GET /threads/{id}`）补齐。
+`GET /state` 返回快照构建时的 `seq`，客户端从该 `seq` 之后订阅事件，既不会
+漏掉构建期间的变化，也不用重放已经包含在快照里的历史。
 
 ## SSE 与 WebSocket
 

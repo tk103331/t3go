@@ -290,6 +290,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	// The sequence goes before the reads: a client that streams after it
+	// sees what changed while the snapshot was built, which is a repeat at
+	// worst.
+	seq := s.Bus.LastSeq(ctx)
 	projects, err := s.Store.Projects(ctx)
 	if err != nil {
 		writeError(w, 500, "store", err.Error())
@@ -303,7 +307,8 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	providers := s.Service.Providers.Snapshot(ctx)
 	settings := s.Service.Settings(ctx)
 	writeJSON(w, 200, proto.State{
-		Version: proto.ProtocolVersion, ServerID: s.ID, Name: settings.Title, Projects: nonNil(projects), Threads: nonNil(threads),
+		Version: proto.ProtocolVersion, Seq: seq, ServerID: s.ID, Name: settings.Title,
+		Projects: nonNil(projects), Threads: nonNil(threads),
 		Providers: providers, Models: s.Service.Providers.Models(ctx), Settings: settings, ServerTime: time.Now(),
 	})
 }

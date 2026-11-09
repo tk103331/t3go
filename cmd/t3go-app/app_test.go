@@ -68,6 +68,46 @@ func TestUIListAndThread(t *testing.T) {
 	app.WaitFor("text:Hello from the agent", 15*time.Second)
 }
 
+// TestUICreateThreadInProject picks a project in the new-thread dialog,
+// creates a thread and checks it landed in that project.
+func TestUICreateThreadInProject(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+
+	ctx := context.Background()
+	if _, err := srv.Service.CreateProject(ctx, "Alpha", t.TempDir()); err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	beta, err := srv.Service.CreateProject(ctx, "Beta", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("text:Beta", 15*time.Second)
+	app.Press("id:new-thread")
+	app.WaitFor("id:new-thread-project-"+beta.ID, 5*time.Second)
+	app.Press("id:new-thread-project-" + beta.ID)
+	app.Type("label:Thread title", "Second project thread")
+	app.Press("id:create-thread")
+	app.WaitFor("id:content-header >> text:Second project thread", 10*time.Second)
+
+	var created proto.Thread
+	app.WaitUntil(10*time.Second, func() bool {
+		threads, err := srv.Store.Threads(ctx, beta.ID, false)
+		if err != nil || len(threads) == 0 {
+			return false
+		}
+		created = threads[0]
+		return true
+	})
+	if created.ProjectID != beta.ID {
+		t.Fatalf("thread project = %q, want %q", created.ProjectID, beta.ID)
+	}
+}
+
 // TestUIArchiveThread hides a finished thread from the sidebar, shows it
 // again with the archived filter, and unarchives it from its menu.
 func TestUIArchiveThread(t *testing.T) {

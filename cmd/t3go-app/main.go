@@ -59,11 +59,10 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 	var layout core.Node
 	if wide {
 		layout = ui.SidebarShell{
-			Sidebar:       []core.Node{a.sidebar(cx)},
-			SidebarFooter: []core.Node{a.sidebarFooter(cx)},
-			Header:        []core.Node{a.contentHeader(cx)},
-			Content:       []core.Node{a.content(cx)},
-			Open:          a.sidebarOpen.Get, OnOpenChange: a.sidebarOpen.Set,
+			Sidebar: []core.Node{a.sidebar(cx)},
+			Header:  []core.Node{a.contentHeader(cx)},
+			Content: []core.Node{a.content(cx)},
+			Open:    a.sidebarOpen.Get, OnOpenChange: a.sidebarOpen.Set,
 			ToggleLabel: "Toggle sidebar",
 			Width:       a.sidebarWidth.Get, OnWidthChange: a.sidebarWidth.Set,
 			DefaultWidth: 260, MinWidth: 220, MaxWidth: 380,
@@ -149,8 +148,11 @@ func (a *app) sidebar(cx *core.Scope) core.Node {
 	if len(sections) == 0 {
 		sections = append(sections, ui.SidebarSection{Title: "Projects", Note: ui.Text("Add a project to start.", 12, ui.Regular, colors.Faint)})
 	}
-	return core.View{Style: ui.FillRest, Children: []core.Node{
-		ui.Sidebar{Sections: sections, Selected: a.selected.Get, OnSelect: a.selectThread},
+	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
+		core.View{Style: ui.FillRest, Children: []core.Node{
+			ui.Sidebar{Sections: sections, Selected: a.selected.Get, OnSelect: a.selectThread},
+		}},
+		a.sidebarFooter(cx),
 	}}
 }
 
@@ -163,9 +165,9 @@ func (a *app) archivedLabel() string {
 
 func (a *app) sidebarFooter(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	return core.View{Style: core.Style{Direction: core.Row, Width: core.Pct(100), Padding: core.Symmetric(6, 4), Gap: 4, AlignItems: core.AlignCenter}, Children: []core.Node{
-		ui.Button{Text: "+ Project", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.openNewProject},
-		ui.Button{Text: "+ Thread", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.openNewThread},
+	return core.View{Style: core.Style{Direction: core.Row, Width: core.Pct(100), Padding: core.Symmetric(6, 4), Gap: 4, Wrap: core.Wrap, AlignItems: core.AlignCenter}, Children: []core.Node{
+		ui.Button{Text: "+ Project", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "new-project", OnPress: a.openNewProject},
+		ui.Button{Text: "+ Thread", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "new-thread", OnPress: a.openNewThread},
 		ui.Spacer{},
 		ui.Button{Text: a.archivedLabel(), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "toggle-archived", OnPress: a.toggleShowArchived},
 		ui.Button{Text: "Settings", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.showSettings.Set(true) }},
@@ -217,8 +219,8 @@ func (a *app) welcome(cx *core.Scope) core.Node {
 		ui.Text("T3Go", 20, ui.Bold, colors.Text),
 		ui.Text("Pick a thread, or start one in a project.", 13, ui.Regular, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Gap: 8, JustifyContent: core.JustifyCenter}, Children: []core.Node{
-			ui.Button{Text: "New project", Variant: ui.ButtonSecondary, OnPress: a.openNewProject},
-			ui.Button{Text: "New thread", Variant: ui.ButtonPrimary, OnPress: a.openNewThread},
+			ui.Button{Text: "New project", Variant: ui.ButtonSecondary, TestID: "welcome-new-project", OnPress: a.openNewProject},
+			ui.Button{Text: "New thread", Variant: ui.ButtonPrimary, TestID: "welcome-new-thread", OnPress: a.openNewThread},
 		}},
 	}}
 }
@@ -239,8 +241,6 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{FlexGrow: 1, Direction: core.Column}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Padding: core.Symmetric(8, 12), Gap: 8}, Children: []core.Node{
 			ui.Text("T3Go", 16, ui.Bold, colors.Text), ui.Spacer{},
-			ui.Button{Text: a.archivedLabel(), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "toggle-archived", OnPress: a.toggleShowArchived},
-			ui.Button{Text: "+ Project", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.openNewProject},
 			ui.Button{Text: "Settings", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.showSettings.Set(true) }},
 		}},
 		core.View{Style: ui.FillRest, Children: []core.Node{a.sidebar(cx)}},
@@ -326,25 +326,49 @@ func (a *app) newThreadDialog(cx *core.Scope) core.Node {
 	if a.newThreadWT.Get() {
 		worktree = "On"
 	}
+	projects := a.projects.Get()
+	projectID := a.newThreadProj.Get()
+	var projectButtons []core.Node
+	for _, pr := range projects {
+		pr := pr
+		variant := ui.ButtonSecondary
+		if pr.ID == projectID {
+			variant = ui.ButtonPrimary
+		}
+		projectButtons = append(projectButtons, ui.Button{Text: pr.Name, Variant: variant, Size: ui.SizeSmall,
+			TestID: "new-thread-project-" + pr.ID, OnPress: func() { a.newThreadProj.Set(pr.ID) }})
+	}
+	fields := []core.Node{
+		ui.Input{Input: base.Input{Value: a.newThreadTitle.Get, OnChange: a.newThreadTitle.Set, Placeholder: "What is this thread about? (optional)", Label: "Thread title"}},
+	}
+	if len(projects) > 1 {
+		fields = append(fields,
+			ui.Text("Project", 11, ui.Semibold, colors.Muted),
+			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: projectButtons})
+	}
+	fields = append(fields,
+		ui.Text("Provider", 11, ui.Semibold, colors.Muted),
+		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: providerButtons},
+		ui.Text("Model", 11, ui.Semibold, colors.Muted),
+		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: modelButtons},
+		ui.Text("Permission", 11, ui.Semibold, colors.Muted),
+		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: permButtons},
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+			ui.Text("Own worktree", 12, ui.Regular, colors.Muted), ui.Spacer{},
+			ui.Button{Text: worktree, Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.newThreadWT.Set(!a.newThreadWT.Get()) }},
+		}},
+	)
+	if a.newThreadWT.Get() {
+		fields = append(fields, ui.Input{Input: base.Input{Value: a.newThreadBranch.Get, OnChange: a.newThreadBranch.Set,
+			Placeholder: "t3go/<slug>", Label: "Branch (optional)"}})
+	}
+	fields = append(fields, core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node {
+		return ui.Text(a.connErr.Get(), 12, ui.Regular, colors.Danger)
+	}})
 	return ui.Dialog{Open: a.showNewThread.Get, OnOpenChange: closeDialog(a.showNewThread), Title: "New thread",
-		Description: "The agent runs in this project's directory, or in a fresh worktree.", Children: []core.Node{
-			ui.Input{Input: base.Input{Value: a.newThreadTitle.Get, OnChange: a.newThreadTitle.Set, Placeholder: "What is this thread about? (optional)", Label: "Thread title"}},
-			ui.Text("Provider", 11, ui.Semibold, colors.Muted),
-			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: providerButtons},
-			ui.Text("Model", 11, ui.Semibold, colors.Muted),
-			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: modelButtons},
-			ui.Text("Permission", 11, ui.Semibold, colors.Muted),
-			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: permButtons},
-			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-				ui.Text("Own worktree", 12, ui.Regular, colors.Muted), ui.Spacer{},
-				ui.Button{Text: worktree, Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.newThreadWT.Set(!a.newThreadWT.Get()) }},
-			}},
-			core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node {
-				return ui.Text(a.connErr.Get(), 12, ui.Regular, colors.Danger)
-			}},
-		}, Footer: []core.Node{
+		Description: "The agent runs in this project's directory, or in a fresh worktree.", Children: fields, Footer: []core.Node{
 			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showNewThread.Set(false) }},
-			ui.Button{Text: "Create thread", Variant: ui.ButtonPrimary, OnPress: a.createThread},
+			ui.Button{Text: "Create thread", Variant: ui.ButtonPrimary, TestID: "create-thread", OnPress: a.createThread},
 		}}
 }
 
