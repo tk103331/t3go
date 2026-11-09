@@ -5,6 +5,9 @@ import (
 	"io"
 	"log"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -105,6 +108,73 @@ func TestUICreateThreadInProject(t *testing.T) {
 	})
 	if created.ProjectID != beta.ID {
 		t.Fatalf("thread project = %q, want %q", created.ProjectID, beta.ID)
+	}
+}
+
+// gitRepo makes a temporary repository with one commit, for worktrees.
+func gitRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-b", "main")
+	run("config", "user.email", "t3go@example.com")
+	run("config", "user.name", "T3Go")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "-m", "initial")
+	return dir
+}
+
+// TestUICreateThreadInWorktree asks for an own worktree with a branch
+// name and checks the environment made the checkout.
+func TestUICreateThreadInWorktree(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Repo", gitRepo(t))
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("text:Repo", 15*time.Second)
+	app.Press("id:new-thread")
+	app.WaitFor("id:create-thread", 5*time.Second)
+	app.Press("text:Off") // Own worktree: on
+	app.WaitFor("label:Branch (optional)", 5*time.Second)
+	app.Type("label:Thread title", "Worktree thread")
+	app.Type("label:Branch (optional)", "t3go/ui-test")
+	app.Press("id:create-thread")
+	app.WaitFor("id:content-header >> text:Worktree thread", 10*time.Second)
+
+	var created proto.Thread
+	app.WaitUntil(10*time.Second, func() bool {
+		threads, err := srv.Store.Threads(ctx, project.ID, false)
+		if err != nil || len(threads) != 1 {
+			return false
+		}
+		created = threads[0]
+		return true
+	})
+	if created.Branch != "t3go/ui-test" {
+		t.Fatalf("branch = %q", created.Branch)
+	}
+	if created.WorktreePath == "" {
+		t.Fatal("thread has no worktree path")
+	}
+	if _, err := os.Stat(created.WorktreePath); err != nil {
+		t.Fatalf("worktree: %v", err)
 	}
 }
 
