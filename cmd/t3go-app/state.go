@@ -53,6 +53,7 @@ type app struct {
 	settingsDraft  *core.Signal[proto.Settings]
 	settingsTitle  *core.Signal[string]
 	showDiff       *core.Signal[bool]
+	showRuns       *core.Signal[bool]
 	diffText       *core.Signal[string]
 	pendingDelete  *core.Signal[itemTarget]
 	pendingRename  *core.Signal[itemTarget]
@@ -111,6 +112,7 @@ func newApp(cx *core.Scope) *app {
 		settingsDraft:  core.NewSignal(cx, proto.DefaultSettings()),
 		settingsTitle:  core.NewSignal(cx, ""),
 		showDiff:       core.NewSignal(cx, false),
+		showRuns:       core.NewSignal(cx, false),
 		diffText:       core.NewSignal(cx, ""),
 		pendingDelete: core.NewSignalFunc(cx, itemTarget{}, func(a, b itemTarget) bool {
 			return a == b
@@ -552,15 +554,42 @@ func (a *app) stop() {
 	}, func(error) {})
 }
 
+// openRuns lists the open thread's runs.
+func (a *app) openRuns() {
+	if a.selected.GetUntracked() == "" {
+		return
+	}
+	a.connErr.Set("")
+	a.showRuns.Set(true)
+}
+
+func (a *app) closeRuns() {
+	a.showRuns.Set(false)
+}
+
+// openRunDiff shows what one run changed, from its checkpoint.
+func (a *app) openRunDiff(runID string) {
+	id := a.selected.GetUntracked()
+	if id == "" || runID == "" {
+		return
+	}
+	a.closeRuns()
+	a.loadDiff(id, runID)
+}
+
 func (a *app) openDiff() {
 	id := a.selected.GetUntracked()
 	if id == "" {
 		return
 	}
+	a.loadDiff(id, "")
+}
+
+func (a *app) loadDiff(threadID, runID string) {
 	a.diffText.Set("Loading diff…")
 	a.showDiff.Set(true)
 	a.call(func(ctx context.Context, c *client.Client) error {
-		diff, err := c.Diff(ctx, id, "")
+		diff, err := c.Diff(ctx, threadID, runID)
 		if err != nil {
 			return err
 		}

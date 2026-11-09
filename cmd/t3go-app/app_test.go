@@ -13,6 +13,7 @@ import (
 
 	"github.com/oneo-me/nsgo/nsgotest"
 	"github.com/tk/t3go/internal/config"
+	"github.com/tk/t3go/internal/git"
 	"github.com/tk/t3go/internal/orchestrator"
 	"github.com/tk/t3go/internal/proto"
 	"github.com/tk/t3go/internal/server"
@@ -407,4 +408,53 @@ func TestUISidebarRemembers(t *testing.T) {
 		v, ok := app.Storage().GetItem("sidebarOpen")
 		return ok && v == "true"
 	})
+}
+
+// TestUIRunHistory lists a thread's runs and opens the diff of one from
+// its checkpoint.
+func TestUIRunHistory(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+
+	ctx := context.Background()
+	repo := gitRepo(t)
+	project, err := srv.Service.CreateProject(ctx, "Repo", repo)
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "History thread", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	const runID = "run_history"
+	ref, err := git.Checkpoint(ctx, repo, thread.ID, runID)
+	if err != nil {
+		t.Fatalf("checkpoint: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("changed by the agent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ended := time.Now()
+	if err := srv.Store.CreateRun(ctx, proto.Run{
+		ID: runID, ThreadID: thread.ID, Status: proto.RunCompleted, Provider: "claude", Model: "test-model",
+		Permission: proto.PermissionFullAccess, Prompt: "Change the readme", StartedAt: ended.Add(-2 * time.Second),
+		EndedAt: &ended, Checkpoint: ref, Usage: &proto.Usage{TotalTokens: 1200, CostUSD: 0.03},
+	}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:history", 10*time.Second)
+
+	app.Press("id:history")
+	app.WaitFor("text:Change the readme", 5*time.Second)
+	app.WaitFor("text:completed", 5*time.Second)
+	app.Press("id:run-diff-" + runID)
+	app.WaitFor("text:changed by the agent", 10*time.Second)
 }

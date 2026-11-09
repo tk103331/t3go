@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/oneo-me/nsgo"
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
@@ -212,6 +215,7 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 			OnPress: func() { a.askRenameThread(d.Thread) }},
 		ui.Button{Text: "Delete", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "delete-thread",
 			OnPress: func() { a.askDeleteThread(d.Thread) }},
+		ui.Button{Text: "History", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "history", OnPress: a.openRuns},
 		ui.Button{Text: "Diff", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "open-diff", OnPress: a.openDiff},
 	}}
 }
@@ -259,7 +263,8 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 }
 
 func (a *app) dialogs(cx *core.Scope) core.Node {
-	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx)}
+	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.runsDialog(cx),
+		a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx)}
 }
 
 func closeDialog(sig *core.Signal[bool]) func(bool, base.Reason) {
@@ -508,6 +513,69 @@ func (a *app) diffDialog(cx *core.Scope) core.Node {
 		}, Footer: []core.Node{
 			ui.Button{Text: "Close", Variant: ui.ButtonSecondary, OnPress: func() { a.showDiff.Set(false) }},
 		}}
+}
+
+// runsDialog is the thread's run history, newest first, each with what it
+// changed when it has a checkpoint.
+func (a *app) runsDialog(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	runs := a.detail.Get().Runs
+	var rows []core.Node
+	for i := len(runs) - 1; i >= 0; i-- {
+		r := runs[i]
+		meta := r.StartedAt.Local().Format("Jan 2 15:04")
+		if r.EndedAt != nil {
+			meta += " · " + r.EndedAt.Sub(r.StartedAt).Round(time.Second).String()
+		}
+		meta += " · " + r.Model
+		if r.Usage != nil {
+			if r.Usage.TotalTokens > 0 {
+				meta += fmt.Sprintf(" · %d tokens", r.Usage.TotalTokens)
+			}
+			if r.Usage.CostUSD > 0 {
+				meta += fmt.Sprintf(" · $%.2f", r.Usage.CostUSD)
+			}
+		}
+		line := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinWidth: core.Pt(0)}, Children: []core.Node{
+			core.Text{Content: string(r.Status), MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold},
+				StyleFunc: func() core.Style { return core.Style{Color: runColor(colors, r.Status)} }},
+			core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 11.5, FlexGrow: 1},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+		}}
+		if r.Checkpoint != "" {
+			line.Children = append(line.Children, ui.Button{Text: "Diff", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				TestID: "run-diff-" + r.ID, OnPress: func() { a.openRunDiff(r.ID) }})
+		}
+		rows = append(rows, core.View{Style: core.Style{Gap: 3, Padding: core.Symmetric(8, 10), Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{
+			line,
+			core.Text{Content: r.Prompt, MaxLines: 2, Style: core.Style{FontSize: 12, LineHeight: 17},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+		}})
+	}
+	if len(rows) == 0 {
+		rows = append(rows, ui.Text("No runs yet. Ask the agent to change something.", 12.5, ui.Regular, colors.Faint))
+	}
+	return ui.Dialog{Open: a.showRuns.Get, OnOpenChange: closeDialog(a.showRuns), Title: "History",
+		Description: "Runs of this thread, newest first.", TestID: "runs-dialog",
+		Children: []core.Node{
+			core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
+				core.View{Style: core.Style{Gap: 6}, Children: rows},
+			}},
+		}, Footer: []core.Node{
+			ui.Button{Text: "Close", Variant: ui.ButtonSecondary, OnPress: a.closeRuns},
+		}}
+}
+
+func runColor(colors ui.Colors, status proto.RunStatus) core.Color {
+	switch status {
+	case proto.RunFailed:
+		return colors.Danger()
+	case proto.RunCancelled:
+		return colors.Muted()
+	case proto.RunRunning:
+		return colors.Accent()
+	}
+	return colors.Text()
 }
 
 func (a *app) renameDialog(cx *core.Scope) core.Node {
