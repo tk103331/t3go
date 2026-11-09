@@ -351,3 +351,60 @@ func TestUploadRoundTrip(t *testing.T) {
 		t.Fatalf("missing upload = %d", code)
 	}
 }
+
+// TestWebClientServed serves a built web client at the root without auth,
+// and never lists the directory or serves outside it.
+func TestWebClientServed(t *testing.T) {
+	cfg, err := config.Load(t.TempDir(), "127.0.0.1:0", false)
+	if err != nil {
+		t.Fatalf("config: %v", err)
+	}
+	webDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<html>t3go web</html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg.WebDir = webDir
+	srv, err := New(cfg, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("server: %v", err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer func() {
+		ts.CloseClientConnections()
+		ts.Close()
+		srv.Close()
+	}()
+
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatalf("get /: %v", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(raw), "t3go web") {
+		t.Fatalf("get / = %d %q", resp.StatusCode, raw)
+	}
+	if code := status(t, http.MethodGet, ts.URL+"/missing.js"); code != http.StatusNotFound {
+		t.Fatalf("missing = %d", code)
+	}
+	if code := status(t, http.MethodGet, ts.URL+"/../token"); code != http.StatusNotFound {
+		t.Fatalf("traversal = %d", code)
+	}
+	if code := status(t, http.MethodPost, ts.URL+"/"); code != http.StatusMethodNotAllowed {
+		t.Fatalf("post / = %d", code)
+	}
+}
+
+func status(t *testing.T, method, url string) int {
+	t.Helper()
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, url, err)
+	}
+	resp.Body.Close()
+	return resp.StatusCode
+}

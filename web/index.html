@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>T3Go</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0b0c; color: #e8e8e8; font-family: system-ui, sans-serif; }
+  body { overflow: hidden; }
+  #boot { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  body.nsgo-ready #boot { display: none; }
+</style>
+</head>
+<body>
+<div id="boot">Loading T3Go…</div>
+<script src="wasm_exec.js"></script>
+<script>
+  const go = new Go();
+  WebAssembly.instantiateStreaming(fetch("app.wasm"), go.importObject)
+    .then(result => {
+      document.body.classList.add("nsgo-ready");
+      go.run(result.instance);
+    })
+    .catch(err => {
+      document.getElementById("boot").textContent = "Could not start T3Go: " + err;
+    });
+</script>
+</body>
+</html>

@@ -194,6 +194,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/uploads/{id}", s.auth(s.handleDeleteUpload))
 	mux.HandleFunc("GET /api/v1/events", s.auth(s.handleSSE))
 	mux.HandleFunc("GET /ws", s.auth(s.handleWS))
+	if s.Config.WebDir != "" {
+		mux.HandleFunc("/", s.handleWeb)
+	}
 	return withLogging(withCORS(mux), s.Log)
 }
 
@@ -497,6 +500,31 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]string{"diff": diff})
+}
+
+// handleWeb serves the built web client: only files, never a listing.
+func (s *Server) handleWeb(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	path := strings.TrimPrefix(filepath.Clean(r.URL.Path), "/")
+	if path == "" || path == "." {
+		path = "index.html"
+	}
+	if path == ".." || strings.HasPrefix(path, "../") {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
+	full := filepath.Join(s.Config.WebDir, filepath.FromSlash(path))
+	st, err := os.Stat(full)
+	if err != nil || st.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, full)
 }
 
 // maxUploadSize is a prompt attachment's limit.

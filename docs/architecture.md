@@ -61,6 +61,14 @@ client POST /threads/{id}/messages
   然后推送 `event` 帧。客户端可发 `ping`、`subscribe`、`unsubscribe` 做线程过滤。
 - 两个通道都不接受写操作，避免同一业务出现第二套入口。
 
+## Web 客户端
+
+`scripts/build-web.sh` 用 `GOOS=js GOARCH=wasm` 构建 `cmd/t3go-app`，生成
+`app.wasm`、`wasm_exec.js` 和 `index.html`。`t3go serve --web DIR` 在 `/` 下
+只提供该目录里的文件（不列目录、不需要鉴权）；页面与 API 同源，Go 的 js
+`net/http` 走浏览器 fetch，SSE 因此也能流式读取。地址和 token 保存在
+`localStorage`（键前缀 `nsgo:default:`），所以刷新后会自动重连。
+
 ## 附件
 
 客户端把文件上传到 `POST /api/v1/uploads`，环境把内容存到 `$T3GO_HOME/uploads/<id>`，

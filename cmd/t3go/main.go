@@ -59,7 +59,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `t3go %s - a Go T3 Code environment
 
 Usage:
-  t3go serve    [--home DIR] [--listen HOST:PORT] [--no-auth]
+  t3go serve    [--home DIR] [--listen HOST:PORT] [--no-auth] [--web DIR]
   t3go pair     [--home DIR] [--listen HOST:PORT]
   t3go doctor   [--home DIR]
   t3go version
@@ -76,6 +76,7 @@ func cmdServe(args []string) int {
 	listen := fs.String("listen", "", "listen address (default 127.0.0.1:4870)")
 	noAuth := fs.Bool("no-auth", false, "disable auth; requires a loopback listen address")
 	quiet := fs.Bool("quiet", false, "only log warnings")
+	web := fs.String("web", "", "directory of the built web client to serve at /")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -85,6 +86,14 @@ func cmdServe(args []string) int {
 		return 1
 	}
 	cfg.Version = version
+	if *web != "" {
+		dir, err := filepath.Abs(*web)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "t3go: --web: %v\n", err)
+			return 1
+		}
+		cfg.WebDir = dir
+	}
 	logger := newLogger(*quiet, cfg.Home)
 
 	srv, err := server.New(cfg, logger)
@@ -106,6 +115,9 @@ func cmdServe(args []string) int {
 		fmt.Printf("t3go %s\n", version)
 		fmt.Printf("  home    %s\n", cfg.Home)
 		fmt.Printf("  listen  http://%s\n", ln.Addr())
+		if cfg.WebDir != "" {
+			fmt.Printf("  web     http://%s/\n", ln.Addr())
+		}
 		if !cfg.NoAuth {
 			fmt.Printf("  token   %s\n", config.TokenPath(cfg.Home))
 			fmt.Printf("  pair    %s\n", pairingURL(ln.Addr().String(), cfg.Token))

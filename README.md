@@ -16,6 +16,7 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - Provider CLI 适配：`claude`、`codex`、`opencode`，含模型列表与版本探测
 - Git：工作区状态、每个 run 的 checkpoint（`git stash create` + 隐藏 ref）、run diff、worktree
 - HTTP REST API、SSE 事件流、WebSocket 事件流、Bearer token 鉴权、CORS
+- Web 客户端：同一份 NSGo 代码用 `GOOS=js GOARCH=wasm` 构建，由 `t3go serve --web` 直接提供
 - `t3go` CLI：`serve`、`pair`、`doctor`、`version`
 - NSGo 客户端：连接页、项目/线程侧栏、聊天流、新建/重命名/删除项目与线程、新建线程可选项目与 worktree 分支、线程归档与筛选、命令面板与快捷键、记住侧栏宽度与显隐、设置（环境名、默认 provider/model/权限、主题）、运行历史与逐次 diff、运行中排队发送、附件（选择或拖入文件并随消息发送）、断线重连提示、窄屏布局、错误提示条
 - 测试：store、orchestrator（fake provider）、provider 流解析、HTTP/SSE/WS、Go 客户端、NSGo UI 集成
@@ -24,7 +25,6 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 
 - 交互式权限审批（supervised 模式下 CLI 进程内的确认框）
 - 语音输入（文件与图片已支持，按文件路径交给 provider 读取）
-- Web 目标（`js/wasm` 不能直接用 `net/http`，需要浏览器 fetch/EventSource 适配层）
 - 与上游 t3code 客户端协议的兼容
 
 排队消息保存在客户端内存里，退出客户端会丢失；服务端仍是一次只跑一个 run。
@@ -50,6 +50,13 @@ go build -o bin/t3go-app ./cmd/t3go-app
 
 # 启动服务（默认 127.0.0.1:4870，数据在 ~/.t3go）
 ./bin/t3go serve
+```
+
+构建网页版并让服务同时提供它：
+
+```sh
+./scripts/build-web.sh        # 生成 web/app.wasm、web/wasm_exec.js
+./bin/t3go serve --web web    # 浏览器打开 http://127.0.0.1:4870/
 ```
 
 启动时会打印 token 文件和一条配对链接：
@@ -96,7 +103,7 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
 
 | 命令 | 说明 |
 | --- | --- |
-| `t3go serve [--home DIR] [--listen HOST:PORT] [--no-auth] [--quiet]` | 启动环境 |
+| `t3go serve [--home DIR] [--listen HOST:PORT] [--no-auth] [--web DIR] [--quiet]` | 启动环境，`--web` 同时提供网页版 |
 | `t3go pair [--home DIR] [--listen HOST:PORT] [--json]` | 打印配对链接 |
 | `t3go doctor [--home DIR]` | 检查数据库、token、provider CLI、git |
 | `t3go version` | 版本与平台信息 |
@@ -204,3 +211,4 @@ transcript 的渲染，命令面板与快捷键，运行中排队并自动发送
 - checkpoint 使用 `git stash create`，只覆盖 Git 项目；非 Git 项目没有 diff。
 - 删除项目会删除其线程记录和 worktree 引用，不会删除用户目录本身。
 - NSGo 仍处于早期，API 可能随版本变化；本仓库锁定了一个伪版本。
+- 网页版由服务端同源提供，使用浏览器 `localStorage` 保存地址和 token；附件用系统文件选择器添加。

@@ -22,6 +22,8 @@ type Config struct {
 	Token   string
 	NoAuth  bool
 	Version string
+	// WebDir, when set, holds the built web client to serve at /.
+	WebDir string
 }
 
 // HomeDir returns T3GO_HOME, or ~/.t3go.
