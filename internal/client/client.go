@@ -157,6 +157,19 @@ func (c *Client) CreateProject(ctx context.Context, name, path string) (proto.Pr
 }
 
 // DeleteProject removes a project and its threads.
+func (c *Client) UpdateProject(ctx context.Context, id, name, path string) (proto.Project, error) {
+	in := map[string]string{}
+	if name != "" {
+		in["name"] = name
+	}
+	if path != "" {
+		in["path"] = path
+	}
+	var out proto.Project
+	err := c.do(ctx, http.MethodPatch, "/api/v1/projects/"+url.PathEscape(id), in, &out)
+	return out, err
+}
+
 func (c *Client) DeleteProject(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/api/v1/projects/"+url.PathEscape(id), nil, nil)
 }

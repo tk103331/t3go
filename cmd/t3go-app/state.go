@@ -47,7 +47,9 @@ type app struct {
 	showSettings   *core.Signal[bool]
 	showDiff       *core.Signal[bool]
 	diffText       *core.Signal[string]
-	pendingDelete  *core.Signal[deleteTarget]
+	pendingDelete  *core.Signal[itemTarget]
+	pendingRename  *core.Signal[itemTarget]
+	renameName     *core.Signal[string]
 
 	newProjectName *core.Signal[string]
 	newProjectPath *core.Signal[string]
@@ -96,9 +98,13 @@ func newApp(cx *core.Scope) *app {
 		showSettings:   core.NewSignal(cx, false),
 		showDiff:       core.NewSignal(cx, false),
 		diffText:       core.NewSignal(cx, ""),
-		pendingDelete: core.NewSignalFunc(cx, deleteTarget{}, func(a, b deleteTarget) bool {
+		pendingDelete: core.NewSignalFunc(cx, itemTarget{}, func(a, b itemTarget) bool {
 			return a == b
 		}),
+		pendingRename: core.NewSignalFunc(cx, itemTarget{}, func(a, b itemTarget) bool {
+			return a == b
+		}),
+		renameName: core.NewSignal(cx, ""),
 
 		newProjectName: core.NewSignal(cx, ""),
 		newProjectPath: core.NewSignal(cx, ""),
@@ -619,8 +625,8 @@ func (a *app) saveSettings(s proto.Settings) {
 	})
 }
 
-// deleteTarget is a thread or project waiting for delete confirmation.
-type deleteTarget struct {
+// itemTarget is a thread or project a dialog acts on.
+type itemTarget struct {
 	Kind string // "thread" or "project"
 	ID   string
 	Name string
@@ -631,7 +637,7 @@ func (a *app) askDeleteThread(t proto.Thread) {
 		return
 	}
 	a.connErr.Set("")
-	a.pendingDelete.Set(deleteTarget{Kind: "thread", ID: t.ID, Name: t.Title})
+	a.pendingDelete.Set(itemTarget{Kind: "thread", ID: t.ID, Name: t.Title})
 }
 
 func (a *app) askDeleteProject(p proto.Project) {
@@ -639,11 +645,11 @@ func (a *app) askDeleteProject(p proto.Project) {
 		return
 	}
 	a.connErr.Set("")
-	a.pendingDelete.Set(deleteTarget{Kind: "project", ID: p.ID, Name: p.Name})
+	a.pendingDelete.Set(itemTarget{Kind: "project", ID: p.ID, Name: p.Name})
 }
 
 func (a *app) cancelDelete() {
-	a.pendingDelete.Set(deleteTarget{})
+	a.pendingDelete.Set(itemTarget{})
 }
 
 // confirmDelete removes the pending thread or project, after the dialog
@@ -653,7 +659,7 @@ func (a *app) confirmDelete() {
 	if target.Kind == "" {
 		return
 	}
-	a.pendingDelete.Set(deleteTarget{})
+	a.pendingDelete.Set(itemTarget{})
 	var removed []string
 	if target.Kind == "project" {
 		for _, t := range a.threads.GetUntracked() {
@@ -692,6 +698,66 @@ func (a *app) confirmDelete() {
 			a.messages.Set(nil)
 			a.detail.Set(proto.ThreadDetail{})
 			a.running.Set(false)
+		}
+	})
+}
+
+func (a *app) askRenameThread(t proto.Thread) {
+	if t.ID == "" {
+		return
+	}
+	a.connErr.Set("")
+	a.renameName.Set(t.Title)
+	a.pendingRename.Set(itemTarget{Kind: "thread", ID: t.ID, Name: t.Title})
+}
+
+func (a *app) askRenameProject(p proto.Project) {
+	if p.ID == "" {
+		return
+	}
+	a.connErr.Set("")
+	a.renameName.Set(p.Name)
+	a.pendingRename.Set(itemTarget{Kind: "project", ID: p.ID, Name: p.Name})
+}
+
+func (a *app) cancelRename() {
+	a.pendingRename.Set(itemTarget{})
+}
+
+// confirmRename saves the pending thread's or project's new name.
+func (a *app) confirmRename() {
+	target := a.pendingRename.GetUntracked()
+	name := strings.TrimSpace(a.renameName.GetUntracked())
+	if target.Kind == "" || name == "" || name == target.Name {
+		a.cancelRename()
+		return
+	}
+	a.pendingRename.Set(itemTarget{})
+	var updated proto.Thread
+	a.call(func(ctx context.Context, c *client.Client) error {
+		if target.Kind == "project" {
+			_, err := c.UpdateProject(ctx, target.ID, name, "")
+			return err
+		}
+		t, err := c.UpdateThread(ctx, target.ID, map[string]any{"title": name})
+		updated = t
+		return err
+	}, func(err error) {
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
+			return
+		}
+		if target.Kind == "project" {
+			a.reload()
+			return
+		}
+		if updated.ID != "" {
+			a.upsertThread(updated)
+		}
+		if a.selected.GetUntracked() == target.ID {
+			d := a.detail.GetUntracked()
+			d.Thread = updated
+			a.detail.Set(d)
 		}
 	})
 }

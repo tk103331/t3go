@@ -68,9 +68,9 @@ func TestUIListAndThread(t *testing.T) {
 	app.WaitFor("text:Hello from the agent", 15*time.Second)
 }
 
-// TestUIDeleteThreadAndProject removes a thread from the header, then the
-// project from its sidebar menu, and checks the server dropped both.
-func TestUIDeleteThreadAndProject(t *testing.T) {
+// TestUIRenameAndDelete renames a thread and a project, then removes
+// both, checking the server kept each change.
+func TestUIRenameAndDelete(t *testing.T) {
 	srv, ts, cfg := startEnv(t)
 
 	ctx := context.Background()
@@ -93,6 +93,32 @@ func TestUIDeleteThreadAndProject(t *testing.T) {
 	app.Press("id:thread-" + thread.ID)
 	app.WaitFor("id:delete-thread", 15*time.Second)
 
+	// Rename the thread from the header, then check the server kept it.
+	app.Press("id:rename-thread")
+	app.WaitFor("id:confirm-rename", 5*time.Second)
+	app.Clear("label:Thread title")
+	app.Type("label:Thread title", "Renamed thread")
+	app.Press("id:confirm-rename")
+	app.WaitFor("id:content-header >> text:Renamed thread", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		t, err := srv.Store.Thread(ctx, thread.ID)
+		return err == nil && t.Title == "Renamed thread"
+	})
+
+	// Rename the project from its sidebar menu.
+	app.Press("id:project-menu-" + project.ID)
+	app.WaitFor("id:rename-project-"+project.ID, 5*time.Second)
+	app.Press("id:rename-project-" + project.ID)
+	app.WaitFor("id:confirm-rename", 5*time.Second)
+	app.Clear("label:Project name")
+	app.Type("label:Project name", "Renamed project")
+	app.Press("id:confirm-rename")
+	app.WaitFor("text:Renamed project", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		p, err := srv.Store.Project(ctx, project.ID)
+		return err == nil && p.Name == "Renamed project"
+	})
+
 	app.Press("id:delete-thread")
 	app.WaitFor("id:confirm-delete", 5*time.Second)
 	app.Press("id:confirm-delete")
@@ -103,7 +129,7 @@ func TestUIDeleteThreadAndProject(t *testing.T) {
 	app.Press("id:delete-project-" + project.ID)
 	app.WaitFor("id:confirm-delete", 5*time.Second)
 	app.Press("id:confirm-delete")
-	app.WaitForGone("text:Demo Project", 10*time.Second)
+	app.WaitForGone("text:Renamed project", 10*time.Second)
 
 	app.WaitUntil(10*time.Second, func() bool {
 		_, err := srv.Store.Project(ctx, project.ID)

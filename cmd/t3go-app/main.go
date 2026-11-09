@@ -109,15 +109,21 @@ func (a *app) sidebar(cx *core.Scope) core.Node {
 				title = "! " + title
 			}
 			items = append(items, ui.SidebarItem{ID: t.ID, Text: title, TestID: "thread-" + t.ID,
-				Menu: []core.Node{ui.MenuItem{Text: "Delete thread", Variant: ui.MenuItemDanger,
-					TestID: "delete-thread-" + t.ID, OnSelect: func() { a.askDeleteThread(t) }}}})
+				Menu: []core.Node{
+					ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread-" + t.ID, OnSelect: func() { a.askRenameThread(t) }},
+					ui.MenuItem{Text: "Delete thread", Variant: ui.MenuItemDanger,
+						TestID: "delete-thread-" + t.ID, OnSelect: func() { a.askDeleteThread(t) }},
+				}})
 		}
 		section := ui.SidebarSection{Title: p.Name, Items: items}
 		section.Actions = ui.Menu{
 			TestID:  "project-menu-" + p.ID,
 			Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Project actions", TestID: "project-actions-" + p.ID},
-			Children: []core.Node{ui.MenuItem{Text: "Delete project", Variant: ui.MenuItemDanger,
-				TestID: "delete-project-" + p.ID, OnSelect: func() { a.askDeleteProject(p) }}},
+			Children: []core.Node{
+				ui.MenuItem{Text: "Rename project…", TestID: "rename-project-" + p.ID, OnSelect: func() { a.askRenameProject(p) }},
+				ui.MenuItem{Text: "Delete project", Variant: ui.MenuItemDanger,
+					TestID: "delete-project-" + p.ID, OnSelect: func() { a.askDeleteProject(p) }},
+			},
 		}
 		if len(items) == 0 {
 			section.Note = ui.Text("No threads yet", 12, ui.Regular, colors.Faint)
@@ -166,6 +172,8 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 			core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 11},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 		}},
+		ui.Button{Text: "Rename", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "rename-thread",
+			OnPress: func() { a.askRenameThread(d.Thread) }},
 		ui.Button{Text: "Delete", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "delete-thread",
 			OnPress: func() { a.askDeleteThread(d.Thread) }},
 		ui.Button{Text: "Diff", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "open-diff", OnPress: a.openDiff},
@@ -215,7 +223,7 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 }
 
 func (a *app) dialogs(cx *core.Scope) core.Node {
-	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.deleteDialog(cx)}
+	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.renameDialog(cx), a.deleteDialog(cx)}
 }
 
 func closeDialog(sig *core.Signal[bool]) func(bool, base.Reason) {
@@ -354,6 +362,35 @@ func (a *app) diffDialog(cx *core.Scope) core.Node {
 		}, Footer: []core.Node{
 			ui.Button{Text: "Close", Variant: ui.ButtonSecondary, OnPress: func() { a.showDiff.Set(false) }},
 		}}
+}
+
+func (a *app) renameDialog(cx *core.Scope) core.Node {
+	target := a.pendingRename.Get()
+	title, label := "Rename", "Name"
+	switch target.Kind {
+	case "thread":
+		title, label = "Rename thread", "Thread title"
+	case "project":
+		title, label = "Rename project", "Project name"
+	}
+	return ui.Dialog{
+		Open: func() bool { return target.Kind != "" },
+		OnOpenChange: func(open bool, _ base.Reason) {
+			if !open {
+				a.cancelRename()
+			}
+		},
+		Title:       title,
+		Description: "The new name is saved for everyone connected to this environment.",
+		Children: []core.Node{
+			ui.Input{Input: base.Input{Value: a.renameName.Get, OnChange: a.renameName.Set, Placeholder: label, Label: label,
+				SubmitBehavior: core.SubmitBehaviorSubmit, OnSubmit: func(string) { a.confirmRename() }}},
+		},
+		Footer: []core.Node{
+			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: a.cancelRename},
+			ui.Button{Text: "Save", Variant: ui.ButtonPrimary, TestID: "confirm-rename", OnPress: a.confirmRename},
+		},
+	}
 }
 
 func (a *app) deleteDialog(cx *core.Scope) core.Node {
