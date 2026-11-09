@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/oneo-me/nsgo/core"
@@ -68,8 +69,31 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 			}},
 		}},
 		core.View{Style: core.Style{Padding: core.Edges{Top: 8, Right: 16, Bottom: 16, Left: 16}, AlignItems: core.AlignCenter}, Children: []core.Node{
-			core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(chat.ContentWidth)}, Children: []core.Node{composer}},
+			core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(chat.ContentWidth)}, Children: []core.Node{
+				a.queuedBlock(cx), composer,
+			}},
 		}},
+	}}
+}
+
+// queuedBlock shows the prompts waiting for the running turn to end.
+func (a *app) queuedBlock(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.Show{When: func() bool { return len(a.queue.Get()) > 0 }, Then: func(*core.Scope) core.Node {
+		queue := a.queue.Get()
+		rows := make([]core.Node, 0, len(queue))
+		for i, prompt := range queue {
+			i, prompt := i, prompt
+			rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
+				Padding: core.Symmetric(6, 10), Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{
+				ui.Text("Queued", 11, ui.Semibold, colors.Faint),
+				core.Text{Content: prompt, MaxLines: 2, Style: core.Style{FontSize: 12, LineHeight: 17, FlexGrow: 1},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+				ui.Button{Text: "×", Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Remove queued message",
+					TestID: fmt.Sprintf("queued-remove-%d", i), OnPress: func() { a.dropQueued(i) }},
+			}})
+		}
+		return core.View{TestID: "queued", Style: core.Style{Gap: 4, Padding: core.Edges{Bottom: 6}}, Children: rows}
 	}}
 }
 

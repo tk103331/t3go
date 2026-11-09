@@ -16,6 +16,7 @@ import (
 	"github.com/tk/t3go/internal/git"
 	"github.com/tk/t3go/internal/orchestrator"
 	"github.com/tk/t3go/internal/proto"
+	"github.com/tk/t3go/internal/provider"
 	"github.com/tk/t3go/internal/server"
 )
 
@@ -475,4 +476,92 @@ func TestUIOfflineBanner(t *testing.T) {
 		t.Fatalf("close: %v", err)
 	}
 	app.WaitFor("id:offline", 15*time.Second)
+}
+
+// uiRunner is a provider that holds its turn until it is stopped, so a
+// test can queue prompts under a live run.
+type uiRunner struct {
+	started chan struct{}
+}
+
+func (uiRunner) ID() string   { return "ui-fake" }
+func (uiRunner) Name() string { return "UI Fake" }
+
+func (uiRunner) Snapshot(context.Context) proto.Provider {
+	return proto.Provider{ID: "ui-fake", Name: "UI Fake", Installed: true, Version: "1.0",
+		Models: []proto.Model{{ID: "ui-fake-1", Name: "UI Fake One", Provider: "ui-fake", Default: true}}}
+}
+
+func (r uiRunner) Run(ctx context.Context, turn provider.Turn, sink provider.Sink) error {
+	if r.started != nil {
+		select {
+		case r.started <- struct{}{}:
+		default:
+		}
+	}
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// TestUIQueuedPrompt queues a prompt under a live run, checks the client
+// sends it when the run ends, and that a queued prompt can be removed.
+func TestUIQueuedPrompt(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	srv.Service.Providers.Register(uiRunner{started: make(chan struct{}, 4)})
+
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Demo", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Queue thread", Provider: "ui-fake", Model: "ui-fake-1", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	first, err := srv.Service.Send(ctx, thread.ID, "First prompt")
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	defer srv.Service.Stop(thread.ID)
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("text:Stop", 10*time.Second)
+
+	app.Type("label:Message", "Queued prompt")
+	app.Press("text:Send")
+	app.WaitFor("id:queued", 5*time.Second)
+	app.WaitFor("text:Queued prompt", 5*time.Second)
+	if runs, err := srv.Store.Runs(ctx, thread.ID); err != nil || len(runs) != 1 || runs[0].ID != first.ID {
+		t.Fatalf("runs before the turn ended = %#v, %v", runs, err)
+	}
+
+	// Stopping the live run finishes it, so the client posts the prompt
+	// that waited behind it.
+	srv.Service.Stop(thread.ID)
+	app.WaitUntil(10*time.Second, func() bool {
+		runs, err := srv.Store.Runs(ctx, thread.ID)
+		if err != nil || len(runs) != 2 {
+			return false
+		}
+		return runs[1].Prompt == "Queued prompt"
+	})
+	app.WaitForGone("id:queued", 10*time.Second)
+	app.WaitFor("text:Stop", 10*time.Second)
+
+	// A queued prompt can be dropped instead.
+	app.Type("label:Message", "Never sent")
+	app.Press("text:Send")
+	app.WaitFor("text:Never sent", 5*time.Second)
+	app.Press("id:queued-remove-0")
+	app.WaitForGone("text:Never sent", 5*time.Second)
+	if runs, err := srv.Store.Runs(ctx, thread.ID); err != nil || len(runs) != 2 {
+		t.Fatalf("runs after removing = %d, %v", len(runs), err)
+	}
 }

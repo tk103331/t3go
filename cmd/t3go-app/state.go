@@ -45,6 +45,8 @@ type app struct {
 	messages *core.Signal[[]proto.Message]
 	running  *core.Signal[bool]
 	draft    *core.Signal[string]
+	queue    *core.Signal[[]string]
+	queued   map[string][]string
 
 	// dialogs
 	showNewProject *core.Signal[bool]
@@ -106,6 +108,8 @@ func newApp(cx *core.Scope) *app {
 		messages: sliceSignal[proto.Message](cx),
 		running:  core.NewSignal(cx, false),
 		draft:    core.NewSignal(cx, ""),
+		queue:    sliceSignal[string](cx),
+		queued:   map[string][]string{},
 
 		showNewProject: core.NewSignal(cx, false),
 		showNewThread:  core.NewSignal(cx, false),
@@ -235,6 +239,8 @@ func (a *app) disconnect() {
 	a.store.RemoveItem("token")
 	a.connected.Set(false)
 	a.offline.Set(false)
+	a.queued = map[string][]string{}
+	a.queue.Set(nil)
 	a.selected.Set("")
 	a.messages.Set(nil)
 	a.detail.Set(proto.ThreadDetail{})
@@ -290,6 +296,7 @@ func (a *app) applyEvent(e proto.Event) {
 			a.detail.Set(d)
 			if t.Status != proto.ThreadRunning {
 				a.running.Set(false)
+				a.maybeFlush(t.ID)
 			}
 		}
 	case proto.EventThreadDeleted:
@@ -326,6 +333,7 @@ func (a *app) applyEvent(e proto.Event) {
 	case proto.EventRunFinished:
 		if e.ThreadID == a.selected.GetUntracked() {
 			a.running.Set(false)
+			a.maybeFlush(e.ThreadID)
 			if run, ok := decodeData[proto.Run](e.Data); ok {
 				d := a.detail.GetUntracked()
 				found := false
@@ -502,6 +510,7 @@ func (a *app) selectThread(id string) {
 	a.messages.Set(nil)
 	a.detail.Set(proto.ThreadDetail{})
 	a.running.Set(false)
+	a.refreshQueue()
 	a.loadDetail(id)
 }
 
@@ -524,6 +533,7 @@ func (a *app) loadDetail(id string) {
 			a.detail.Set(d)
 			a.messages.Set(d.Messages)
 			a.running.Set(d.Thread.Status == proto.ThreadRunning)
+			a.maybeFlush(id)
 			a.newThreadProv.Set(d.Thread.Provider)
 			a.newThreadModel.Set(d.Thread.Model)
 			a.newThreadPerm.Set(d.Thread.Permission)
@@ -534,22 +544,75 @@ func (a *app) loadDetail(id string) {
 func (a *app) send() {
 	id := a.selected.GetUntracked()
 	text := strings.TrimSpace(a.draft.GetUntracked())
-	c := a.client()
-	if id == "" || text == "" || c == nil {
+	if id == "" || text == "" || a.client() == nil {
 		return
 	}
 	a.draft.Set("")
 	a.connErr.Set("")
+	// A prompt sent while the agent works waits its turn here; the next
+	// run finishes before the client posts it.
+	if a.running.GetUntracked() {
+		a.queued[id] = append(a.queued[id], text)
+		a.refreshQueue()
+		return
+	}
+	a.sendPrompt(id, text)
+}
+
+// sendPrompt posts a prompt to a thread that has no live run.
+func (a *app) sendPrompt(threadID, text string) {
 	a.running.Set(true)
 	a.call(func(ctx context.Context, c *client.Client) error {
-		_, err := c.Send(ctx, id, text)
+		_, err := c.Send(ctx, threadID, text)
 		return err
 	}, func(err error) {
 		if err != nil {
 			a.running.Set(false)
 			a.connErr.Set(friendlyError(err))
+			// Keep the prompt rather than losing it to a failed request.
+			a.queued[threadID] = append([]string{text}, a.queued[threadID]...)
+			a.refreshQueue()
 		}
 	})
+}
+
+// maybeFlush starts the thread's next queued prompt once it is idle and
+// on screen.
+func (a *app) maybeFlush(threadID string) {
+	if threadID != a.selected.GetUntracked() || a.running.GetUntracked() {
+		return
+	}
+	queue := a.queued[threadID]
+	if len(queue) == 0 {
+		return
+	}
+	next := queue[0]
+	a.queued[threadID] = queue[1:]
+	a.refreshQueue()
+	a.sendPrompt(threadID, next)
+}
+
+// refreshQueue shows the open thread's queued prompts.
+func (a *app) refreshQueue() {
+	queue := a.queued[a.selected.GetUntracked()]
+	if len(queue) == 0 {
+		a.queue.Set(nil)
+		return
+	}
+	next := make([]string, len(queue))
+	copy(next, queue)
+	a.queue.Set(next)
+}
+
+// dropQueued removes the queued prompt at i.
+func (a *app) dropQueued(i int) {
+	id := a.selected.GetUntracked()
+	queue := a.queued[id]
+	if i < 0 || i >= len(queue) {
+		return
+	}
+	a.queued[id] = append(queue[:i:i], queue[i+1:]...)
+	a.refreshQueue()
 }
 
 func (a *app) stop() {
@@ -557,6 +620,9 @@ func (a *app) stop() {
 	if id == "" {
 		return
 	}
+	// Stop ends the turn and what was queued behind it.
+	a.queued[id] = nil
+	a.refreshQueue()
 	a.call(func(ctx context.Context, c *client.Client) error {
 		_, err := c.Stop(ctx, id)
 		return err
