@@ -108,7 +108,7 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
   token          # 32 字节随机 token
   t3go.sqlite    # 状态与事件
   worktrees/     # 线程独立 worktree
-  logs/
+  logs/t3go.log   # 服务日志
 ```
 
 ## API
@@ -141,9 +141,9 @@ REST，socket 只负责推送。
 事件类型：
 
 ```
-project.updated   thread.created   thread.updated   thread.deleted
-run.started       run.finished     message.updated  message.delta
-notice
+project.updated   settings.updated   thread.created   thread.updated
+thread.deleted    run.started        run.finished     message.updated
+message.delta     notice
 ```
 
 ## 权限模式

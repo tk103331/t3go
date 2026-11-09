@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -84,7 +85,7 @@ func cmdServe(args []string) int {
 		return 1
 	}
 	cfg.Version = version
-	logger := newLogger(*quiet)
+	logger := newLogger(*quiet, cfg.Home)
 
 	srv, err := server.New(cfg, logger)
 	if err != nil {
@@ -201,7 +202,7 @@ func cmdDoctor(args []string) int {
 	}
 
 	// The server must be able to open its database.
-	if srv, err := server.New(cfg, newLogger(true)); err != nil {
+	if srv, err := server.New(cfg, newLogger(true, cfg.Home)); err != nil {
 		check("db", false, err.Error())
 	} else {
 		check("db", true, "opened")
@@ -238,9 +239,17 @@ func cmdDoctor(args []string) int {
 	return 0
 }
 
-func newLogger(quiet bool) *log.Logger {
+// newLogger writes to stderr and, when the data directory is writable, to
+// its log file, so a service started in the background keeps a record.
+func newLogger(quiet bool, home string) *log.Logger {
 	if quiet {
 		return log.New(io.Discard, "", 0)
 	}
-	return log.New(os.Stderr, "t3go: ", log.LstdFlags)
+	out := io.Writer(os.Stderr)
+	if home != "" {
+		if f, err := os.OpenFile(filepath.Join(home, "logs", "t3go.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
+			out = io.MultiWriter(os.Stderr, f)
+		}
+	}
+	return log.New(out, "t3go: ", log.LstdFlags)
 }
