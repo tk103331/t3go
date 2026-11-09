@@ -171,3 +171,109 @@ func TestRunStopMarksCancelled(t *testing.T) {
 		t.Fatal("assistant returned no text")
 	}
 }
+
+type blockingRunner struct {
+	started chan struct{}
+}
+
+func (b *blockingRunner) ID() string   { return "blocking" }
+func (b *blockingRunner) Name() string { return "Blocking Agent" }
+
+func (b *blockingRunner) Snapshot(context.Context) proto.Provider {
+	return proto.Provider{ID: "blocking", Name: "Blocking Agent", Installed: true, Version: "1.0",
+		Models: []proto.Model{{ID: "blocking-1", Name: "Blocking One", Provider: "blocking", Default: true}}}
+}
+
+func (b *blockingRunner) Run(ctx context.Context, turn provider.Turn, sink provider.Sink) error {
+	close(b.started)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// TestShutdownStopsRuns checks that a shutdown cancels the live run and
+// records it before the database closes.
+func TestShutdownStopsRuns(t *testing.T) {
+	ctx := context.Background()
+	runner := &blockingRunner{started: make(chan struct{})}
+	svc := newTestService(t, runner)
+	project, err := svc.CreateProject(ctx, "demo", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := svc.CreateThread(ctx, CreateThreadInput{ProjectID: project.ID, Title: "Long run",
+		Provider: "blocking", Model: "blocking-1", Permission: proto.PermissionFullAccess})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	run, err := svc.Send(ctx, thread.ID, "Keep working")
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	select {
+	case <-runner.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the run never started")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	svc.Shutdown(shutdownCtx)
+
+	detail, err := svc.Detail(ctx, thread.ID)
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if detail.Thread.Status != proto.ThreadIdle {
+		t.Fatalf("thread status = %q, want idle", detail.Thread.Status)
+	}
+	if len(detail.Runs) != 1 || detail.Runs[0].ID != run.ID || detail.Runs[0].Status != proto.RunCancelled {
+		t.Fatalf("runs = %#v", detail.Runs)
+	}
+}
+
+// TestRecoverInterrupted marks what a crash left running as failed.
+func TestRecoverInterrupted(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t, &fakeRunner{})
+	project, err := svc.CreateProject(ctx, "demo", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := svc.CreateThread(ctx, CreateThreadInput{ProjectID: project.ID, Title: "Crashed",
+		Provider: "fake", Model: "fake-1", Permission: proto.PermissionFullAccess})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	now := time.Now()
+	if err := svc.Store.CreateRun(ctx, proto.Run{ID: "run_crashed", ThreadID: thread.ID, Status: proto.RunRunning,
+		Provider: "fake", Model: "fake-1", Permission: proto.PermissionFullAccess, Prompt: "work", StartedAt: now}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	thread.Status = proto.ThreadRunning
+	thread.UpdatedAt = now
+	if err := svc.Store.UpdateThread(ctx, thread); err != nil {
+		t.Fatalf("update thread: %v", err)
+	}
+
+	runs, threads, err := svc.RecoverInterrupted(ctx)
+	if err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	if runs != 1 || threads != 1 {
+		t.Fatalf("recovered %d runs and %d threads, want 1 and 1", runs, threads)
+	}
+	detail, err := svc.Detail(ctx, thread.ID)
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if detail.Thread.Status != proto.ThreadFailed || detail.Thread.LastError != interruptedReason {
+		t.Fatalf("thread = %#v", detail.Thread)
+	}
+	if len(detail.Runs) != 1 || detail.Runs[0].Status != proto.RunFailed || detail.Runs[0].Error != interruptedReason || detail.Runs[0].EndedAt == nil {
+		t.Fatalf("runs = %#v", detail.Runs)
+	}
+
+	if runs, threads, err := svc.RecoverInterrupted(ctx); err != nil || runs != 0 || threads != 0 {
+		t.Fatalf("second recover = %d, %d, %v", runs, threads, err)
+	}
+}

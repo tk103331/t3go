@@ -93,6 +93,8 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-s.closing:
+			return
 		case e, ok := <-live:
 			if !ok {
 				return

@@ -115,6 +115,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-s.closing:
+			return
 		case e, ok := <-live:
 			if !ok {
 				return

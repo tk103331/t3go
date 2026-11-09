@@ -41,6 +41,8 @@ type Server struct {
 	http     *http.Server
 	listener net.Listener
 	addr     string
+	closing  chan struct{}
+	stopOnce sync.Once
 }
 
 // New opens the environment's database and builds its services.
@@ -55,7 +57,14 @@ func New(cfg config.Config, logger *log.Logger) (*Server, error) {
 	bus := events.New(st)
 	providers := provider.NewRegistry()
 	svc := orchestrator.New(st, providers, bus, cfg.Home, logger)
-	s := &Server{Config: cfg, Store: st, Service: svc, Bus: bus, Log: logger, ID: id.New("env"), StartedAt: time.Now()}
+	s := &Server{Config: cfg, Store: st, Service: svc, Bus: bus, Log: logger, ID: id.New("env"), StartedAt: time.Now(),
+		closing: make(chan struct{})}
+	if runs, threads, err := svc.RecoverInterrupted(context.Background()); err != nil {
+		_ = st.Close()
+		return nil, err
+	} else if runs > 0 || threads > 0 {
+		logger.Printf("recovered %d interrupted runs and %d threads", runs, threads)
+	}
 	return s, nil
 }
 
@@ -106,6 +115,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	s.mu.Unlock()
 	go func() {
 		<-ctx.Done()
+		s.stopStreaming()
 		shutdown, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
 		_ = httpServer.Shutdown(shutdown)
@@ -116,16 +126,26 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	return nil
 }
 
-// Close stops the HTTP server and the database.
+// stopStreaming ends the live SSE and WebSocket handlers, which would
+// otherwise hold Shutdown open until its deadline.
+func (s *Server) stopStreaming() {
+	s.stopOnce.Do(func() { close(s.closing) })
+}
+
+// Close stops the HTTP server, the live runs and the database.
 func (s *Server) Close() error {
+	s.stopStreaming()
 	s.mu.Lock()
 	h := s.http
 	s.mu.Unlock()
+	httpCtx, httpCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	if h != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = h.Shutdown(ctx)
-		cancel()
+		_ = h.Shutdown(httpCtx)
 	}
+	httpCancel()
+	runCtx, runCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	s.Service.Shutdown(runCtx)
+	runCancel()
 	return s.Store.Close()
 }
 

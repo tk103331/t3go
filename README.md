@@ -12,7 +12,7 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 已实现：
 
 - SQLite 持久化：项目、线程、消息、运行、设置、事件重放窗口
-- 线程运行生命周期：流式文本、思考过程、工具调用、停止、失败、用量
+- 线程运行生命周期：流式文本、思考过程、工具调用、停止、失败、用量，重启时清理中断的 run
 - Provider CLI 适配：`claude`、`codex`、`opencode`，含模型列表与版本探测
 - Git：工作区状态、每个 run 的 checkpoint（`git stash create` + 隐藏 ref）、run diff、worktree
 - HTTP REST API、SSE 事件流、WebSocket 事件流、Bearer token 鉴权、CORS

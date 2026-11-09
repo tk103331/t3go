@@ -45,6 +45,9 @@ client POST /threads/{id}/messages
                  └─ 线程回到 idle 或 failed
 ```
 
+服务启动时把上次异常退出遗留的 `running` run 和线程标成失败（原因是环境重启），
+关闭时先结束 SSE/WebSocket 推送、取消活动 run 并等待它们落库，再关闭数据库。
+
 每次状态变化都会先写 `events` 表再广播，因此新客户端可以用 `after` 重放
 最近的窗口；窗口之外的旧事件由快照（`GET /state`、`GET /threads/{id}`）补齐。
 `GET /state` 返回快照构建时的 `seq`，客户端从该 `seq` 之后订阅事件，既不会

@@ -57,6 +57,34 @@ func New(st *store.Store, providers *provider.Registry, bus *events.Bus, home st
 	return &Service{Store: st, Providers: providers, Bus: bus, Home: home, Log: logger, active: map[string]*activeRun{}}
 }
 
+// interruptedReason is what a run a crash or shutdown cut short reports.
+const interruptedReason = "the environment restarted before this run finished"
+
+// RecoverInterrupted marks the runs and threads a crash left running, so
+// the next start shows them as failed instead of running forever.
+func (s *Service) RecoverInterrupted(ctx context.Context) (runs, threads int64, err error) {
+	return s.Store.InterruptRuns(ctx, interruptedReason, time.Now())
+}
+
+// Shutdown cancels the live runs and waits for them to record their end,
+// so the database closes after them.
+func (s *Service) Shutdown(ctx context.Context) {
+	s.mu.Lock()
+	live := make([]*activeRun, 0, len(s.active))
+	for _, run := range s.active {
+		run.cancel()
+		live = append(live, run)
+	}
+	s.mu.Unlock()
+	for _, run := range live {
+		select {
+		case <-run.done:
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
 // Running reports whether a thread has a live run.
 func (s *Service) Running(threadID string) bool {
 	s.mu.Lock()

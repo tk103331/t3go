@@ -315,6 +315,25 @@ func (s *Store) DeleteThread(ctx context.Context, id string) error {
 	return nil
 }
 
+// InterruptRuns marks the runs and threads a crash left running as
+// failed, so a restart does not leave a thread that can never finish.
+func (s *Store) InterruptRuns(ctx context.Context, reason string, now time.Time) (runs, threads int64, err error) {
+	ended := now.UTC().Format(time.RFC3339Nano)
+	res, err := s.db.ExecContext(ctx, `UPDATE runs SET status=?, ended_at=?, error=? WHERE status=?`,
+		proto.RunFailed, ended, reason, proto.RunRunning)
+	if err != nil {
+		return 0, 0, fmt.Errorf("store: interrupt runs: %w", err)
+	}
+	runs, _ = res.RowsAffected()
+	res, err = s.db.ExecContext(ctx, `UPDATE threads SET status=?, last_error=?, updated_at=? WHERE status=?`,
+		proto.ThreadFailed, reason, ended, proto.ThreadRunning)
+	if err != nil {
+		return runs, 0, fmt.Errorf("store: interrupt threads: %w", err)
+	}
+	threads, _ = res.RowsAffected()
+	return runs, threads, nil
+}
+
 // CreateRun inserts a run.
 func (s *Store) CreateRun(ctx context.Context, r proto.Run) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO runs(id,thread_id,status,provider,model,permission,prompt,started_at,ended_at,error,checkpoint,usage)

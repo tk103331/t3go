@@ -260,3 +260,38 @@ func TestListDir(t *testing.T) {
 		t.Fatalf("dirs = %#v", out.Dirs)
 	}
 }
+
+// TestCloseEndsStreams checks that closing the environment ends an open
+// SSE stream instead of waiting out the HTTP shutdown deadline.
+func TestCloseEndsStreams(t *testing.T) {
+	e := newTestEnv(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, e.http.URL+"/api/v1/events?after=0", nil)
+	req.Header.Set("Authorization", "Bearer "+e.token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("sse: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sse status = %d", resp.StatusCode)
+	}
+
+	drained := make(chan error, 1)
+	go func() {
+		_, err := io.Copy(io.Discard, resp.Body)
+		drained <- err
+	}()
+
+	start := time.Now()
+	if err := e.server.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	select {
+	case <-drained:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("the stream stayed open %v after Close", time.Since(start))
+	}
+}
