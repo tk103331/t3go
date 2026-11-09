@@ -307,6 +307,11 @@ func (a *app) applyEvent(e proto.Event) {
 			a.messages.Set(nil)
 			a.detail.Set(proto.ThreadDetail{})
 		}
+	case proto.EventSettings:
+		if settings, ok := decodeData[proto.Settings](e.Data); ok {
+			a.applyTheme(settings.Theme)
+			a.settings.Set(settings)
+		}
 	case proto.EventProject:
 		if p, ok := decodeData[proto.Project](e.Data); ok && p.ID != "" {
 			a.upsertProject(p)

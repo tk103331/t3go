@@ -609,3 +609,30 @@ func TestUINewThreadInProject(t *testing.T) {
 		t.Fatalf("alpha threads = %d, %v", len(threads), err)
 	}
 }
+
+// TestUISettingsFromAnotherClient changes the environment's settings from
+// outside the app and checks the event reaches it.
+func TestUISettingsFromAnotherClient(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:settings", 15*time.Second)
+
+	settings := srv.Service.Settings(ctx)
+	settings.Title = "Shared env"
+	settings.Theme = "dark"
+	if err := srv.Service.SaveSettings(ctx, settings); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+	app.WaitFor("id:content-header >> text:Shared env", 10*time.Second)
+
+	app.Press("id:settings")
+	app.WaitFor("id:settings-save", 5*time.Second)
+	if got := app.Find("label:Environment name").Text; got != "Shared env" {
+		t.Fatalf("environment name field = %q", got)
+	}
+}

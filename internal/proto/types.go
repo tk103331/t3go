@@ -223,6 +223,7 @@ const (
 	EventRunStarted    = "run.started"
 	EventRunFinished   = "run.finished"
 	EventProject       = "project.updated"
+	EventSettings      = "settings.updated"
 	EventNotice        = "notice"
 )
 

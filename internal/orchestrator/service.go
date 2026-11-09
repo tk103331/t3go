@@ -110,7 +110,11 @@ func (s *Service) SaveSettings(ctx context.Context, settings proto.Settings) err
 	if err != nil {
 		return err
 	}
-	return s.Store.SetSetting(ctx, "settings", string(raw))
+	if err := s.Store.SetSetting(ctx, "settings", string(raw)); err != nil {
+		return err
+	}
+	s.publish(ctx, proto.Event{Type: proto.EventSettings, Data: settings})
+	return nil
 }
 
 // CreateProject registers a directory.
