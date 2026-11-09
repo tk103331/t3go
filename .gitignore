@@ -1,0 +1,16 @@
+# build output
+/bin/
+/t3go
+/t3go-app
+
+# local data
+.t3go/
+*.sqlite
+*.sqlite-*
+
+# macOS
+.DS_Store
+
+# editors
+.idea/
+.vscode/
