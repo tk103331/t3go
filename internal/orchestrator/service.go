@@ -267,6 +267,9 @@ func (s *Service) DeleteProject(ctx context.Context, projectID string) error {
 
 // CreateThreadInput creates a thread, optionally in its own worktree.
 type CreateThreadInput struct {
+	// ID, when set, is the thread's identifier, for an upstream client that
+	// chose it. Empty makes a new one.
+	ID         string
 	ProjectID  string
 	Title      string
 	Provider   string
@@ -300,7 +303,7 @@ func (s *Service) CreateThread(ctx context.Context, in CreateThreadInput) (proto
 	}
 	now := time.Now()
 	thread := proto.Thread{
-		ID: id.New("thr"), ProjectID: project.ID, Title: cleanTitle(in.Title), Provider: in.Provider, Model: in.Model,
+		ID: nonEmptyID(in.ID, "thr"), ProjectID: project.ID, Title: cleanTitle(in.Title), Provider: in.Provider, Model: in.Model,
 		Permission: in.Permission, Branch: strings.TrimSpace(in.Branch), Status: proto.ThreadIdle, CreatedAt: now, UpdatedAt: now,
 	}
 	if thread.Title == "" {
@@ -477,6 +480,13 @@ func (s *Service) Wait(ctx context.Context, threadID string) error {
 
 func (s *Service) publish(ctx context.Context, e proto.Event) {
 	_ = s.Bus.Publish(ctx, e)
+}
+
+func nonEmptyID(given, prefix string) string {
+	if strings.TrimSpace(given) != "" {
+		return strings.TrimSpace(given)
+	}
+	return id.New(prefix)
 }
 
 // cleanTitle keeps a title to one line and a sensible length.

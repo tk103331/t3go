@@ -15,14 +15,15 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
 | `/ws?...&wsTicket=<ticket>` | 用 ticket 升级 WebSocket，或用 Bearer header |
 | `GET /ws?orchestrationProtocol=2` | Effect RPC 的 JSON 帧（`_tag: Request/Exit/Chunk`，含 `Ping/Pong`） |
 | `server.probe` | 环境探活 |
-| `server.getConfig` | 最小 `ServerConfig`（环境、auth、cwd、空 provider/编辑器列表、默认设置） |
+| `server.getConfig` | `ServerConfig`：环境、auth、cwd、T3Go 的 provider/模型目录、默认设置 |
 | `subscribeServerConfig` | 第一帧 `{version:1,type:"snapshot",config}` |
 | `subscribeServerLifecycle` | `welcome` 事件 |
 | `orchestration.subscribeShell` | `snapshot` + `synchronized`，包含 T3Go 的项目和线程 shell 行；之后的项目/线程变化以 `project.updated` / `project.removed` / `thread.updated` / `thread.removed` 实时推送 |
 | `subscribeAuthAccess` | 空权限流 |
 | `orchestration.subscribeThread` | 线程快照：AppThread、文本消息与 `user_message`/`assistant_message` turn item，并按 200ms 的文本更新推送 `message.updated` / `turn-item.updated` 事件 |
 | `orchestration.getThreadProjection` | 同一投影的普通请求 |
-| `orchestration.dispatchCommand` | `message.dispatch` 映射到 T3Go 的发送，`thread.stop` 映射到停止 |
+| `orchestration.launchThread` | 用客户端的 threadId、项目、模型和 runtime mode 创建线程，可带首条消息 |
+| `orchestration.dispatchCommand` | `message.dispatch`、`thread.stop`、`thread.archive`/`unarchive`、`thread.delete` |
 
 以上形状用上游本仓库的 `@t3tools/contracts`（0.1.8）与 `effect@4.1.2` 的
 `RpcClient` 实际解码验证过：项目/线程 shell、订阅后的实时项目更新，以及带两条
@@ -35,15 +36,14 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
   证明和云 relay 流程尚未实现
 - `t3code://pair` 链接本身：`t3go serve`/`t3go pair --json` 会给出
   `http://host/#token=...` 形式的直连地址，官方客户端可直接作为 pairing URL
-- `ServerConfig` 里的 provider 目录、模型和编辑器列表
-- 线程创建/归档/删除等其余 dispatch 命令
 - reasoning、工具调用、审批、run 状态在 turn item / v2 事件里的完整投影
-- 附件、diff、git、usage 等其余 RPC
+- 附件、diff、git、usage、搜索等其余 RPC
+- `workspaceStrategy` 的 worktree 分支（目前按 root 创建）
 - 上游 `t3code://pair` 链接格式
 
 官方客户端现在可以用 bearer 直连配对（把 `t3go serve` 打印的 `t3` 地址作为
-pairing URL）、看到项目和线程列表、打开线程读到文本历史，并通过
-`message.dispatch` 发送消息。reasoning/工具调用、附件和完整 run 元数据仍会让
+pairing URL）、看到项目和线程列表、打开线程读到文本历史、通过
+`launchThread` 新建线程、通过 `message.dispatch` 发送消息，并归档/删除线程。reasoning/工具调用、附件和完整 run 元数据仍会让
 细节缺失；T3Go 自己的客户端不受影响。
 
 ## 验证方式

@@ -616,6 +616,13 @@ func (s *Server) upstreamEnvironment() upstream.Environment {
 			})
 		}
 	}
+	for _, p := range s.Service.Providers.Snapshot(ctx) {
+		provider := upstream.Provider{ID: p.ID, Name: p.Name, Installed: p.Installed, Version: p.Version}
+		for _, m := range p.Models {
+			provider.Models = append(provider.Models, upstream.Model{ID: m.ID, Name: m.Name, Default: m.Default, Custom: m.Custom})
+		}
+		env.Providers = append(env.Providers, provider)
+	}
 	if threads, err := s.Store.Threads(ctx, "", true); err == nil {
 		for _, t := range threads {
 			env.Threads = append(env.Threads, upstream.Thread{
@@ -734,6 +741,11 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			continue
+		case "orchestration.launchThread":
+			if !s.upstreamLaunch(ctx, writer, envelope.ID, envelope.Payload) {
+				return
+			}
+			continue
 		}
 		frames, _, known := upstream.Handle(env, upstream.Request{Tag: envelope.Tag, ID: envelope.ID, Payload: envelope.Payload})
 		if !known {
@@ -775,6 +787,71 @@ func (s *Server) upstreamThread(threadID string) (upstream.Thread, []upstream.Me
 	return shellThread(thread), messages, true
 }
 
+// upstreamLaunch creates a thread for a T3 Code client and optionally sends
+// its first message.
+func (s *Server) upstreamLaunch(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, payload json.RawMessage) bool {
+	var input struct {
+		ThreadID       string `json:"threadId"`
+		ReuseExisting  bool   `json:"reuseExistingThread"`
+		ProjectID      string `json:"projectId"`
+		Title          string `json:"title"`
+		RuntimeMode    string `json:"runtimeMode"`
+		ModelSelection struct {
+			InstanceID string `json:"instanceId"`
+			Model      string `json:"model"`
+		} `json:"modelSelection"`
+		InitialMessage struct {
+			Text string `json:"text"`
+		} `json:"initialMessage"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		_ = writer.write(upstream.UnknownFailure(requestID, "invalid launch"))
+		return true
+	}
+	thread, err := s.Store.Thread(ctx, input.ThreadID)
+	resumed := false
+	if input.ReuseExisting && err == nil {
+		resumed = true
+	} else {
+		thread, err = s.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+			ID: input.ThreadID, ProjectID: input.ProjectID, Title: input.Title,
+			Provider: input.ModelSelection.InstanceID, Model: input.ModelSelection.Model,
+			Permission: permissionFromRuntimeMode(input.RuntimeMode),
+		})
+	}
+	if err != nil {
+		_ = writer.write(upstream.UnknownFailure(requestID, err.Error()))
+		return true
+	}
+	if strings.TrimSpace(input.InitialMessage.Text) != "" {
+		_, _ = s.Service.SendWith(ctx, thread.ID, input.InitialMessage.Text, nil)
+	}
+	shell, messages, ok := s.upstreamThread(thread.ID)
+	if !ok {
+		_ = writer.write(upstream.UnknownFailure(requestID, "the thread vanished"))
+		return true
+	}
+	return writer.write(upstream.Exit(requestID, map[string]any{
+		"threadId":   thread.ID,
+		"projection": upstream.ThreadProjection(shell, messages),
+		"resumed":    resumed,
+		"sequence":   0,
+	})) == nil
+}
+
+func permissionFromRuntimeMode(mode string) proto.PermissionMode {
+	switch mode {
+	case "approval-required":
+		return proto.PermissionSupervised
+	case "auto-accept-edits":
+		return proto.PermissionAcceptEdits
+	case "auto":
+		return proto.PermissionAuto
+	default:
+		return proto.PermissionFullAccess
+	}
+}
+
 // upstreamDispatch maps the T3 Code commands this layer understands.
 func (s *Server) upstreamDispatch(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, payload json.RawMessage) bool {
 	var command struct {
@@ -795,6 +872,19 @@ func (s *Server) upstreamDispatch(ctx context.Context, writer *upstreamWriter, r
 		return writer.write(upstream.Exit(requestID, map[string]any{"sequence": 0})) == nil
 	case "thread.stop":
 		s.Service.Stop(command.ThreadID)
+		return writer.write(upstream.Exit(requestID, map[string]any{"sequence": 0})) == nil
+	case "thread.archive", "thread.unarchive":
+		archived := command.Type == "thread.archive"
+		if _, err := s.Service.UpdateThread(ctx, command.ThreadID, orchestrator.ThreadPatch{Archived: &archived}); err != nil {
+			_ = writer.write(upstream.UnknownFailure(requestID, err.Error()))
+			return true
+		}
+		return writer.write(upstream.Exit(requestID, map[string]any{"sequence": 0})) == nil
+	case "thread.delete":
+		if err := s.Service.DeleteThread(ctx, command.ThreadID); err != nil {
+			_ = writer.write(upstream.UnknownFailure(requestID, err.Error()))
+			return true
+		}
 		return writer.write(upstream.Exit(requestID, map[string]any{"sequence": 0})) == nil
 	default:
 		_ = writer.write(upstream.UnknownFailure(requestID, upstream.Unknown(command.Type)))

@@ -527,6 +527,13 @@ func TestUpstreamDiscoveryAndProbe(t *testing.T) {
 	if config["environment"] == nil || config["providers"] == nil {
 		t.Fatalf("config = %#v", frame)
 	}
+	providers, _ := config["providers"].([]any)
+	if len(providers) == 0 {
+		t.Fatal("config lists no providers")
+	}
+	if provider := providers[0].(map[string]any); provider["instanceId"] == "" || provider["models"] == nil {
+		t.Fatalf("provider = %#v", provider)
+	}
 
 	send(map[string]any{"_tag": "Request", "id": 3, "tag": "orchestration.subscribeShell", "payload": map[string]any{}, "headers": []any{}})
 	frame = read()
@@ -768,5 +775,74 @@ func TestUpstreamBearerAuth(t *testing.T) {
 	// The ticket is one-time.
 	if _, _, err := websocket.Dial(ctx, wsURL, nil); err == nil {
 		t.Fatal("a used ticket opened another socket")
+	}
+}
+
+// TestUpstreamLaunchAndManage creates a thread through the upstream RPC,
+// sends its first message, then archives and deletes it.
+func TestUpstreamLaunchAndManage(t *testing.T) {
+	e := newTestEnv(t)
+	e.server.Service.Providers.Register(upstreamRunner{})
+	project := e.project(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2"
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+		"Authorization": []string{"Bearer " + e.token},
+	}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+	write := func(v any) {
+		t.Helper()
+		if err := wsjson.Write(ctx, conn, v); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	read := func() map[string]any {
+		t.Helper()
+		var frame map[string]any
+		if err := wsjson.Read(ctx, conn, &frame); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		return frame
+	}
+
+	const threadID = "thr_upstream_launch"
+	write(map[string]any{"_tag": "Request", "id": 1, "tag": "orchestration.launchThread", "headers": []any{},
+		"payload": map[string]any{"commandId": "cmd_launch", "threadId": threadID, "projectId": project.ID,
+			"title": "Launched upstream", "runtimeMode": "full-access", "interactionMode": "default",
+			"modelSelection":    map[string]any{"instanceId": "upstream-fake", "model": "upstream-fake-1"},
+			"workspaceStrategy": map[string]any{"type": "root"},
+			"initialMessage":    map[string]any{"text": "Start here", "attachments": []any{}}}})
+	frame := read()
+	value, _ := frame["exit"].(map[string]any)["value"].(map[string]any)
+	if frame["_tag"] != "Exit" || value["threadId"] != threadID {
+		t.Fatalf("launch = %#v", frame)
+	}
+	projection, _ := value["projection"].(map[string]any)
+	if thread := projection["thread"].(map[string]any); thread["title"] != "Launched upstream" || thread["id"] != threadID {
+		t.Fatalf("projection thread = %#v", thread)
+	}
+
+	write(map[string]any{"_tag": "Request", "id": 2, "tag": "orchestration.dispatchCommand", "headers": []any{},
+		"payload": map[string]any{"type": "thread.archive", "commandId": "cmd_archive", "threadId": threadID}})
+	if frame := read(); frame["_tag"] != "Exit" {
+		t.Fatalf("archive = %#v", frame)
+	}
+	archived, err := e.server.Store.Thread(ctx, threadID)
+	if err != nil || !archived.Archived {
+		t.Fatalf("thread after archive = %#v, %v", archived, err)
+	}
+
+	write(map[string]any{"_tag": "Request", "id": 3, "tag": "orchestration.dispatchCommand", "headers": []any{},
+		"payload": map[string]any{"type": "thread.delete", "commandId": "cmd_delete", "threadId": threadID}})
+	if frame := read(); frame["_tag"] != "Exit" {
+		t.Fatalf("delete = %#v", frame)
+	}
+	if _, err := e.server.Store.Thread(ctx, threadID); err == nil {
+		t.Fatal("the thread was not deleted")
 	}
 }

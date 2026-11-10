@@ -42,6 +42,23 @@ type Thread struct {
 	UpdatedAt    time.Time
 }
 
+// Provider is one agent CLI and its models.
+type Provider struct {
+	ID        string
+	Name      string
+	Installed bool
+	Version   string
+	Models    []Model
+}
+
+// Model is one model a provider offers.
+type Model struct {
+	ID      string
+	Name    string
+	Default bool
+	Custom  bool
+}
+
 // Environment is what the compatibility layer needs from the server.
 type Environment struct {
 	ID      string
@@ -52,9 +69,10 @@ type Environment struct {
 	LogsDir string
 	// Token lets a client authenticate as this environment. Empty accepts
 	// no bearer credential.
-	Token    string
-	Projects []Project
-	Threads  []Thread
+	Token     string
+	Projects  []Project
+	Threads   []Thread
+	Providers []Provider
 }
 
 // Descriptor is the .well-known/t3/environment answer.
@@ -117,7 +135,7 @@ func Config(env Environment) map[string]any {
 		"keybindingsConfigPath": env.Home + "/keybindings.json",
 		"keybindings":           []any{},
 		"issues":                []any{},
-		"providers":             []any{},
+		"providers":             providerRows(env.Providers),
 		"availableEditors":      []any{},
 		"observability": map[string]any{
 			"logsDirectoryPath":   env.LogsDir,
@@ -128,6 +146,39 @@ func Config(env Environment) map[string]any {
 		},
 		"settings": map[string]any{},
 	}
+}
+
+// providerRows maps providers to the upstream catalog.
+func providerRows(providers []Provider) []any {
+	rows := make([]any, 0, len(providers))
+	checked := isoTimestamp(TimeNow())
+	for _, p := range providers {
+		models := make([]any, 0, len(p.Models))
+		for _, m := range p.Models {
+			row := map[string]any{
+				"slug": m.ID, "name": nonEmpty(m.Name, m.ID), "isCustom": m.Custom, "capabilities": nil,
+			}
+			if m.Default {
+				row["isDefault"] = true
+			}
+			models = append(models, row)
+		}
+		status, availability := "ready", "available"
+		if !p.Installed {
+			status, availability = "disabled", "unavailable"
+		}
+		row := map[string]any{
+			"instanceId": p.ID, "driver": p.ID, "displayName": nonEmpty(p.Name, p.ID),
+			"enabled": true, "installed": p.Installed, "version": nullable(p.Version),
+			"status": status, "auth": map[string]any{"status": "unknown"}, "checkedAt": checked,
+			"availability": availability, "models": models,
+		}
+		if !p.Installed {
+			row["message"] = "the CLI is not on PATH"
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 // ShellSnapshot lists the environment's projects and threads in the v2
