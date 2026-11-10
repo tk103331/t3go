@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"errors"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -94,13 +95,60 @@ func (s *Server) handleThreadFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "file", err.Error())
 		return
 	}
-	file := proto.WorkspaceFile{Path: rel, Size: int64(len(raw))}
+	file := proto.WorkspaceFile{Path: rel, Size: int64(len(raw)), Mime: fileMime(rel, raw)}
 	if bytes.IndexByte(raw, 0) >= 0 || !utf8.Valid(raw) {
 		file.Binary = true
 	} else {
 		file.Content = string(raw)
 	}
 	writeJSON(w, 200, file)
+}
+
+// handleThreadRaw serves a file's bytes, for image previews and opening
+// other files outside the app.
+func (s *Server) handleThreadRaw(w http.ResponseWriter, r *http.Request) {
+	t, err := s.Store.Thread(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), "thread", err.Error())
+		return
+	}
+	root := s.Service.ThreadDir(r.Context(), t)
+	rel := filepath.ToSlash(strings.TrimSpace(r.URL.Query().Get("path")))
+	if rel == "" {
+		writeError(w, 400, "file", "path is required")
+		return
+	}
+	full, err := workspacePath(root, rel)
+	if err != nil {
+		writeError(w, 400, "file", err.Error())
+		return
+	}
+	info, err := os.Stat(full)
+	if err != nil || info.IsDir() {
+		writeError(w, 400, "file", "not a file")
+		return
+	}
+	raw, err := os.ReadFile(full)
+	if err != nil {
+		writeError(w, 400, "file", err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", fileMime(rel, raw))
+	w.Header().Set("Content-Disposition", "inline; filename=\""+strings.ReplaceAll(filepath.Base(rel), "\"", "")+"\"")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(200)
+	_, _ = w.Write(raw)
+}
+
+// fileMime infers a file's media type from its extension and bytes.
+func fileMime(path string, raw []byte) string {
+	if typ := mime.TypeByExtension(strings.ToLower(filepath.Ext(path))); typ != "" {
+		return typ
+	}
+	if bytes.IndexByte(raw, 0) >= 0 || !utf8.Valid(raw) {
+		return "application/octet-stream"
+	}
+	return "text/plain; charset=utf-8"
 }
 
 // handlePullRequest reads the open pull request for a thread's branch.

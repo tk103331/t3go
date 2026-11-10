@@ -324,6 +324,11 @@ func (c *Client) File(ctx context.Context, threadID, path string) (proto.Workspa
 	return out, err
 }
 
+// RawFileURL is where a browser or image view can read one file.
+func (c *Client) RawFileURL(threadID, path string) string {
+	return c.BaseURL + "/api/v1/threads/" + url.PathEscape(threadID) + "/raw?path=" + url.QueryEscape(path) + "&token=" + url.QueryEscape(c.Token)
+}
+
 // PullRequest reads the open pull request for a thread's branch.
 func (c *Client) PullRequest(ctx context.Context, threadID string) (proto.PullRequest, string, error) {
 	var out struct {

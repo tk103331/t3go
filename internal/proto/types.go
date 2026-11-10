@@ -187,6 +187,7 @@ type WorkspaceEntry struct {
 type WorkspaceFile struct {
 	Path    string `json:"path"`
 	Size    int64  `json:"size"`
+	Mime    string `json:"mime,omitempty"`
 	Binary  bool   `json:"binary,omitempty"`
 	Content string `json:"content,omitempty"`
 }

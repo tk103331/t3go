@@ -1823,6 +1823,9 @@ func TestWorkspaceFilesAndPullRequest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "blob.bin"), []byte{0, 1, 2}, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(repo, "pic.png"), []byte("\x89PNG\r\n\x1a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	var project proto.Project
 	if code := e.request(t, http.MethodPost, "/api/v1/projects",
 		map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
@@ -1857,7 +1860,7 @@ func TestWorkspaceFilesAndPullRequest(t *testing.T) {
 	if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/file?path=src/app.go", nil, e.token, &file); code != http.StatusOK {
 		t.Fatalf("file = %d", code)
 	}
-	if file.Binary || file.Content != "package main\n" {
+	if file.Binary || file.Content != "package main\n" || !strings.Contains(file.Mime, "text/plain") {
 		t.Fatalf("file = %#v", file)
 	}
 	if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/file?path=blob.bin", nil, e.token, &file); code != http.StatusOK || !file.Binary {
@@ -1865,6 +1868,17 @@ func TestWorkspaceFilesAndPullRequest(t *testing.T) {
 	}
 	if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/file?path=../../etc/passwd", nil, e.token, nil); code != http.StatusBadRequest {
 		t.Fatalf("traversal = %d", code)
+	}
+	rawResp, err := http.Get(e.http.URL + "/api/v1/threads/" + thread.ID + "/raw?path=pic.png&token=" + e.token)
+	if err != nil {
+		t.Fatalf("raw: %v", err)
+	}
+	defer rawResp.Body.Close()
+	if rawResp.StatusCode != http.StatusOK || rawResp.Header.Get("Content-Type") != "image/png" {
+		t.Fatalf("raw = %d, %q", rawResp.StatusCode, rawResp.Header.Get("Content-Type"))
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/raw?path=../../etc/passwd", nil, e.token, nil); code != http.StatusBadRequest {
+		t.Fatalf("raw traversal = %d", code)
 	}
 
 	prPath := "/api/v1/threads/" + thread.ID + "/pull-request"

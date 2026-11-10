@@ -1379,6 +1379,16 @@ func (a *app) openFile(path string) {
 	})
 }
 
+// rawFileURL is where the panel loads an image or opens one outside the
+// app.
+func (a *app) rawFileURL(path string) string {
+	c := a.client()
+	if c == nil {
+		return ""
+	}
+	return c.RawFileURL(a.selected.GetUntracked(), path)
+}
+
 // loadPullRequest reads the branch's open pull request.
 func (a *app) loadPullRequest(id string) {
 	if id == "" {

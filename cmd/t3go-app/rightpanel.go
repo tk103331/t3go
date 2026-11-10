@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/oneo-me/nsgo/base"
@@ -144,15 +148,34 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 			core.Text{Content: humanSize(file.Size), Style: core.Style{FontSize: 10.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+			ui.IconButton{Icon: lucide.ExternalLink, Label: "Open file", TestID: "file-open",
+				OnPress: func() { a.cx.OpenURL(a.rawFileURL(selected), nil) }},
 		}}
+		kind := fileKind(selected, file.Mime)
 		var body core.Node
 		switch {
+		case kind == "image":
+			body = ui.Image{Source: core.ImageSource{URI: a.rawFileURL(selected)}, ResizeMode: core.Contain,
+				Label: selected, TestID: "file-image",
+				Style: core.Style{Width: core.Pct(100), AspectRatio: 4.0 / 3.0, CornerRadius: 6}}
+		case kind == "markdown":
+			body = ui.TextView{MarkdownFunc: func() string { return a.markdownPreview(file.Content, selected) },
+				Selectable: true, OpenLinks: true}
 		case file.Binary:
-			body = ui.Text("Binary file cannot be previewed here.", 12, ui.Regular, colors.Faint)
+			body = core.View{Style: core.Style{Direction: core.Column, Gap: 8, AlignItems: core.AlignStart}, Children: []core.Node{
+				ui.Icon(lucide.FileText, 24, colors.Faint),
+				ui.Text("No preview for this file.", 12, ui.Regular, colors.Faint),
+				ui.Button{Text: "Open outside T3Go", Icon: lucide.ExternalLink, Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+					TestID: "file-open-binary", OnPress: func() { a.cx.OpenURL(a.rawFileURL(selected), nil) }},
+			}}
 		case file.Content == "":
 			body = ui.Text("This file is empty.", 12, ui.Regular, colors.Faint)
 		default:
-			body = core.Text{Content: file.Content, Selectable: core.SelectableOn,
+			content := file.Content
+			if strings.EqualFold(filepath.Ext(selected), ".json") {
+				content = prettyFileJSON(content)
+			}
+			body = core.Text{Content: content, Selectable: core.SelectableOn,
 				Style:     core.Style{FontSize: 11.5, LineHeight: 16, FontFamily: "Menlo, monospace"},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }}
 		}
@@ -322,4 +345,55 @@ func (a *app) rightError(cx *core.Scope) core.Node {
 		return core.Text{Content: a.rightErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 11.5, LineHeight: 16},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }}
 	}}
+}
+
+// fileKind names how a file previews: markdown, an image, or text.
+func fileKind(path, mimeType string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".md", ".markdown", ".mdx":
+		return "markdown"
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".svg", ".avif":
+		return "image"
+	}
+	if strings.HasPrefix(strings.ToLower(mimeType), "image/") {
+		return "image"
+	}
+	return "text"
+}
+
+// markdownPreview points relative images at the checkout's raw file URL,
+// so a README's screenshots show in the panel.
+func (a *app) markdownPreview(content, path string) string {
+	dir := ""
+	if i := strings.LastIndex(path, "/"); i >= 0 {
+		dir = path[:i]
+	}
+	return markdownImage.ReplaceAllStringFunc(content, func(match string) string {
+		parts := markdownImage.FindStringSubmatch(match)
+		if len(parts) != 4 {
+			return match
+		}
+		target := strings.Trim(strings.TrimSpace(parts[2]), "<>")
+		lower := strings.ToLower(target)
+		if strings.Contains(target, "://") || strings.HasPrefix(lower, "data:") || strings.HasPrefix(target, "#") {
+			return match
+		}
+		joined := target
+		if dir != "" {
+			joined = dir + "/" + target
+		}
+		joined = filepath.ToSlash(filepath.Clean(joined))
+		return parts[1] + a.rawFileURL(joined) + parts[3]
+	})
+}
+
+var markdownImage = regexp.MustCompile(`(!\[[^\]]*\]\()([^)\s]+)([^)]*\))`)
+
+// prettyFileJSON indents JSON that parses, leaving anything else as it is.
+func prettyFileJSON(content string) string {
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, []byte(content), "", "  "); err != nil {
+		return content
+	}
+	return buf.String()
 }

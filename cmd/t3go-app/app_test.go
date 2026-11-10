@@ -1194,6 +1194,12 @@ func TestUIRightPanel(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "src", "app.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("# Preview title\n\n![shot](pic.png)\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "pic.png"), []byte("\x89PNG\r\n\x1a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	project, err := srv.Service.CreateProject(ctx, "Repo", repo)
 	if err != nil {
 		t.Fatalf("project: %v", err)
@@ -1231,6 +1237,14 @@ func TestUIRightPanel(t *testing.T) {
 	app.WaitFor("text:package main", 5*time.Second)
 	app.Press("id:file-back")
 	app.WaitFor("id:file-src/app.go", 5*time.Second)
+	app.Press("id:files-up")
+	app.WaitFor("id:file-README.md", 5*time.Second)
+	app.Press("id:file-README.md")
+	app.WaitFor("text:Preview title", 5*time.Second)
+	app.Press("id:file-back")
+	app.WaitFor("id:file-pic.png", 5*time.Second)
+	app.Press("id:file-pic.png")
+	app.WaitFor("id:file-image", 5*time.Second)
 
 	app.Press("id:surface-back")
 	app.WaitFor("id:surface-diff", 5*time.Second)
@@ -1241,6 +1255,14 @@ func TestUIRightPanel(t *testing.T) {
 	app.Press("id:surface-pr")
 	app.WaitFor("id:right-pr-refresh", 5*time.Second)
 
-	app.Press("id:close-right-panel")
-	app.WaitForGone("id:right-panel", 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if !app.Exists("id:right-panel") {
+			return true
+		}
+		if app.Exists("id:close-right-panel") {
+			app.Press("id:close-right-panel")
+			app.Settle()
+		}
+		return !app.Exists("id:right-panel")
+	})
 }
