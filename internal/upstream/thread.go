@@ -314,6 +314,16 @@ func TypedFailure(id json.RawMessage, tag, message string) map[string]any {
 	}}
 }
 
+// GitError is a GitCommandError for a failed write operation.
+func GitError(id json.RawMessage, cwd, detail string) map[string]any {
+	return map[string]any{"_tag": "Exit", "requestId": id, "exit": map[string]any{
+		"_tag": "Failure",
+		"cause": []any{map[string]any{"_tag": "Fail", "error": map[string]any{
+			"_tag": "GitCommandError", "operation": "vcs", "command": "git", "cwd": cwd, "detail": detail,
+		}}},
+	}}
+}
+
 // RunUpdated is a thread stream event for a changed run.
 func RunUpdated(sequence int64, r Run, ordinal int, created bool) map[string]any {
 	kind := "run.updated"
@@ -422,11 +432,21 @@ func StatusResult(local map[string]any, hasUpstream bool, ahead, behind int) map
 	return local
 }
 
+// StatusRemote is the VcsStatusRemoteResult shape.
+func StatusRemote(hasUpstream bool, ahead, behind int) map[string]any {
+	return map[string]any{"hasUpstream": hasUpstream, "aheadCount": ahead, "behindCount": behind, "pr": nil}
+}
+
 // StatusSnapshot is the first VcsStatusStreamEvent.
 func StatusSnapshot(local map[string]any, hasUpstream bool, ahead, behind int) map[string]any {
-	return map[string]any{
-		"_tag":   "snapshot",
-		"local":  local,
-		"remote": map[string]any{"hasUpstream": hasUpstream, "aheadCount": ahead, "behindCount": behind, "pr": nil},
-	}
+	return map[string]any{"_tag": "snapshot", "local": local, "remote": StatusRemote(hasUpstream, ahead, behind)}
+}
+
+// StatusLocalUpdated and StatusRemoteUpdated are follow-up stream events.
+func StatusLocalUpdated(local map[string]any) map[string]any {
+	return map[string]any{"_tag": "localUpdated", "local": local}
+}
+
+func StatusRemoteUpdated(hasUpstream bool, ahead, behind int) map[string]any {
+	return map[string]any{"_tag": "remoteUpdated", "remote": StatusRemote(hasUpstream, ahead, behind)}
 }

@@ -224,3 +224,78 @@ func HasRemote(ctx context.Context, dir string) bool {
 	out, err := run(ctx, dir, "remote")
 	return err == nil && strings.TrimSpace(out) != ""
 }
+
+// CreateRef makes a branch, switching to it when switchRef is set.
+func CreateRef(ctx context.Context, dir, name string, switchRef bool) error {
+	if switchRef {
+		_, err := run(ctx, dir, "checkout", "-b", name)
+		return err
+	}
+	_, err := run(ctx, dir, "branch", name)
+	return err
+}
+
+// SwitchRef checks out a branch or ref.
+func SwitchRef(ctx context.Context, dir, name string) error {
+	_, err := run(ctx, dir, "checkout", name)
+	return err
+}
+
+// Pull fast-forwards the current branch and reports whether it moved.
+func Pull(ctx context.Context, dir string) (status, upstreamRef string, err error) {
+	if out, uerr := run(ctx, dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"); uerr == nil {
+		upstreamRef = strings.TrimSpace(out)
+	}
+	out, err := run(ctx, dir, "pull", "--ff-only")
+	if err != nil {
+		return "", upstreamRef, err
+	}
+	if strings.Contains(out, "Already up to date") {
+		return "skipped_up_to_date", upstreamRef, nil
+	}
+	return "pulled", upstreamRef, nil
+}
+
+// ErrNoChanges says a commit found nothing to record.
+var ErrNoChanges = errors.New("no changes to commit")
+
+// Stage adds the given paths, or everything, to the index.
+func Stage(ctx context.Context, dir string, paths []string) error {
+	if len(paths) == 0 {
+		_, err := run(ctx, dir, "add", "-A")
+		return err
+	}
+	args := append([]string{"add", "--"}, paths...)
+	_, err := run(ctx, dir, args...)
+	return err
+}
+
+// Commit records the staged changes and returns the new commit's id and
+// subject. A clean tree returns ErrNoChanges.
+func Commit(ctx context.Context, dir, message string) (string, string, error) {
+	if strings.TrimSpace(message) == "" {
+		message = "Update from T3Go"
+	}
+	if _, err := run(ctx, dir, "commit", "-m", message); err != nil {
+		if out, serr := run(ctx, dir, "status", "--porcelain"); serr == nil && strings.TrimSpace(out) == "" {
+			return "", "", ErrNoChanges
+		}
+		return "", "", err
+	}
+	sha, _ := run(ctx, dir, "rev-parse", "HEAD")
+	subject, _ := run(ctx, dir, "log", "-1", "--pretty=%s")
+	return strings.TrimSpace(sha), strings.TrimSpace(subject), nil
+}
+
+// Push publishes the current branch, setting its upstream when it has none.
+func Push(ctx context.Context, dir, branch string) error {
+	if branch == "" {
+		return errors.New("no branch to push")
+	}
+	if _, err := run(ctx, dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"); err == nil {
+		_, err := run(ctx, dir, "push")
+		return err
+	}
+	_, err := run(ctx, dir, "push", "-u", "origin", branch)
+	return err
+}

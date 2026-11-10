@@ -1199,6 +1199,68 @@ func TestUpstreamVcsStatus(t *testing.T) {
 	if event["_tag"] != "snapshot" || event["local"].(map[string]any)["isRepo"] != true {
 		t.Fatalf("status event = %#v", event)
 	}
+
+	// A working tree change reaches the open stream without a refresh.
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("changed again\nmore\nlines\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var updated map[string]any
+	for updated == nil {
+		var frame map[string]any
+		if err := wsjson.Read(ctx, conn, &frame); err != nil {
+			t.Fatalf("read update: %v", err)
+		}
+		values, _ := frame["values"].([]any)
+		if len(values) == 1 {
+			if candidate, ok := values[0].(map[string]any); ok && candidate["_tag"] == "localUpdated" {
+				updated = candidate
+			}
+		}
+	}
+}
+
+// TestUpstreamVcsWrites creates and switches branches.
+func TestUpstreamVcsWrites(t *testing.T) {
+	e := newTestEnv(t)
+	repo := upstreamGitRepo(t)
+	var project proto.Project
+	if code := e.request(t, http.MethodPost, "/api/v1/projects", map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
+		t.Fatalf("project = %d", code)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2"
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+		"Authorization": []string{"Bearer " + e.token},
+	}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+	call := func(id int, tag string, payload map[string]any) map[string]any {
+		t.Helper()
+		if err := wsjson.Write(ctx, conn, map[string]any{"_tag": "Request", "id": id, "tag": tag,
+			"payload": payload, "headers": []any{}}); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		var frame map[string]any
+		if err := wsjson.Read(ctx, conn, &frame); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		return frame
+	}
+
+	frame := call(1, "vcs.createRef", map[string]any{"cwd": repo, "refName": "feature", "switchRef": true})
+	if value := frame["exit"].(map[string]any)["value"].(map[string]any); value["refName"] != "feature" {
+		t.Fatalf("createRef = %#v", frame)
+	}
+	if branch := git.Status(ctx, repo).Branch; branch != "feature" {
+		t.Fatalf("branch = %q", branch)
+	}
+	frame = call(2, "vcs.switchRef", map[string]any{"cwd": repo, "refName": "main"})
+	if value := frame["exit"].(map[string]any)["value"].(map[string]any); value["refName"] != "main" {
+		t.Fatalf("switchRef = %#v", frame)
+	}
 }
 
 // TestUpstreamSearch finds a thread by message text and finds within it.
@@ -1308,5 +1370,60 @@ func TestUpstreamUsage(t *testing.T) {
 	totals := bucket["totals"].(map[string]any)
 	if totals["uncachedInputTokens"].(float64) != 10 || totals["outputTokens"].(float64) != 5 || bucket["costUsd"].(float64) != 0.01 {
 		t.Fatalf("bucket = %#v", bucket)
+	}
+}
+
+// TestUpstreamGitCommit runs the commit action and checks the repository.
+func TestUpstreamGitCommit(t *testing.T) {
+	e := newTestEnv(t)
+	repo := upstreamGitRepo(t)
+	var project proto.Project
+	if code := e.request(t, http.MethodPost, "/api/v1/projects", map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
+		t.Fatalf("project = %d", code)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("commit me\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2"
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+		"Authorization": []string{"Bearer " + e.token},
+	}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+	if err := wsjson.Write(ctx, conn, map[string]any{"_tag": "Request", "id": 1, "tag": "git.runStackedAction",
+		"headers": []any{}, "payload": map[string]any{"actionId": "act_1", "cwd": repo, "action": "commit",
+			"commitMessage": "Test commit"}}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	var finished map[string]any
+	for finished == nil {
+		var frame map[string]any
+		if err := wsjson.Read(ctx, conn, &frame); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		values, _ := frame["values"].([]any)
+		if len(values) != 1 {
+			continue
+		}
+		event, _ := values[0].(map[string]any)
+		if event["kind"] == "action_failed" {
+			t.Fatalf("action failed: %#v", event)
+		}
+		if event["kind"] == "action_finished" {
+			finished = event["result"].(map[string]any)
+		}
+	}
+	if finished["commit"].(map[string]any)["status"] != "created" {
+		t.Fatalf("result = %#v", finished)
+	}
+	cmd := exec.Command("git", "log", "-1", "--pretty=%s")
+	cmd.Dir = repo
+	out, err := cmd.Output()
+	if err != nil || strings.TrimSpace(string(out)) != "Test commit" {
+		t.Fatalf("git log = %q, %v", out, err)
 	}
 }

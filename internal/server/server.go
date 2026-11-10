@@ -777,6 +777,16 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			continue
+		case "git.runStackedAction":
+			if !s.upstreamGitAction(ctx, writer, envelope.ID, envelope.Payload) {
+				return
+			}
+			continue
+		case "vcs.createRef", "vcs.switchRef", "vcs.pull":
+			if !s.upstreamVcsWrite(ctx, writer, envelope.ID, envelope.Tag, envelope.Payload) {
+				return
+			}
+			continue
 		case "vcs.refreshBranch", "subscribeVcsBranch":
 			if !s.upstreamVcsBranch(ctx, writer, envelope.ID, envelope.Tag, envelope.Payload) {
 				return
@@ -1035,7 +1045,43 @@ func (s *Server) upstreamVcsStatus(ctx context.Context, writer *upstreamWriter, 
 		return writer.write(upstream.Exit(requestID, upstream.StatusResult(local, upstreamBranch, ahead, behind))) == nil
 	}
 	event := upstream.StatusSnapshot(local, upstreamBranch, ahead, behind)
-	return writer.write(upstream.Chunk(requestID, []any{event})) == nil
+	if err := writer.write(upstream.Chunk(requestID, []any{event})); err != nil {
+		return false
+	}
+	localRaw, _ := json.Marshal(local)
+	remoteRaw, _ := json.Marshal(upstream.StatusRemote(upstreamBranch, ahead, behind))
+	go s.watchVcsStatus(ctx, writer, requestID, input.Cwd, localRaw, remoteRaw)
+	return true
+}
+
+// watchVcsStatus polls a checkout and sends the changes a client would
+// otherwise have to refresh for.
+func (s *Server) watchVcsStatus(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, cwd string, lastLocal, lastRemote []byte) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			local, upstreamBranch, ahead, behind := s.vcsStatus(ctx, cwd)
+			remote := upstream.StatusRemote(upstreamBranch, ahead, behind)
+			currentLocal, _ := json.Marshal(local)
+			currentRemote, _ := json.Marshal(remote)
+			if string(currentLocal) != string(lastLocal) {
+				lastLocal = currentLocal
+				if err := writer.write(upstream.Chunk(requestID, []any{upstream.StatusLocalUpdated(local)})); err != nil {
+					return
+				}
+			}
+			if string(currentRemote) != string(lastRemote) {
+				lastRemote = currentRemote
+				if err := writer.write(upstream.Chunk(requestID, []any{upstream.StatusRemoteUpdated(upstreamBranch, ahead, behind)})); err != nil {
+					return
+				}
+			}
+		}
+	}
 }
 
 func (s *Server) upstreamVcsBranch(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, tag string, payload json.RawMessage) bool {
@@ -1055,7 +1101,182 @@ func (s *Server) upstreamVcsBranch(ctx context.Context, writer *upstreamWriter, 
 	if tag == "vcs.refreshBranch" {
 		return writer.write(upstream.Exit(requestID, result)) == nil
 	}
-	return writer.write(upstream.Chunk(requestID, []any{result})) == nil
+	if err := writer.write(upstream.Chunk(requestID, []any{result})); err != nil {
+		return false
+	}
+	go s.watchVcsBranch(ctx, writer, requestID, input.Cwd, status.Branch)
+	return true
+}
+
+func (s *Server) watchVcsBranch(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, cwd, branch string) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	last := branch
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			current := git.Status(ctx, cwd).Branch
+			if current == last {
+				continue
+			}
+			last = current
+			ref := any(nil)
+			if current != "" {
+				ref = current
+			}
+			if err := writer.write(upstream.Chunk(requestID, []any{map[string]any{"refName": ref}})); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// upstreamGitAction commits and pushes for the actions this layer supports.
+func (s *Server) upstreamGitAction(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, payload json.RawMessage) bool {
+	var input struct {
+		ActionID      string   `json:"actionId"`
+		Cwd           string   `json:"cwd"`
+		Action        string   `json:"action"`
+		CommitMessage string   `json:"commitMessage"`
+		FilePaths     []string `json:"filePaths"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		_ = writer.write(upstream.UnknownFailure(requestID, "invalid git action"))
+		return true
+	}
+	if !s.allowedDir(input.Cwd) {
+		_ = writer.write(upstream.UnknownFailure(requestID, "unknown working directory"))
+		return true
+	}
+	base := map[string]any{"actionId": input.ActionID, "cwd": input.Cwd, "action": input.Action}
+	emit := func(fields map[string]any) bool {
+		event := map[string]any{}
+		for k, v := range base {
+			event[k] = v
+		}
+		for k, v := range fields {
+			event[k] = v
+		}
+		return writer.write(upstream.Chunk(requestID, []any{event})) == nil
+	}
+	fail := func(phase any, message string) bool {
+		if !emit(map[string]any{"kind": "action_failed", "phase": phase, "message": message}) {
+			return false
+		}
+		return writer.write(upstream.ExitVoid(requestID)) == nil
+	}
+	phases := []string{}
+	switch input.Action {
+	case "commit":
+		phases = []string{"commit"}
+	case "push":
+		phases = []string{"push"}
+	case "commit_push":
+		phases = []string{"commit", "push"}
+	case "create_pr", "commit_push_pr":
+		_ = fail(nil, "creating pull requests is not supported yet")
+		return true
+	default:
+		_ = fail(nil, "unsupported git action: "+input.Action)
+		return true
+	}
+	if !emit(map[string]any{"kind": "action_started", "phases": phases}) {
+		return false
+	}
+	commit := map[string]any{"status": "skipped_not_requested"}
+	push := map[string]any{"status": "skipped_not_requested"}
+	for _, phase := range phases {
+		label := "Committing"
+		if phase == "push" {
+			label = "Pushing"
+		}
+		if !emit(map[string]any{"kind": "phase_started", "phase": phase, "label": label}) {
+			return false
+		}
+		switch phase {
+		case "commit":
+			if err := git.Stage(ctx, input.Cwd, input.FilePaths); err != nil {
+				return fail(phase, err.Error())
+			}
+			sha, subject, err := git.Commit(ctx, input.Cwd, input.CommitMessage)
+			switch {
+			case errors.Is(err, git.ErrNoChanges):
+				commit = map[string]any{"status": "skipped_no_changes"}
+			case err != nil:
+				return fail(phase, err.Error())
+			default:
+				commit = map[string]any{"status": "created", "commitSha": sha, "subject": subject}
+			}
+		case "push":
+			branch := git.Status(ctx, input.Cwd).Branch
+			if err := git.Push(ctx, input.Cwd, branch); err != nil {
+				return fail(phase, err.Error())
+			}
+			push = map[string]any{"status": "pushed", "branch": branch, "upstreamBranch": branch, "setUpstream": true}
+		}
+	}
+	result := map[string]any{
+		"action": input.Action,
+		"branch": map[string]any{"status": "skipped_not_requested"},
+		"commit": commit,
+		"push":   push,
+		"pr":     map[string]any{"status": "skipped_not_requested"},
+		"toast":  map[string]any{"title": "Git action finished", "cta": map[string]any{"kind": "none"}},
+	}
+	if !emit(map[string]any{"kind": "action_finished", "result": result}) {
+		return false
+	}
+	return writer.write(upstream.ExitVoid(requestID)) == nil
+}
+
+// upstreamVcsWrite performs the git writes a client asks for.
+func (s *Server) upstreamVcsWrite(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, tag string, payload json.RawMessage) bool {
+	var input struct {
+		Cwd       string `json:"cwd"`
+		RefName   string `json:"refName"`
+		SwitchRef bool   `json:"switchRef"`
+	}
+	_ = json.Unmarshal(payload, &input)
+	if !s.allowedDir(input.Cwd) {
+		_ = writer.write(upstream.UnknownFailure(requestID, "unknown working directory"))
+		return true
+	}
+	switch tag {
+	case "vcs.createRef":
+		if err := git.CreateRef(ctx, input.Cwd, input.RefName, input.SwitchRef); err != nil {
+			_ = writer.write(upstream.GitError(requestID, input.Cwd, err.Error()))
+			return true
+		}
+		return writer.write(upstream.Exit(requestID, map[string]any{"refName": input.RefName})) == nil
+	case "vcs.switchRef":
+		if err := git.SwitchRef(ctx, input.Cwd, input.RefName); err != nil {
+			_ = writer.write(upstream.GitError(requestID, input.Cwd, err.Error()))
+			return true
+		}
+		status := git.Status(ctx, input.Cwd)
+		ref := any(nil)
+		if status.Branch != "" {
+			ref = status.Branch
+		}
+		return writer.write(upstream.Exit(requestID, map[string]any{"refName": ref})) == nil
+	case "vcs.pull":
+		status, upstreamRef, err := git.Pull(ctx, input.Cwd)
+		if err != nil {
+			_ = writer.write(upstream.GitError(requestID, input.Cwd, err.Error()))
+			return true
+		}
+		ref := git.Status(ctx, input.Cwd).Branch
+		up := any(nil)
+		if upstreamRef != "" {
+			up = upstreamRef
+		}
+		return writer.write(upstream.Exit(requestID, map[string]any{
+			"status": status, "refName": ref, "upstreamRef": up,
+		})) == nil
+	}
+	return true
 }
 
 func (s *Server) vcsStatus(ctx context.Context, cwd string) (map[string]any, bool, int, int) {
