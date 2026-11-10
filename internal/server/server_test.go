@@ -1427,3 +1427,80 @@ func TestUpstreamGitCommit(t *testing.T) {
 		t.Fatalf("git log = %q, %v", out, err)
 	}
 }
+
+// TestUpstreamRuntimeApproval projects a pending approval and answers it
+// through the runtime-request command.
+func TestUpstreamRuntimeApproval(t *testing.T) {
+	e := newTestEnv(t)
+	project := e.project(t)
+	var thread proto.Thread
+	body := map[string]any{"projectId": project.ID, "title": "Approval", "provider": "claude",
+		"model": "test-model", "permission": "supervised"}
+	if code := e.request(t, http.MethodPost, "/api/v1/threads", body, e.token, &thread); code != http.StatusCreated {
+		t.Fatalf("thread = %d", code)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	decisions := make(chan proto.ApprovalDecision, 1)
+	go func() {
+		decisions <- e.server.Service.RequestApproval(ctx, proto.ApprovalRequest{
+			ThreadID: thread.ID, RunID: "run_approval", Tool: "Bash", Input: map[string]any{"command": "ls"},
+		})
+	}()
+
+	wsCtx, wsCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer wsCancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2"
+	conn, _, err := websocket.Dial(wsCtx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+		"Authorization": []string{"Bearer " + e.token},
+	}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+	call := func(id int, tag string, payload map[string]any) map[string]any {
+		t.Helper()
+		if err := wsjson.Write(wsCtx, conn, map[string]any{"_tag": "Request", "id": id, "tag": tag,
+			"payload": payload, "headers": []any{}}); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		var frame map[string]any
+		if err := wsjson.Read(wsCtx, conn, &frame); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		return frame
+	}
+
+	// Subscribe after the request exists to see it in the snapshot.
+	var approvalID string
+	for approvalID == "" {
+		if pending := e.server.Service.PendingApprovals(thread.ID); len(pending) == 1 {
+			approvalID = pending[0].ID
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	frame := call(1, "orchestration.subscribeThread", map[string]any{"threadId": thread.ID})
+	values, _ := frame["values"].([]any)
+	projection := values[0].(map[string]any)["projection"].(map[string]any)
+	requests, _ := projection["runtimeRequests"].([]any)
+	if len(requests) != 1 || requests[0].(map[string]any)["id"] != approvalID {
+		t.Fatalf("runtime requests = %#v", requests)
+	}
+
+	frame = call(2, "orchestration.dispatchCommand", map[string]any{
+		"type": "runtime-request.respond", "commandId": "cmd_approve", "threadId": thread.ID,
+		"requestId": approvalID, "decision": "accept",
+	})
+	if frame["_tag"] != "Exit" {
+		t.Fatalf("respond = %#v", frame)
+	}
+	select {
+	case decision := <-decisions:
+		if !decision.Allow {
+			t.Fatalf("decision = %#v", decision)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the approval was not resolved")
+	}
+}

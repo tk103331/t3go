@@ -54,6 +54,32 @@ func attachmentRows(attachments []Attachment) []any {
 	return rows
 }
 
+// RuntimeRequest is a pending provider question.
+type RuntimeRequest struct {
+	ID              string
+	RunID           string
+	ProviderSession string
+	CreatedAt       string
+}
+
+// RuntimeRequestRow is one upstream runtime request.
+func RuntimeRequestRow(r RuntimeRequest) map[string]any {
+	return map[string]any{
+		"id": r.ID, "nodeId": nonEmpty(r.RunID, "node_approval"),
+		"providerTurnId": nil, "nativeRequestRef": nil, "kind": "permission", "status": "pending",
+		"responseCapability": map[string]any{"type": "live", "providerSessionId": nonEmpty(r.ProviderSession, "session")},
+		"createdAt":          nonEmpty(r.CreatedAt, isoTimestamp(TimeNow())), "resolvedAt": nil,
+	}
+}
+
+// DomainEvent is a thread stream event with a payload.
+func DomainEvent(sequence int64, threadID, kind string, payload any) map[string]any {
+	return map[string]any{"kind": "event", "sequence": sequence, "event": map[string]any{
+		"id": eventID(sequence), "threadId": threadID, "occurredAt": isoTimestamp(TimeNow()),
+		"type": kind, "payload": payload,
+	}}
+}
+
 // Run is one agent turn as the upstream run projection carries it.
 type Run struct {
 	ID            string
@@ -225,7 +251,7 @@ func TurnItem(m Message, ordinal int) map[string]any {
 }
 
 // ThreadProjection is the upstream thread detail snapshot.
-func ThreadProjection(t Thread, messages []Message, runs []Run) map[string]any {
+func ThreadProjection(t Thread, messages []Message, runs []Run, requests []RuntimeRequest) map[string]any {
 	rows := make([]any, 0, len(messages))
 	items := make([]any, 0, len(messages))
 	visible := make([]any, 0, len(messages))
@@ -257,7 +283,7 @@ func ThreadProjection(t Thread, messages []Message, runs []Run) map[string]any {
 		"providerSessions": []any{},
 		"providerThreads":  []any{},
 		"providerTurns":    []any{},
-		"runtimeRequests":  []any{},
+		"runtimeRequests":  runtimeRequestRows(requests),
 		"messages":         rows,
 		"plans":            []any{},
 		"turnItems":        items,
@@ -271,10 +297,10 @@ func ThreadProjection(t Thread, messages []Message, runs []Run) map[string]any {
 }
 
 // ThreadSnapshot is the first item of subscribeThread.
-func ThreadSnapshot(t Thread, messages []Message, runs []Run) map[string]any {
+func ThreadSnapshot(t Thread, messages []Message, runs []Run, requests []RuntimeRequest) map[string]any {
 	return map[string]any{
 		"kind": "snapshot", "snapshotSequence": 0,
-		"projection": ThreadProjection(t, messages, runs),
+		"projection": ThreadProjection(t, messages, runs, requests),
 	}
 }
 
@@ -354,6 +380,14 @@ func TurnItemUpdated(sequence int64, m Message, ordinal int) map[string]any {
 		"payload":    TurnItem(m, ordinal),
 	}
 	return map[string]any{"kind": "event", "sequence": sequence + 1, "event": event}
+}
+
+func runtimeRequestRows(requests []RuntimeRequest) []any {
+	rows := make([]any, 0, len(requests))
+	for _, request := range requests {
+		rows = append(rows, RuntimeRequestRow(request))
+	}
+	return rows
 }
 
 func runRows(runs []Run) []any {

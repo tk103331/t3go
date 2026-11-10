@@ -20,10 +20,10 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
 | `subscribeServerLifecycle` | `welcome` 事件 |
 | `orchestration.subscribeShell` | `snapshot` + `synchronized`，包含 T3Go 的项目和线程 shell 行；之后的项目/线程变化以 `project.updated` / `project.removed` / `thread.updated` / `thread.removed` 实时推送 |
 | `subscribeAuthAccess` | 空权限流 |
-| `orchestration.subscribeThread` | 线程快照：AppThread、run 列表、文本消息与 `user_message`/`assistant_message`/`reasoning`/`command_execution` turn item；运行中推送 `message.updated`、`turn-item.updated`、`run.created` / `run.updated` 事件 |
+| `orchestration.subscribeThread` | 线程快照：AppThread、run 列表、待审批的 runtime request、文本消息与 `user_message`/`assistant_message`/`reasoning`/`command_execution` turn item；运行中推送 `message.updated`、`turn-item.updated`、`run.created` / `run.updated`、`runtime-request.updated` 事件 |
 | `orchestration.getThreadProjection` | 同一投影的普通请求 |
 | `orchestration.launchThread` | 用客户端的 threadId、项目、模型和 runtime mode 创建线程，可带首条消息；`workspaceStrategy` 的 `root`、`worktree`、`existing_worktree` 都映射到 T3Go |
-| `orchestration.dispatchCommand` | `message.dispatch`、`thread.stop`、`thread.archive`/`unarchive`、`thread.delete` |
+| `orchestration.dispatchCommand` | `message.dispatch`、`thread.stop`、`thread.archive`/`unarchive`、`thread.delete`、`runtime-request.respond` |
 | `orchestration.getTurnDiff` / `getFullThreadDiff` | 从 run checkpoint 到当前工作区的 diff，带 turn 范围 |
 | `attachments.createUploadUrl` / `attachments.delete` | 预建附件并返回带 token 的上传 URL；文件用 POST 写入 |
 | `assets.persistChatAttachments` | 把粘贴图片的 data URL 存成附件 |

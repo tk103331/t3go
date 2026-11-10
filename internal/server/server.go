@@ -718,27 +718,31 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 				ThreadID string `json:"threadId"`
 			}
 			_ = json.Unmarshal(envelope.Payload, &input)
-			thread, messages, runs, ok := s.upstreamThread(input.ThreadID)
+			thread, messages, runs, requests, ok := s.upstreamThread(input.ThreadID)
 			if !ok {
 				_ = writer.write(upstream.UnknownFailure(envelope.ID, "unknown thread"))
 				continue
 			}
-			if err := writer.write(upstream.Chunk(envelope.ID, []any{upstream.ThreadSnapshot(thread, messages, runs)})); err != nil {
+			if err := writer.write(upstream.Chunk(envelope.ID, []any{upstream.ThreadSnapshot(thread, messages, runs, requests)})); err != nil {
 				return
 			}
-			go s.forwardThread(ctx, writer, envelope.ID, input.ThreadID, messages, runs)
+			session := ""
+			if stored, err := s.Store.Thread(ctx, input.ThreadID); err == nil {
+				session = stored.ProviderSession
+			}
+			go s.forwardThread(ctx, writer, envelope.ID, input.ThreadID, messages, runs, session)
 			continue
 		case "orchestration.getThreadProjection":
 			var input struct {
 				ThreadID string `json:"threadId"`
 			}
 			_ = json.Unmarshal(envelope.Payload, &input)
-			thread, messages, runs, ok := s.upstreamThread(input.ThreadID)
+			thread, messages, runs, requests, ok := s.upstreamThread(input.ThreadID)
 			if !ok {
 				_ = writer.write(upstream.UnknownFailure(envelope.ID, "unknown thread"))
 				continue
 			}
-			if err := writer.write(upstream.Exit(envelope.ID, upstream.ThreadProjection(thread, messages, runs))); err != nil {
+			if err := writer.write(upstream.Exit(envelope.ID, upstream.ThreadProjection(thread, messages, runs, requests))); err != nil {
 				return
 			}
 			continue
@@ -850,15 +854,15 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 }
 
 // upstreamThread reads one thread and its text transcript.
-func (s *Server) upstreamThread(threadID string) (upstream.Thread, []upstream.Message, []upstream.Run, bool) {
+func (s *Server) upstreamThread(threadID string) (upstream.Thread, []upstream.Message, []upstream.Run, []upstream.RuntimeRequest, bool) {
 	ctx := context.Background()
 	thread, err := s.Store.Thread(ctx, threadID)
 	if err != nil {
-		return upstream.Thread{}, nil, nil, false
+		return upstream.Thread{}, nil, nil, nil, false
 	}
 	stored, err := s.Store.Messages(ctx, threadID, 4000)
 	if err != nil {
-		return upstream.Thread{}, nil, nil, false
+		return upstream.Thread{}, nil, nil, nil, false
 	}
 	userMessages := map[string]string{}
 	for _, m := range stored {
@@ -892,7 +896,14 @@ func (s *Server) upstreamThread(threadID string) (upstream.Thread, []upstream.Me
 			Status: string(r.Status), StartedAt: r.StartedAt.UTC().Format("2006-01-02T15:04:05.000Z"), EndedAt: ended,
 		})
 	}
-	return shellThread(thread), messages, runs, true
+	requests := make([]upstream.RuntimeRequest, 0, len(s.Service.PendingApprovals(threadID)))
+	for _, approval := range s.Service.PendingApprovals(threadID) {
+		requests = append(requests, upstream.RuntimeRequest{
+			ID: approval.ID, RunID: approval.RunID, ProviderSession: thread.ProviderSession,
+			CreatedAt: approval.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		})
+	}
+	return shellThread(thread), messages, runs, requests, true
 }
 
 // upstreamUsage aggregates T3Go's runs into the usage summary.
@@ -1575,14 +1586,14 @@ func (s *Server) upstreamLaunch(ctx context.Context, writer *upstreamWriter, req
 	if strings.TrimSpace(input.InitialMessage.Text) != "" {
 		_, _ = s.Service.SendWith(ctx, thread.ID, input.InitialMessage.Text, attachmentIDs(input.InitialMessage.Attachments))
 	}
-	shell, messages, runs, ok := s.upstreamThread(thread.ID)
+	shell, messages, runs, requests, ok := s.upstreamThread(thread.ID)
 	if !ok {
 		_ = writer.write(upstream.UnknownFailure(requestID, "the thread vanished"))
 		return true
 	}
 	return writer.write(upstream.Exit(requestID, map[string]any{
 		"threadId":   thread.ID,
-		"projection": upstream.ThreadProjection(shell, messages, runs),
+		"projection": upstream.ThreadProjection(shell, messages, runs, requests),
 		"resumed":    resumed,
 		"sequence":   0,
 	})) == nil
@@ -1623,6 +1634,23 @@ func (s *Server) upstreamDispatch(ctx context.Context, writer *upstreamWriter, r
 	case "thread.stop":
 		s.Service.Stop(command.ThreadID)
 		return writer.write(upstream.Exit(requestID, map[string]any{"sequence": 0})) == nil
+	case "runtime-request.respond":
+		var respond struct {
+			RequestID string `json:"requestId"`
+			Decision  string `json:"decision"`
+			Feedback  string `json:"feedback"`
+		}
+		_ = json.Unmarshal(payload, &respond)
+		allow := respond.Decision == "accept" || respond.Decision == "acceptForSession" || respond.Decision == "acceptAlways"
+		message := respond.Feedback
+		if !allow && message == "" {
+			message = "Denied by the person running T3Go."
+		}
+		if err := s.Service.ResolveApproval(ctx, respond.RequestID, proto.ApprovalDecision{Allow: allow, Message: message}); err != nil {
+			_ = writer.write(upstream.UnknownFailure(requestID, err.Error()))
+			return true
+		}
+		return writer.write(upstream.Exit(requestID, map[string]any{"sequence": 0})) == nil
 	case "thread.archive", "thread.unarchive":
 		archived := command.Type == "thread.archive"
 		if _, err := s.Service.UpdateThread(ctx, command.ThreadID, orchestrator.ThreadPatch{Archived: &archived}); err != nil {
@@ -1643,7 +1671,7 @@ func (s *Server) upstreamDispatch(ctx context.Context, writer *upstreamWriter, r
 }
 
 // forwardThread sends text message changes to an upstream thread stream.
-func (s *Server) forwardThread(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, threadID string, existing []upstream.Message, runs []upstream.Run) {
+func (s *Server) forwardThread(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, threadID string, existing []upstream.Message, runs []upstream.Run, session string) {
 	live, unsubscribe := s.Bus.Subscribe()
 	defer unsubscribe()
 	runOrdinals := map[string]int{}
@@ -1669,6 +1697,22 @@ func (s *Server) forwardThread(ctx context.Context, writer *upstreamWriter, requ
 				return
 			}
 			if event.ThreadID != threadID {
+				continue
+			}
+			if event.Type == proto.EventApproval {
+				approval, ok := decodeEvent[proto.ApprovalRequest](event.Data)
+				if !ok || approval.ID == "" {
+					continue
+				}
+				row := upstream.RuntimeRequestRow(upstream.RuntimeRequest{
+					ID: approval.ID, RunID: approval.RunID, ProviderSession: session,
+					CreatedAt: approval.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+				})
+				if err := writer.write(upstream.Chunk(requestID, []any{
+					upstream.DomainEvent(event.Seq*2, threadID, "runtime-request.updated", row),
+				})); err != nil {
+					return
+				}
 				continue
 			}
 			if event.Type == proto.EventRunStarted || event.Type == proto.EventRunFinished {
