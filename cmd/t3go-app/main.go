@@ -79,12 +79,21 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 	} else {
 		layout = a.narrowView(cx)
 	}
+	body := layout
+	if wide {
+		body = core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0),
+			MinHeight: core.Pt(0), Overflow: core.Hidden}, Children: []core.Node{
+			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0),
+				Overflow: core.Hidden}, Children: []core.Node{layout}},
+			core.Show{When: a.rightOpen.Get, Then: func(cx *core.Scope) core.Node { return a.rightPanel(cx) }},
+		}}
+	}
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0),
 		Overflow: core.Hidden, Direction: core.Column, Background: colors.Background()}, Children: []core.Node{
 		core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node { return a.errorBanner(cx) }},
 		core.Show{When: a.offline.Get, Then: func(*core.Scope) core.Node { return a.offlineBanner(cx) }},
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0),
-			Overflow: core.Hidden}, Children: []core.Node{layout, a.dialogs(cx)}},
+			Overflow: core.Hidden}, Children: []core.Node{body, a.dialogs(cx)}},
 	}}
 }
 
@@ -342,8 +351,8 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	d := a.detail.Get()
 	if d.Thread.ID == "" {
-		return core.View{Style: core.Style{Height: core.Pt(32), AlignItems: core.AlignCenter}, Children: []core.Node{
-			ui.Text(a.envName(), 13, ui.Semibold, colors.Muted),
+		return core.View{Style: core.Style{Height: core.Pt(32), Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+			ui.Text(a.envName(), 13, ui.Semibold, colors.Muted), ui.Spacer{}, a.rightToggle(),
 		}}
 	}
 	meta := d.Thread.Provider
@@ -367,7 +376,17 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 			OnPress: func() { a.askDeleteThread(d.Thread) }},
 		ui.IconButton{Icon: lucide.Clock3, Label: "Run history", TestID: "history", OnPress: a.openRuns},
 		ui.IconButton{Icon: lucide.GitCompare, Label: "Changes in this thread", TestID: "open-diff", OnPress: a.openDiff},
+		a.rightToggle(),
 	}}
+}
+
+// rightToggle shows or hides the surfaces panel.
+func (a *app) rightToggle() core.Node {
+	if a.cx.Env().Window().Width < 760 {
+		return core.View{}
+	}
+	return ui.IconButton{Icon: lucide.PanelRight, Label: "Toggle right panel", TestID: "toggle-right-panel",
+		Selected: a.rightOpen.Get, OnPress: func() { a.setRightOpen(!a.rightOpen.GetUntracked()) }}
 }
 
 func (a *app) content(cx *core.Scope) core.Node {

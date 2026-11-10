@@ -1181,3 +1181,66 @@ func TestUISidebarDraftsAndPins(t *testing.T) {
 	app.Settle()
 	app.WaitForGone("id:pinned-"+first.ID, 5*time.Second)
 }
+
+// TestUIRightPanel opens the surfaces rail, browses a file, reads the
+// diff and finds the pull request surface.
+func TestUIRightPanel(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	if err := os.MkdirAll(filepath.Join(repo, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "src", "app.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project, err := srv.Service.CreateProject(ctx, "Repo", repo)
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Surfaces", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1300, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:toggle-right-panel", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:right-panel") {
+			return true
+		}
+		if app.Exists("id:toggle-right-panel") {
+			app.Press("id:toggle-right-panel")
+			app.Settle()
+		}
+		return app.Exists("id:right-panel")
+	})
+	app.WaitFor("id:surface-files", 5*time.Second)
+
+	app.Press("id:surface-files")
+	app.WaitFor("id:file-src", 5*time.Second)
+	app.Press("id:file-src")
+	app.WaitFor("id:file-src/app.go", 5*time.Second)
+	app.Press("id:file-src/app.go")
+	app.WaitFor("text:package main", 5*time.Second)
+	app.Press("id:file-back")
+	app.WaitFor("id:file-src/app.go", 5*time.Second)
+
+	app.Press("id:surface-back")
+	app.WaitFor("id:surface-diff", 5*time.Second)
+	app.Press("id:surface-diff")
+	app.WaitFor("id:right-diff-refresh", 5*time.Second)
+	app.Press("id:surface-back")
+	app.WaitFor("id:surface-pr", 5*time.Second)
+	app.Press("id:surface-pr")
+	app.WaitFor("id:right-pr-refresh", 5*time.Second)
+
+	app.Press("id:close-right-panel")
+	app.WaitForGone("id:right-panel", 5*time.Second)
+}

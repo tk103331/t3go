@@ -175,6 +175,32 @@ type GitStatus struct {
 	DiffStat   string `json:"diffStat,omitempty"`
 }
 
+// WorkspaceEntry is a directory or file in a thread's checkout.
+type WorkspaceEntry struct {
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	Directory bool   `json:"directory,omitempty"`
+	Size      int64  `json:"size,omitempty"`
+}
+
+// WorkspaceFile is one file's contents for the file viewer.
+type WorkspaceFile struct {
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	Binary  bool   `json:"binary,omitempty"`
+	Content string `json:"content,omitempty"`
+}
+
+// PullRequest is the open change request for a checkout.
+type PullRequest struct {
+	URL        string `json:"url"`
+	Number     int    `json:"number"`
+	Title      string `json:"title"`
+	BaseBranch string `json:"baseBranch,omitempty"`
+	HeadBranch string `json:"headBranch,omitempty"`
+	State      string `json:"state,omitempty"`
+}
+
 // Branch is one local or remote branch in a checkout.
 type Branch struct {
 	Name         string `json:"name"`

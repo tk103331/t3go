@@ -1459,7 +1459,7 @@ func TestGitActionEndpoint(t *testing.T) {
 }
 
 // fakeServerGH puts a gh that reports and creates pull request 7 on PATH.
-func fakeServerGH(t *testing.T) {
+func fakeServerGH(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	state := filepath.Join(dir, "pr-open")
@@ -1488,6 +1488,7 @@ esac
 	}
 	t.Setenv("PR_STATE", state)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return state
 }
 
 // TestUpstreamGitPullRequest runs the stacked commit, push and pull
@@ -1808,7 +1809,91 @@ func TestUpstreamReview(t *testing.T) {
 	}
 }
 
-// TestUpstreamRuntimeApproval projects a pending approval and answers it// TestUpstreamRuntimeApproval projects a pending approval and answers it
+// TestWorkspaceFilesAndPullRequest browses a checkout and reads its pull
+// request through the right panel's endpoints.
+func TestWorkspaceFilesAndPullRequest(t *testing.T) {
+	e := newTestEnv(t)
+	repo := upstreamGitRepo(t)
+	if err := os.MkdirAll(filepath.Join(repo, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "src", "app.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "blob.bin"), []byte{0, 1, 2}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var project proto.Project
+	if code := e.request(t, http.MethodPost, "/api/v1/projects",
+		map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
+		t.Fatalf("project = %d", code)
+	}
+	thread := e.thread(t, project.ID)
+	filesPath := "/api/v1/threads/" + thread.ID + "/files"
+
+	var listing struct {
+		Path    string                 `json:"path"`
+		Entries []proto.WorkspaceEntry `json:"entries"`
+	}
+	if code := e.request(t, http.MethodGet, filesPath, nil, e.token, &listing); code != http.StatusOK {
+		t.Fatalf("files = %d", code)
+	}
+	if len(listing.Entries) < 2 || listing.Entries[0].Name != "src" || !listing.Entries[0].Directory {
+		t.Fatalf("entries = %#v", listing.Entries)
+	}
+	for _, entry := range listing.Entries {
+		if entry.Name == ".git" {
+			t.Fatalf(".git is listed: %#v", listing.Entries)
+		}
+	}
+	if code := e.request(t, http.MethodGet, filesPath+"?path=src", nil, e.token, &listing); code != http.StatusOK {
+		t.Fatalf("src files = %d", code)
+	}
+	if len(listing.Entries) != 1 || listing.Entries[0].Path != "src/app.go" {
+		t.Fatalf("src entries = %#v", listing.Entries)
+	}
+
+	var file proto.WorkspaceFile
+	if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/file?path=src/app.go", nil, e.token, &file); code != http.StatusOK {
+		t.Fatalf("file = %d", code)
+	}
+	if file.Binary || file.Content != "package main\n" {
+		t.Fatalf("file = %#v", file)
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/file?path=blob.bin", nil, e.token, &file); code != http.StatusOK || !file.Binary {
+		t.Fatalf("binary file = %d, %#v", code, file)
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/file?path=../../etc/passwd", nil, e.token, nil); code != http.StatusBadRequest {
+		t.Fatalf("traversal = %d", code)
+	}
+
+	prPath := "/api/v1/threads/" + thread.ID + "/pull-request"
+	var prResult struct {
+		PullRequest *proto.PullRequest `json:"pullRequest"`
+		Detail      string             `json:"detail"`
+	}
+	oldPath := os.Getenv("PATH")
+	t.Setenv("PATH", t.TempDir())
+	if code := e.request(t, http.MethodGet, prPath, nil, e.token, &prResult); code != http.StatusOK {
+		t.Fatalf("no gh pull request = %d", code)
+	}
+	if prResult.PullRequest != nil || !strings.Contains(prResult.Detail, "not installed") {
+		t.Fatalf("no gh result = %#v", prResult)
+	}
+	t.Setenv("PATH", oldPath)
+	state := fakeServerGH(t)
+	if err := os.WriteFile(state, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := e.request(t, http.MethodGet, prPath, nil, e.token, &prResult); code != http.StatusOK {
+		t.Fatalf("pull request = %d", code)
+	}
+	if prResult.PullRequest == nil || prResult.PullRequest.Number != 7 {
+		t.Fatalf("pull request = %#v", prResult)
+	}
+}
+
+// TestUpstreamRuntimeApproval projects a pending approval and answers it
 // through the runtime-request command.
 func TestUpstreamRuntimeApproval(t *testing.T) {
 	e := newTestEnv(t)

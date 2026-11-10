@@ -96,6 +96,17 @@ type app struct {
 	pinned           *core.Signal[map[string]bool]
 	draftSave        func() bool
 
+	rightOpen    *core.Signal[bool]
+	surface      *core.Signal[string]
+	filesPath    *core.Signal[string]
+	filesEntries *core.Signal[[]proto.WorkspaceEntry]
+	fileSelected *core.Signal[string]
+	file         *core.Signal[proto.WorkspaceFile]
+	rightErr     *core.Signal[string]
+	rightBusy    *core.Signal[bool]
+	pullRequest  *core.Signal[proto.PullRequest]
+	prDetail     *core.Signal[string]
+
 	conv *chat.ConversationState
 
 	mu           sync.Mutex
@@ -175,12 +186,25 @@ func newApp(cx *core.Scope) *app {
 		seen:             core.NewSignalFunc(cx, map[string]time.Time{}, func(map[string]time.Time, map[string]time.Time) bool { return false }),
 		drafts:           core.NewSignalFunc(cx, map[string]string{}, func(map[string]string, map[string]string) bool { return false }),
 		pinned:           core.NewSignalFunc(cx, map[string]bool{}, func(map[string]bool, map[string]bool) bool { return false }),
+		rightOpen:        core.NewSignal(cx, false),
+		surface:          core.NewSignal(cx, ""),
+		filesPath:        core.NewSignal(cx, ""),
+		filesEntries:     sliceSignal[proto.WorkspaceEntry](cx),
+		fileSelected:     core.NewSignal(cx, ""),
+		file:             core.NewSignal(cx, proto.WorkspaceFile{}),
+		rightErr:         core.NewSignal(cx, ""),
+		rightBusy:        core.NewSignal(cx, false),
+		pullRequest:      core.NewSignal(cx, proto.PullRequest{}),
+		prDetail:         core.NewSignal(cx, ""),
 	}
 	a.conv = chat.NewConversationState(cx)
 	a.bindKeys()
 	// The sidebar keeps the size and state it had last time.
 	if raw, ok := a.store.GetItem("sidebarOpen"); ok {
 		a.sidebarOpen.Set(raw != "false")
+	}
+	if raw, ok := a.store.GetItem("rightOpen"); ok {
+		a.rightOpen.Set(raw != "false")
 	}
 	if raw, ok := a.store.GetItem("drafts"); ok {
 		var drafts map[string]string
@@ -714,6 +738,16 @@ func (a *app) selectThread(id string) {
 	a.gitNote.Set("")
 	a.gitPR.Set("")
 	a.branches.Set(nil)
+	a.filesPath.Set("")
+	a.filesEntries.Set(nil)
+	a.fileSelected.Set("")
+	a.file.Set(proto.WorkspaceFile{})
+	a.pullRequest.Set(proto.PullRequest{})
+	a.prDetail.Set("")
+	a.rightErr.Set("")
+	if surface := a.surface.GetUntracked(); surface != "" {
+		a.openSurface(surface)
+	}
 	a.refreshQueue()
 	a.loadDetail(id)
 }
@@ -1063,6 +1097,7 @@ func (a *app) openRunDiff(runID string) {
 		return
 	}
 	a.closeRuns()
+	a.showDiff.Set(true)
 	a.loadDiff(id, runID)
 }
 
@@ -1118,6 +1153,9 @@ func (a *app) runGitAction(action proto.GitAction) {
 				parts = append(parts, "Done")
 			}
 			a.gitNote.Set(strings.Join(parts, " · "))
+			if action == proto.GitCommitPR {
+				a.loadPullRequest(id)
+			}
 		})
 	}()
 }
@@ -1255,6 +1293,117 @@ func (a *app) setProjectCollapsed(id string, collapsed bool) {
 	}
 }
 
+// setRightOpen shows or hides the right panel and remembers it.
+func (a *app) setRightOpen(open bool) {
+	a.rightOpen.Set(open)
+	value := "false"
+	if open {
+		value = "true"
+	}
+	_ = a.store.SetItem("rightOpen", value)
+	if open {
+		a.openSurface(a.surface.GetUntracked())
+	}
+}
+
+// openSurface switches the right panel to a surface, or to the picker
+// when name is empty.
+func (a *app) openSurface(name string) {
+	a.surface.Set(name)
+	a.rightErr.Set("")
+	switch name {
+	case "files":
+		a.loadFiles(a.filesPath.GetUntracked())
+	case "diff":
+		if id := a.selected.GetUntracked(); id != "" {
+			a.loadDiff(id, "")
+		}
+	case "pr":
+		a.loadPullRequest(a.selected.GetUntracked())
+	}
+}
+
+// loadFiles lists a directory of the selected thread's checkout.
+func (a *app) loadFiles(path string) {
+	id := a.selected.GetUntracked()
+	if id == "" {
+		return
+	}
+	a.rightBusy.Set(true)
+	a.call(func(ctx context.Context, c *client.Client) error {
+		entries, err := c.Files(ctx, id, path)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			a.rightBusy.Set(false)
+			a.filesPath.Set(path)
+			a.filesEntries.Set(entries)
+			a.fileSelected.Set("")
+			a.file.Set(proto.WorkspaceFile{})
+			a.rightErr.Set("")
+		})
+		return nil
+	}, func(err error) {
+		a.rightBusy.Set(false)
+		if err != nil {
+			a.rightErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// openFile reads one file into the right panel's viewer.
+func (a *app) openFile(path string) {
+	id := a.selected.GetUntracked()
+	if id == "" {
+		return
+	}
+	a.rightBusy.Set(true)
+	a.call(func(ctx context.Context, c *client.Client) error {
+		file, err := c.File(ctx, id, path)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			a.rightBusy.Set(false)
+			a.fileSelected.Set(path)
+			a.file.Set(file)
+			a.rightErr.Set("")
+		})
+		return nil
+	}, func(err error) {
+		a.rightBusy.Set(false)
+		if err != nil {
+			a.rightErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// loadPullRequest reads the branch's open pull request.
+func (a *app) loadPullRequest(id string) {
+	if id == "" {
+		return
+	}
+	a.rightBusy.Set(true)
+	a.call(func(ctx context.Context, c *client.Client) error {
+		pr, detail, err := c.PullRequest(ctx, id)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			a.rightBusy.Set(false)
+			a.pullRequest.Set(pr)
+			a.prDetail.Set(detail)
+		})
+		return nil
+	}, func(err error) {
+		a.rightBusy.Set(false)
+		if err != nil {
+			a.rightErr.Set(friendlyError(err))
+		}
+	})
+}
+
 // loadBranches fills the Changes dialog's branch picker.
 func (a *app) loadBranches(threadID string) {
 	a.call(func(ctx context.Context, c *client.Client) error {
@@ -1308,12 +1457,12 @@ func (a *app) openDiff() {
 	if id == "" {
 		return
 	}
+	a.showDiff.Set(true)
 	a.loadDiff(id, "")
 }
 
 func (a *app) loadDiff(threadID, runID string) {
 	a.diffText.Set("Loading diff…")
-	a.showDiff.Set(true)
 	a.loadBranches(threadID)
 	a.call(func(ctx context.Context, c *client.Client) error {
 		diff, err := c.Diff(ctx, threadID, runID)

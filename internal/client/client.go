@@ -306,6 +306,40 @@ func (c *Client) Diff(ctx context.Context, threadID, runID string) (string, erro
 	return out.Diff, err
 }
 
+// Files lists a directory in a thread's checkout.
+func (c *Client) Files(ctx context.Context, threadID, path string) ([]proto.WorkspaceEntry, error) {
+	var out struct {
+		Entries []proto.WorkspaceEntry `json:"entries"`
+	}
+	endpoint := "/api/v1/threads/" + url.PathEscape(threadID) + "/files?path=" + url.QueryEscape(path)
+	err := c.do(ctx, http.MethodGet, endpoint, nil, &out)
+	return out.Entries, err
+}
+
+// File reads one file from a thread's checkout.
+func (c *Client) File(ctx context.Context, threadID, path string) (proto.WorkspaceFile, error) {
+	var out proto.WorkspaceFile
+	endpoint := "/api/v1/threads/" + url.PathEscape(threadID) + "/file?path=" + url.QueryEscape(path)
+	err := c.do(ctx, http.MethodGet, endpoint, nil, &out)
+	return out, err
+}
+
+// PullRequest reads the open pull request for a thread's branch.
+func (c *Client) PullRequest(ctx context.Context, threadID string) (proto.PullRequest, string, error) {
+	var out struct {
+		PullRequest *proto.PullRequest `json:"pullRequest"`
+		Detail      string             `json:"detail"`
+	}
+	err := c.do(ctx, http.MethodGet, "/api/v1/threads/"+url.PathEscape(threadID)+"/pull-request", nil, &out)
+	if err != nil {
+		return proto.PullRequest{}, "", err
+	}
+	if out.PullRequest == nil {
+		return proto.PullRequest{}, out.Detail, nil
+	}
+	return *out.PullRequest, out.Detail, nil
+}
+
 // Branches lists the local branches of a thread's checkout.
 func (c *Client) Branches(ctx context.Context, threadID string) ([]proto.Branch, error) {
 	var out struct {
