@@ -72,6 +72,16 @@ supervised 的 Claude 运行时，适配器写一份临时 MCP 配置并传
 结果以 `approval.requested` / `approval.resolved` 事件广播，客户端重连时会用
 `GET /api/v1/approvals` 补齐还没回答的请求。
 
+## 上游 T3 Code 兼容层
+
+`internal/upstream` 实现 T3 Code 的发现描述与 Effect RPC JSON 帧的一个子集：
+`server.probe`、`server.getConfig`、`subscribeServerConfig`、
+`subscribeServerLifecycle`、`orchestration.subscribeShell` 和
+`subscribeAuthAccess`。shell 把 T3Go 的项目/线程投影成只读行；线程详情、发送
+和 v2 事件尚未投影。入口是 `/.well-known/t3/environment` 和带
+`orchestrationProtocol=2` 的 `/ws`，状态与差距见
+[upstream-compat.md](upstream-compat.md)。
+
 ## Web 客户端
 
 `scripts/build-web.sh` 用 `GOOS=js GOARCH=wasm` 构建 `cmd/t3go-app`，生成

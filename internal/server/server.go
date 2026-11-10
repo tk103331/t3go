@@ -14,9 +14,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/coder/websocket"
 
 	"github.com/tk/t3go/internal/config"
 	"github.com/tk/t3go/internal/events"
@@ -25,6 +28,7 @@ import (
 	"github.com/tk/t3go/internal/proto"
 	"github.com/tk/t3go/internal/provider"
 	"github.com/tk/t3go/internal/store"
+	"github.com/tk/t3go/internal/upstream"
 )
 
 // Server is one running T3Go environment.
@@ -175,6 +179,7 @@ func (s *Server) PairingURL() string {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
+	mux.HandleFunc("GET /.well-known/t3/environment", s.handleUpstreamDescriptor)
 	mux.HandleFunc("GET /api/v1/state", s.auth(s.handleState))
 	mux.HandleFunc("GET /api/v1/projects", s.auth(s.handleProjects))
 	mux.HandleFunc("POST /api/v1/projects", s.auth(s.handleCreateProject))
@@ -506,6 +511,128 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]string{"diff": diff})
+}
+
+// upstreamEnvironment is what the compatibility layer answers about this
+// environment.
+func (s *Server) upstreamEnvironment() upstream.Environment {
+	ctx := context.Background()
+	cwd, _ := os.Getwd()
+	env := upstream.Environment{
+		ID:      s.ID,
+		Label:   s.Service.Settings(ctx).Title,
+		Version: maxVersion(s.Config.Version),
+		Home:    s.Config.Home,
+		CWD:     cwd,
+		LogsDir: filepath.Join(s.Config.Home, "logs"),
+		Token:   s.Config.Token,
+	}
+	if projects, err := s.Store.Projects(ctx); err == nil {
+		for _, p := range projects {
+			env.Projects = append(env.Projects, upstream.Project{
+				ID: p.ID, Title: p.Name, WorkspaceRoot: p.Path, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+			})
+		}
+	}
+	if threads, err := s.Store.Threads(ctx, "", true); err == nil {
+		for _, t := range threads {
+			env.Threads = append(env.Threads, upstream.Thread{
+				ID: t.ID, ProjectID: t.ProjectID, Title: t.Title, Provider: t.Provider, Model: t.Model,
+				Permission: string(t.Permission), Branch: t.Branch, WorktreePath: t.WorktreePath,
+				Status: string(t.Status), LastError: t.LastError, Archived: t.Archived,
+				CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+			})
+		}
+	}
+	return env
+}
+
+func maxVersion(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return "0.0.0-t3go"
+	}
+	return v
+}
+
+// handleUpstreamDescriptor answers T3 Code's discovery request.
+func (s *Server) handleUpstreamDescriptor(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, 200, upstream.Descriptor(s.upstreamEnvironment()))
+}
+
+// handleUpstreamWS speaks the subset of T3 Code's JSON RPC that this
+// compatibility layer implements. It never mutates T3Go's own API.
+func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("orchestrationProtocol") != strconv.Itoa(upstream.ProtocolVersion) {
+		writeJSON(w, http.StatusUpgradeRequired, map[string]any{
+			"code":                         "orchestration_protocol_incompatible",
+			"message":                      "This environment speaks orchestration protocol " + strconv.Itoa(upstream.ProtocolVersion) + ".",
+			"orchestrationProtocolVersion": upstream.ProtocolVersion,
+		})
+		return
+	}
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	if err != nil {
+		return
+	}
+	defer conn.CloseNow()
+	ctx := r.Context()
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-s.closing:
+			conn.CloseNow()
+		case <-done:
+		}
+	}()
+	env := s.upstreamEnvironment()
+	for {
+		kind, data, err := conn.Read(ctx)
+		if err != nil {
+			return
+		}
+		if kind != websocket.MessageText {
+			continue
+		}
+		var envelope struct {
+			Tag     string          `json:"tag"`
+			ID      json.RawMessage `json:"id"`
+			Payload json.RawMessage `json:"payload"`
+			Control string          `json:"_tag"`
+		}
+		if err := json.Unmarshal(data, &envelope); err != nil {
+			continue
+		}
+		if envelope.Control == "Ping" {
+			_ = writeUpstream(ctx, conn, map[string]any{"_tag": "Pong"})
+			continue
+		}
+		if envelope.Control != "" && envelope.Control != "Request" {
+			continue
+		}
+		frames, _, known := upstream.Handle(env, upstream.Request{Tag: envelope.Tag, ID: envelope.ID, Payload: envelope.Payload})
+		if !known {
+			frames = []map[string]any{upstream.UnknownFailure(envelope.ID, upstream.Unknown(envelope.Tag))}
+		}
+		for _, frame := range frames {
+			if err := writeUpstream(ctx, conn, frame); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func writeUpstream(ctx context.Context, conn *websocket.Conn, frame any) error {
+	data, err := json.Marshal(frame)
+	if err != nil {
+		return err
+	}
+	return conn.Write(ctx, websocket.MessageText, data)
 }
 
 // localURL is where a program on this machine reaches listen, with a

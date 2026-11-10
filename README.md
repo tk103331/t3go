@@ -25,8 +25,9 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 尚未实现（有意留到后续）：
 
 - 交互式权限审批（supervised 模式下 CLI 进程内的确认框）
-- 与上游 t3code 客户端协议的兼容
 - 非 Apple 平台的语音听写（NSGo 目前只在 macOS/iOS 识别）
+- 上游 T3 Code 协议的完整兼容：已实现发现、配置、生命周期和线程列表，线程
+  详情/发送/事件投影尚未完成，见 [docs/upstream-compat.md](docs/upstream-compat.md)
 - Codex / OpenCode 的交互式审批（两者目前按各自的沙箱/自动策略运行）
 
 排队消息保存在客户端内存里，退出客户端会丢失；服务端仍是一次只跑一个 run。
@@ -147,6 +148,8 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
 | `GET/DELETE /api/v1/uploads/{id}` | 下载/删除附件 |
 | `GET /api/v1/events?after=<seq>` | SSE 事件流 |
 | `GET /ws` | WebSocket 事件流 |
+| `GET /.well-known/t3/environment` | T3 Code 客户端发现用的环境描述（部分兼容层） |
+| `GET /ws?orchestrationProtocol=2` | T3 Code 的 Effect RPC JSON 帧（部分兼容层） |
 
 SSE 事件带 `id: <seq>` 和 `event: <type>`；断线后用 `after` 或
 `Last-Event-ID` 续传。WebSocket 连接先收到 `hello`，之后是 `event` 帧；
@@ -191,7 +194,8 @@ internal/client/     Go 客户端（REST + SSE 重连）
 internal/config/     数据目录、token、监听地址
 ```
 
-更细的请求流和 run 生命周期见 [docs/architecture.md](docs/architecture.md)。
+更细的请求流和 run 生命周期见 [docs/architecture.md](docs/architecture.md)，上游
+T3 Code 协议目前覆盖到哪里见 [docs/upstream-compat.md](docs/upstream-compat.md)。
 
 ## 开发与测试
 

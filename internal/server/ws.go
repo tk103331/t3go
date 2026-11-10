@@ -15,6 +15,10 @@ import (
 // (ping, subscribe, unsubscribe). All mutations go through the REST API;
 // the socket is a push channel with client-side filtering.
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("orchestrationProtocol") != "" {
+		s.handleUpstreamWS(w, r)
+		return
+	}
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		return

@@ -464,3 +464,92 @@ func TestApprovalEndpoints(t *testing.T) {
 		t.Fatalf("second resolve = %d", code)
 	}
 }
+
+// TestUpstreamDiscoveryAndProbe checks the T3 Code compatibility surface:
+// the discovery descriptor and the JSON RPC frames for a probe, the config
+// snapshot and the shell stream.
+func TestUpstreamDiscoveryAndProbe(t *testing.T) {
+	e := newTestEnv(t)
+	p := e.project(t)
+	e.thread(t, p.ID)
+
+	var descriptor struct {
+		EnvironmentID                string         `json:"environmentId"`
+		Label                        string         `json:"label"`
+		ServerVersion                string         `json:"serverVersion"`
+		OrchestrationProtocolVersion int            `json:"orchestrationProtocolVersion"`
+		Capabilities                 map[string]any `json:"capabilities"`
+	}
+	if code := e.request(t, http.MethodGet, "/.well-known/t3/environment", nil, "", &descriptor); code != http.StatusOK {
+		t.Fatalf("descriptor = %d", code)
+	}
+	if descriptor.EnvironmentID != e.server.ID || descriptor.OrchestrationProtocolVersion != 2 || descriptor.ServerVersion == "" || descriptor.Label == "" {
+		t.Fatalf("descriptor = %#v", descriptor)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2"
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+		"Authorization": []string{"Bearer " + e.token},
+	}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+
+	send := func(v any) {
+		t.Helper()
+		if err := wsjson.Write(ctx, conn, v); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	read := func() map[string]any {
+		t.Helper()
+		var frame map[string]any
+		if err := wsjson.Read(ctx, conn, &frame); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		return frame
+	}
+
+	send(map[string]any{"_tag": "Request", "id": 1, "tag": "server.probe", "payload": map[string]any{}, "headers": []any{}})
+	frame := read()
+	if frame["_tag"] != "Exit" || frame["exit"].(map[string]any)["_tag"] != "Success" {
+		t.Fatalf("probe = %#v", frame)
+	}
+
+	send(map[string]any{"_tag": "Request", "id": 2, "tag": "server.getConfig", "payload": map[string]any{}, "headers": []any{}})
+	frame = read()
+	config, _ := frame["exit"].(map[string]any)["value"].(map[string]any)
+	if config["environment"] == nil || config["providers"] == nil {
+		t.Fatalf("config = %#v", frame)
+	}
+
+	send(map[string]any{"_tag": "Request", "id": 3, "tag": "orchestration.subscribeShell", "payload": map[string]any{}, "headers": []any{}})
+	frame = read()
+	if frame["_tag"] != "Chunk" {
+		t.Fatalf("shell = %#v", frame)
+	}
+	items, _ := frame["values"].([]any)
+	if len(items) < 2 || items[0].(map[string]any)["kind"] != "snapshot" {
+		t.Fatalf("shell items = %#v", items)
+	}
+	snapshot := items[0].(map[string]any)["snapshot"].(map[string]any)
+	projects, _ := snapshot["projects"].([]any)
+	threads, _ := snapshot["threads"].([]any)
+	if len(projects) != 1 || len(threads) != 1 {
+		t.Fatalf("shell projects = %d, threads = %d", len(projects), len(threads))
+	}
+	if project := projects[0].(map[string]any); project["title"] != "demo" || project["workspaceRoot"] == "" {
+		t.Fatalf("project = %#v", project)
+	}
+	if thread := threads[0].(map[string]any); thread["title"] != "Test thread" || thread["providerInstanceId"] != "claude" || thread["projectId"] == "" {
+		t.Fatalf("thread = %#v", thread)
+	}
+
+	send(map[string]any{"_tag": "Ping"})
+	if frame := read(); frame["_tag"] != "Pong" {
+		t.Fatalf("ping = %#v", frame)
+	}
+}
