@@ -175,6 +175,17 @@ type GitStatus struct {
 	DiffStat   string `json:"diffStat,omitempty"`
 }
 
+// Branch is one local or remote branch in a checkout.
+type Branch struct {
+	Name         string `json:"name"`
+	Current      bool   `json:"current,omitempty"`
+	Default      bool   `json:"default,omitempty"`
+	Remote       bool   `json:"remote,omitempty"`
+	RemoteName   string `json:"remoteName,omitempty"`
+	UpstreamRef  string `json:"upstreamRef,omitempty"`
+	WorktreePath string `json:"worktreePath,omitempty"`
+}
+
 // GitAction names a source control operation on a thread's checkout.
 type GitAction string
 

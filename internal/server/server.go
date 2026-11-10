@@ -208,6 +208,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/threads/{id}/stop", s.auth(s.handleStop))
 	mux.HandleFunc("GET /api/v1/threads/{id}/diff", s.auth(s.handleDiff))
 	mux.HandleFunc("POST /api/v1/threads/{id}/git", s.auth(s.handleGitAction))
+	mux.HandleFunc("GET /api/v1/threads/{id}/branches", s.auth(s.handleBranches))
+	mux.HandleFunc("POST /api/v1/threads/{id}/branches", s.auth(s.handleSwitchBranch))
 	mux.HandleFunc("GET /api/v1/providers", s.auth(s.handleProviders))
 	mux.HandleFunc("GET /api/v1/settings", s.auth(s.handleSettings))
 	mux.HandleFunc("PATCH /api/v1/settings", s.auth(s.handleUpdateSettings))
@@ -525,6 +527,50 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]bool{"stopped": stopped})
 }
 
+func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
+	t, err := s.Store.Thread(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), "thread", err.Error())
+		return
+	}
+	refs, err := git.ListRefs(r.Context(), s.Service.ThreadDir(r.Context(), t), false)
+	if err != nil {
+		writeError(w, statusFor(err), "branches", err.Error())
+		return
+	}
+	if refs == nil {
+		refs = []proto.Branch{}
+	}
+	writeJSON(w, 200, map[string]any{"branches": refs})
+}
+
+func (s *Server) handleSwitchBranch(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, 400, "invalid", err.Error())
+		return
+	}
+	name := strings.TrimSpace(in.Name)
+	if name == "" || strings.HasPrefix(name, "-") || strings.Contains(name, "..") {
+		writeError(w, 400, "invalid", "branch name is required")
+		return
+	}
+	t, err := s.Store.Thread(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), "thread", err.Error())
+		return
+	}
+	dir := s.Service.ThreadDir(r.Context(), t)
+	if err := git.SwitchRef(r.Context(), dir, name); err != nil {
+		writeError(w, statusFor(err), "branches", err.Error())
+		return
+	}
+	refs, _ := git.ListRefs(r.Context(), dir, false)
+	writeJSON(w, 200, map[string]any{"branch": name, "branches": refs})
+}
+
 func (s *Server) handleGitAction(w http.ResponseWriter, r *http.Request) {
 	var in proto.GitActionInput
 	if err := decodeJSON(r, &in); err != nil {
@@ -794,6 +840,16 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		case "orchestration.searchThread":
 			if !s.upstreamSearchThread(ctx, writer, envelope.ID, envelope.Payload) {
+				return
+			}
+			continue
+		case "vcs.listRefs":
+			if !s.upstreamVcsRefs(ctx, writer, envelope.ID, envelope.Payload) {
+				return
+			}
+			continue
+		case "vcs.createWorktree", "vcs.removeWorktree", "vcs.init":
+			if !s.upstreamVcsWorktree(ctx, writer, envelope.ID, envelope.Tag, envelope.Payload) {
 				return
 			}
 			continue
@@ -1363,6 +1419,203 @@ func uniqueFeatureBranch(ctx context.Context, dir, name string) string {
 	}
 }
 
+// upstreamVcsRefs lists branches for the official client's branch picker.
+func (s *Server) upstreamVcsRefs(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, payload json.RawMessage) bool {
+	var input struct {
+		Cwd                       string `json:"cwd"`
+		Query                     string `json:"query"`
+		Cursor                    int    `json:"cursor"`
+		IncludeMatchingRemoteRefs bool   `json:"includeMatchingRemoteRefs"`
+		RefKind                   string `json:"refKind"`
+		Limit                     int    `json:"limit"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		_ = writer.write(upstream.UnknownFailure(requestID, "invalid refs request"))
+		return true
+	}
+	if !s.allowedDir(input.Cwd) {
+		_ = writer.write(upstream.UnknownFailure(requestID, "unknown working directory"))
+		return true
+	}
+	if !git.IsRepo(ctx, input.Cwd) {
+		return writer.write(upstream.Exit(requestID, map[string]any{
+			"refs": []any{}, "isRepo": false, "hasPrimaryRemote": false,
+			"nextCursor": nil, "totalCount": 0,
+		})) == nil
+	}
+	refs, err := git.ListRefs(ctx, input.Cwd, true)
+	if err != nil {
+		_ = writer.write(upstream.UnknownFailure(requestID, err.Error()))
+		return true
+	}
+	localNames := map[string]bool{}
+	for _, ref := range refs {
+		if !ref.Remote {
+			localNames[ref.Name] = true
+		}
+	}
+	query := strings.ToLower(strings.TrimSpace(input.Query))
+	matched := make([]any, 0, len(refs))
+	for _, ref := range refs {
+		if input.RefKind == "local" && ref.Remote {
+			continue
+		}
+		if input.RefKind == "remote" && !ref.Remote {
+			continue
+		}
+		if !input.IncludeMatchingRemoteRefs && ref.Remote {
+			short := ref.Name
+			if _, rest, ok := strings.Cut(ref.Name, "/"); ok {
+				short = rest
+			}
+			if localNames[short] {
+				continue
+			}
+		}
+		if query != "" && !strings.Contains(strings.ToLower(ref.Name), query) {
+			continue
+		}
+		item := map[string]any{"name": ref.Name, "current": ref.Current, "isDefault": ref.Default}
+		if ref.Remote {
+			item["isRemote"] = true
+			if ref.RemoteName != "" {
+				item["remoteName"] = ref.RemoteName
+			}
+		}
+		if ref.UpstreamRef != "" {
+			item["upstreamRef"] = ref.UpstreamRef
+		}
+		if ref.WorktreePath != "" {
+			item["worktreePath"] = ref.WorktreePath
+		} else {
+			item["worktreePath"] = nil
+		}
+		matched = append(matched, item)
+	}
+	total := len(matched)
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	cursor := input.Cursor
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > total {
+		cursor = total
+	}
+	end := cursor + limit
+	if end > total {
+		end = total
+	}
+	var next any
+	if end < total {
+		next = end
+	}
+	return writer.write(upstream.Exit(requestID, map[string]any{
+		"refs": matched[cursor:end], "isRepo": true, "hasPrimaryRemote": git.HasRemote(ctx, input.Cwd),
+		"nextCursor": next, "totalCount": total,
+	})) == nil
+}
+
+// upstreamVcsWorktree creates or removes a managed worktree, or makes a
+// directory a repository.
+func (s *Server) upstreamVcsWorktree(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, tag string, payload json.RawMessage) bool {
+	switch tag {
+	case "vcs.init":
+		var input struct {
+			Cwd string `json:"cwd"`
+		}
+		_ = json.Unmarshal(payload, &input)
+		if !s.allowedDir(input.Cwd) {
+			_ = writer.write(upstream.UnknownFailure(requestID, "unknown working directory"))
+			return true
+		}
+		if err := git.Init(ctx, input.Cwd); err != nil {
+			_ = writer.write(upstream.UnknownFailure(requestID, err.Error()))
+			return true
+		}
+		return writer.write(upstream.ExitVoid(requestID)) == nil
+	case "vcs.removeWorktree":
+		var input struct {
+			Cwd   string `json:"cwd"`
+			Path  string `json:"path"`
+			Force bool   `json:"force"`
+		}
+		_ = json.Unmarshal(payload, &input)
+		if !s.allowedDir(input.Cwd) || !s.managedWorktree(input.Path) {
+			_ = writer.write(upstream.UnknownFailure(requestID, "unknown worktree"))
+			return true
+		}
+		if err := git.RemoveWorktreeForce(ctx, input.Cwd, filepath.Clean(input.Path), input.Force); err != nil {
+			_ = writer.write(upstream.UnknownFailure(requestID, err.Error()))
+			return true
+		}
+		return writer.write(upstream.ExitVoid(requestID)) == nil
+	}
+	var input struct {
+		Cwd         string  `json:"cwd"`
+		RefName     string  `json:"refName"`
+		NewRefName  string  `json:"newRefName"`
+		BaseRefName string  `json:"baseRefName"`
+		Path        *string `json:"path"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		_ = writer.write(upstream.UnknownFailure(requestID, "invalid worktree request"))
+		return true
+	}
+	if !s.allowedDir(input.Cwd) {
+		_ = writer.write(upstream.UnknownFailure(requestID, "unknown working directory"))
+		return true
+	}
+	if input.RefName == "" || strings.HasPrefix(input.RefName, "-") {
+		_ = writer.write(upstream.UnknownFailure(requestID, "invalid ref name"))
+		return true
+	}
+	target := input.NewRefName
+	if target == "" {
+		target = input.RefName
+	}
+	name := strings.ReplaceAll(strings.TrimPrefix(featureBranchName(target), "t3go/"), "/", "-")
+	suffix := strings.TrimPrefix(id.New("wt"), "wt_")
+	if len(suffix) > 8 {
+		suffix = suffix[:8]
+	}
+	path := filepath.Join(s.Config.Home, "worktrees", filepath.Base(filepath.Clean(input.Cwd)), name+"-"+suffix)
+	base := input.RefName
+	if input.BaseRefName != "" {
+		base = input.BaseRefName
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		_ = writer.write(upstream.UnknownFailure(requestID, err.Error()))
+		return true
+	}
+	if err := git.CreateWorktree(ctx, input.Cwd, path, target, base); err != nil {
+		_ = writer.write(upstream.UnknownFailure(requestID, err.Error()))
+		return true
+	}
+	return writer.write(upstream.Exit(requestID, map[string]any{
+		"worktree": map[string]any{"path": path, "refName": target},
+	})) == nil
+}
+
+// managedWorktree reports whether path is under the environment's managed
+// worktree folder.
+func (s *Server) managedWorktree(path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	root := filepath.Join(s.Config.Home, "worktrees")
+	rel, err := filepath.Rel(root, filepath.Clean(path))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return false
+	}
+	return true
+}
+
 // upstreamVcsWrite performs the git writes a client asks for.
 func (s *Server) upstreamVcsWrite(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, tag string, payload json.RawMessage) bool {
 	var input struct {
@@ -1447,7 +1700,7 @@ func (s *Server) allowedDir(cwd string) bool {
 			}
 		}
 	}
-	return false
+	return s.managedWorktree(clean)
 }
 
 // upstreamDiff answers the turn and whole-thread diff requests from T3Go's

@@ -306,6 +306,26 @@ func (c *Client) Diff(ctx context.Context, threadID, runID string) (string, erro
 	return out.Diff, err
 }
 
+// Branches lists the local branches of a thread's checkout.
+func (c *Client) Branches(ctx context.Context, threadID string) ([]proto.Branch, error) {
+	var out struct {
+		Branches []proto.Branch `json:"branches"`
+	}
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/branches"
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out.Branches, err
+}
+
+// SwitchBranch checks out a branch in a thread's checkout.
+func (c *Client) SwitchBranch(ctx context.Context, threadID, name string) ([]proto.Branch, error) {
+	var out struct {
+		Branches []proto.Branch `json:"branches"`
+	}
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/branches"
+	err := c.do(ctx, http.MethodPost, path, map[string]string{"name": name}, &out)
+	return out.Branches, err
+}
+
 // GitAction commits, pushes, or opens a pull request in a thread's
 // checkout.
 func (c *Client) GitAction(ctx context.Context, threadID string, in proto.GitActionInput) (proto.GitActionResult, error) {

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tk/t3go/internal/proto"
 )
 
 func gitRun(t *testing.T, dir string, args ...string) {
@@ -164,5 +166,50 @@ func TestCreatePullRequestNeedsGH(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	if _, err := CreatePullRequest(context.Background(), dir, ""); !errors.Is(err, ErrGHMissing) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestListRefs(t *testing.T) {
+	ctx := context.Background()
+	dir := initRepo(t)
+	gitRun(t, dir, "branch", "feature")
+	path := filepath.Join(t.TempDir(), "wt")
+	if err := CreateWorktree(ctx, dir, path, "t3go/wt", ""); err != nil {
+		t.Fatalf("worktree: %v", err)
+	}
+	refs, err := ListRefs(ctx, dir, false)
+	if err != nil {
+		t.Fatalf("refs: %v", err)
+	}
+	var current, feature, wt *proto.Branch
+	for i := range refs {
+		switch refs[i].Name {
+		case Status(ctx, dir).Branch:
+			current = &refs[i]
+		case "feature":
+			feature = &refs[i]
+		case "t3go/wt":
+			wt = &refs[i]
+		}
+	}
+	if current == nil || !current.Current || !current.Default {
+		t.Fatalf("current/default refs = %#v", refs)
+	}
+	if feature == nil || feature.Current {
+		t.Fatalf("feature ref = %#v", feature)
+	}
+	if wt == nil {
+		t.Fatalf("worktree branch missing: %#v", refs)
+	}
+	want, _ := filepath.EvalSymlinks(path)
+	got, _ := filepath.EvalSymlinks(wt.WorktreePath)
+	if got != want {
+		t.Fatalf("worktree ref = %#v, want %s", wt, want)
+	}
+	if refs[0].Name != current.Name {
+		t.Fatalf("current branch is not first: %#v", refs)
+	}
+	if err := RemoveWorktree(ctx, dir, path); err != nil {
+		t.Fatalf("remove worktree: %v", err)
 	}
 }

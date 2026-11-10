@@ -1573,6 +1573,151 @@ func TestUpstreamGitPullRequest(t *testing.T) {
 	}
 }
 
+func TestBranchEndpoints(t *testing.T) {
+	e := newTestEnv(t)
+	repo := upstreamGitRepo(t)
+	cmd := exec.Command("git", "branch", "feature")
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("branch: %v\n%s", err, out)
+	}
+	var project proto.Project
+	if code := e.request(t, http.MethodPost, "/api/v1/projects",
+		map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
+		t.Fatalf("project = %d", code)
+	}
+	thread := e.thread(t, project.ID)
+	path := "/api/v1/threads/" + thread.ID + "/branches"
+	var list struct {
+		Branches []proto.Branch `json:"branches"`
+	}
+	if code := e.request(t, http.MethodGet, path, nil, e.token, &list); code != http.StatusOK {
+		t.Fatalf("branches = %d", code)
+	}
+	if len(list.Branches) != 2 || !list.Branches[0].Current {
+		t.Fatalf("branches = %#v", list.Branches)
+	}
+	if code := e.request(t, http.MethodPost, path, map[string]string{"name": "feature"}, e.token, &list); code != http.StatusOK {
+		t.Fatalf("switch = %d", code)
+	}
+	if len(list.Branches) == 0 || list.Branches[0].Name != "feature" || !list.Branches[0].Current {
+		t.Fatalf("switched branches = %#v", list.Branches)
+	}
+	if code := e.request(t, http.MethodPost, path, map[string]string{"name": "--force"}, e.token, nil); code != http.StatusBadRequest {
+		t.Fatalf("bad branch = %d", code)
+	}
+}
+
+// upstreamCall sends one request and returns its successful value.
+func upstreamCall(t *testing.T, ctx context.Context, conn *websocket.Conn, id int, tag string, payload any) any {
+	t.Helper()
+	if err := wsjson.Write(ctx, conn, map[string]any{"_tag": "Request", "id": id, "tag": tag,
+		"headers": []any{}, "payload": payload}); err != nil {
+		t.Fatalf("write %s: %v", tag, err)
+	}
+	for {
+		var frame map[string]any
+		if err := wsjson.Read(ctx, conn, &frame); err != nil {
+			t.Fatalf("read %s: %v", tag, err)
+		}
+		if frame["_tag"] != "Exit" {
+			continue
+		}
+		exit, _ := frame["exit"].(map[string]any)
+		if exit["_tag"] != "Success" {
+			t.Fatalf("%s failed: %#v", tag, exit)
+		}
+		return exit["value"]
+	}
+}
+
+// TestUpstreamVcsRefsAndWorktrees lists branches and manages a worktree
+// through the calls the official client makes.
+func TestUpstreamVcsRefsAndWorktrees(t *testing.T) {
+	e := newTestEnv(t)
+	repo := upstreamGitRepo(t)
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	cmd := exec.Command("git", "init", "-q", "--bare", remote)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("bare remote: %v\n%s", err, out)
+	}
+	for _, args := range [][]string{{"remote", "add", "origin", remote}, {"push", "-qu", "origin", "main"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	var project proto.Project
+	if code := e.request(t, http.MethodPost, "/api/v1/projects",
+		map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
+		t.Fatalf("project = %d", code)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2"
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+		"Authorization": []string{"Bearer " + e.token},
+	}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+
+	value := upstreamCall(t, ctx, conn, 1, "vcs.listRefs", map[string]any{
+		"cwd": repo, "includeMatchingRemoteRefs": true, "refKind": "all",
+	})
+	result := value.(map[string]any)
+	if result["isRepo"] != true || result["hasPrimaryRemote"] != true {
+		t.Fatalf("refs result = %#v", result)
+	}
+	refs := result["refs"].([]any)
+	var current, remoteRef bool
+	for _, raw := range refs {
+		ref := raw.(map[string]any)
+		if ref["name"] == "main" && ref["current"] == true && ref["isDefault"] == true {
+			current = true
+		}
+		if ref["name"] == "origin/main" && ref["isRemote"] == true {
+			remoteRef = true
+		}
+	}
+	if !current || !remoteRef {
+		t.Fatalf("refs = %#v", refs)
+	}
+
+	value = upstreamCall(t, ctx, conn, 2, "vcs.createWorktree", map[string]any{
+		"cwd": repo, "refName": "main", "newRefName": "t3go/review", "path": nil,
+	})
+	worktree := value.(map[string]any)["worktree"].(map[string]any)
+	path := worktree["path"].(string)
+	if worktree["refName"] != "t3go/review" {
+		t.Fatalf("worktree = %#v", worktree)
+	}
+	if _, err := os.Stat(filepath.Join(path, "README.md")); err != nil {
+		t.Fatalf("worktree checkout: %v", err)
+	}
+
+	upstreamCall(t, ctx, conn, 3, "vcs.removeWorktree", map[string]any{
+		"cwd": repo, "path": path, "force": true,
+	})
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("worktree still exists: %v", err)
+	}
+
+	plain := t.TempDir()
+	var plainProject proto.Project
+	if code := e.request(t, http.MethodPost, "/api/v1/projects",
+		map[string]string{"name": "plain", "path": plain}, e.token, &plainProject); code != http.StatusCreated {
+		t.Fatalf("plain project = %d", code)
+	}
+	upstreamCall(t, ctx, conn, 4, "vcs.init", map[string]any{"cwd": plain})
+	if !git.IsRepo(ctx, plain) {
+		t.Fatal("vcs.init did not make a repository")
+	}
+}
+
 // TestUpstreamRuntimeApproval projects a pending approval and answers it
 // through the runtime-request command.
 func TestUpstreamRuntimeApproval(t *testing.T) {

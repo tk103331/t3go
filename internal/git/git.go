@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -180,7 +181,17 @@ func CreateWorktree(ctx context.Context, dir, path, branch, base string) error {
 
 // RemoveWorktree removes a worktree directory.
 func RemoveWorktree(ctx context.Context, dir, path string) error {
-	_, err := run(ctx, dir, "worktree", "remove", "--force", path)
+	return RemoveWorktreeForce(ctx, dir, path, true)
+}
+
+// RemoveWorktreeForce removes a worktree, discarding changes when force.
+func RemoveWorktreeForce(ctx context.Context, dir, path string, force bool) error {
+	args := []string{"worktree", "remove"}
+	if force {
+		args = append(args, "--force")
+	}
+	args = append(args, path)
+	_, err := run(ctx, dir, args...)
 	return err
 }
 
@@ -394,4 +405,125 @@ func CreatePullRequest(ctx context.Context, dir, base string) (PullRequest, erro
 		}
 	}
 	return PullRequest{}, errors.New("pull request was created but its URL could not be read")
+}
+
+// ListRefs lists local branches and, when asked, remote-tracking branches,
+// newest state first: the checked-out branch, the default branch, then the
+// rest by name.
+func ListRefs(ctx context.Context, dir string, includeRemote bool) ([]proto.Branch, error) {
+	if !IsRepo(ctx, dir) {
+		return nil, ErrNotRepo
+	}
+	status := Status(ctx, dir)
+	current := status.Branch
+	def := DefaultBranch(ctx, dir)
+	worktrees := worktreeBranches(ctx, dir)
+
+	local, err := run(ctx, dir, "for-each-ref",
+		"--format=%(refname:short)%09%(upstream)%09%(refname)", "refs/heads")
+	if err != nil {
+		return nil, err
+	}
+	var refs []proto.Branch
+	for _, line := range strings.Split(local, "\n") {
+		fields := strings.Split(line, "\t")
+		if len(fields) < 3 || fields[0] == "" {
+			continue
+		}
+		refs = append(refs, proto.Branch{
+			Name:         fields[0],
+			Current:      fields[0] == current,
+			Default:      fields[0] == def,
+			UpstreamRef:  fields[1],
+			WorktreePath: worktrees[fields[2]],
+		})
+	}
+	if includeRemote {
+		remote, err := run(ctx, dir, "for-each-ref",
+			"--format=%(refname:short)%09%(refname)", "refs/remotes")
+		if err != nil {
+			return nil, err
+		}
+		for _, line := range strings.Split(remote, "\n") {
+			fields := strings.Split(line, "\t")
+			if len(fields) < 2 || fields[0] == "" || strings.HasSuffix(fields[0], "/HEAD") {
+				continue
+			}
+			remoteName := strings.SplitN(fields[0], "/", 2)[0]
+			short := strings.TrimPrefix(fields[0], remoteName+"/")
+			refs = append(refs, proto.Branch{
+				Name:        fields[0],
+				Default:     short == def,
+				Remote:      true,
+				RemoteName:  remoteName,
+				UpstreamRef: fields[1],
+			})
+		}
+	}
+	sort.SliceStable(refs, func(i, j int) bool {
+		rank := func(b proto.Branch) int {
+			switch {
+			case b.Current:
+				return 0
+			case b.Default:
+				return 1
+			default:
+				return 2
+			}
+		}
+		if ri, rj := rank(refs[i]), rank(refs[j]); ri != rj {
+			return ri < rj
+		}
+		return refs[i].Name < refs[j].Name
+	})
+	return refs, nil
+}
+
+// DefaultBranch is the branch a checkout compares against: origin's HEAD,
+// then main, master, or trunk, then the current branch.
+func DefaultBranch(ctx context.Context, dir string) string {
+	if out, err := run(ctx, dir, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); err == nil {
+		if _, short, ok := strings.Cut(out, "/"); ok {
+			return short
+		}
+	}
+	branches, _ := Branches(ctx, dir)
+	for _, name := range []string{"main", "master", "trunk"} {
+		for _, branch := range branches {
+			if branch == name {
+				return name
+			}
+		}
+	}
+	return Status(ctx, dir).Branch
+}
+
+// worktreeBranches maps full branch refs to the worktrees that hold them.
+func worktreeBranches(ctx context.Context, dir string) map[string]string {
+	out, err := run(ctx, dir, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil
+	}
+	paths := map[string]string{}
+	var path string
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			path = strings.TrimPrefix(line, "worktree ")
+		case strings.HasPrefix(line, "branch "):
+			if path != "" {
+				paths[strings.TrimPrefix(line, "branch ")] = path
+			}
+		}
+	}
+	return paths
+}
+
+// Init makes dir a Git repository when it is not one yet.
+func Init(ctx context.Context, dir string) error {
+	if IsRepo(ctx, dir) {
+		return nil
+	}
+	_, err := run(ctx, dir, "init")
+	return err
 }

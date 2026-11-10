@@ -970,6 +970,11 @@ func TestUIGitDialog(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("changed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	cmd := exec.Command("git", "branch", "feature")
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("branch: %v\n%s", err, out)
+	}
 
 	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
 		"serverUrl": ts.URL,
@@ -1000,4 +1005,12 @@ func TestUIGitDialog(t *testing.T) {
 	if st := git.Status(ctx, repo); st.Dirty {
 		t.Fatalf("checkout is still dirty after commit: %#v", st)
 	}
+
+	// The branch picker switches the same checkout.
+	app.WaitFor("id:git-branch", 10*time.Second)
+	app.Press("id:git-branch")
+	app.WaitFor("id:git-branch-feature", 5*time.Second)
+	app.Press("id:git-branch-feature")
+	app.WaitFor("text:On feature", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool { return git.Status(ctx, repo).Branch == "feature" })
 }

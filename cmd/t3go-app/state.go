@@ -71,6 +71,7 @@ type app struct {
 	gitBusy        *core.Signal[bool]
 	gitNote        *core.Signal[string]
 	gitPR          *core.Signal[string]
+	branches       *core.Signal[[]proto.Branch]
 	pendingDelete  *core.Signal[itemTarget]
 	pendingRename  *core.Signal[itemTarget]
 	renameName     *core.Signal[string]
@@ -141,6 +142,7 @@ func newApp(cx *core.Scope) *app {
 		gitBusy:        core.NewSignal(cx, false),
 		gitNote:        core.NewSignal(cx, ""),
 		gitPR:          core.NewSignal(cx, ""),
+		branches:       sliceSignal[proto.Branch](cx),
 		pendingDelete: core.NewSignalFunc(cx, itemTarget{}, func(a, b itemTarget) bool {
 			return a == b
 		}),
@@ -643,6 +645,7 @@ func (a *app) selectThread(id string) {
 	a.running.Set(false)
 	a.gitNote.Set("")
 	a.gitPR.Set("")
+	a.branches.Set(nil)
 	a.refreshQueue()
 	a.loadDetail(id)
 }
@@ -1054,6 +1057,54 @@ func shortID(id string) string {
 	return id
 }
 
+// loadBranches fills the Changes dialog's branch picker.
+func (a *app) loadBranches(threadID string) {
+	a.call(func(ctx context.Context, c *client.Client) error {
+		branches, err := c.Branches(ctx, threadID)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			if a.selected.GetUntracked() == threadID {
+				a.branches.Set(branches)
+			}
+		})
+		return nil
+	}, func(err error) {
+		if err != nil {
+			a.gitNote.Set(friendlyError(err))
+		}
+	})
+}
+
+// switchBranch checks out another branch in the thread's checkout.
+func (a *app) switchBranch(name string) {
+	id := a.selected.GetUntracked()
+	if id == "" || a.gitBusy.GetUntracked() {
+		return
+	}
+	a.gitBusy.Set(true)
+	a.gitNote.Set("Switching branch…")
+	a.call(func(ctx context.Context, c *client.Client) error {
+		branches, err := c.SwitchBranch(ctx, id, name)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			a.gitBusy.Set(false)
+			a.branches.Set(branches)
+			a.gitNote.Set("On " + name)
+			a.loadDetail(id)
+		})
+		return nil
+	}, func(err error) {
+		if err != nil {
+			a.gitBusy.Set(false)
+			a.gitNote.Set(friendlyError(err))
+		}
+	})
+}
+
 func (a *app) openDiff() {
 	id := a.selected.GetUntracked()
 	if id == "" {
@@ -1065,6 +1116,7 @@ func (a *app) openDiff() {
 func (a *app) loadDiff(threadID, runID string) {
 	a.diffText.Set("Loading diff…")
 	a.showDiff.Set(true)
+	a.loadBranches(threadID)
 	a.call(func(ctx context.Context, c *client.Client) error {
 		diff, err := c.Diff(ctx, threadID, runID)
 		if err != nil {

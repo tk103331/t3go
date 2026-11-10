@@ -30,7 +30,10 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
 | `assets.createUrl` | 给附件签发可预览/下载的 URL |
 | `vcs.refreshStatus` / `subscribeVcsStatus` | 项目或 worktree 的分支、ahead/behind、工作区文件增删行；订阅先发 snapshot，之后每 2 秒轮询并推送 `localUpdated` / `remoteUpdated` |
 | `vcs.refreshBranch` / `subscribeVcsBranch` | 当前分支名，订阅会轮询分支变化 |
+| `vcs.listRefs` | 本地/远程分支：当前、默认、upstream、worktree 路径，支持搜索、分页和去重 |
+| `vcs.createWorktree` / `vcs.removeWorktree` | 在环境管理的 `worktrees/` 下建/删 worktree |
 | `vcs.createRef` / `vcs.switchRef` / `vcs.pull` | 建分支、切分支、fast-forward pull |
+| `vcs.init` | 把项目目录初始化为 Git 仓库 |
 | `git.runStackedAction` | `commit`、`push`、`commit_push`、`create_pr`、`commit_push_pr` 的进度流；可选 `featureBranch` 建分支，PR 经本机 `gh` 创建或复用已打开的 PR |
 | `orchestration.searchThreads` | 跨线程搜索文本消息，返回 thread/project、消息 id、片段和匹配度 |
 | `orchestration.searchThread` | 线程内查找，返回匹配总数、当前匹配和 entry id |

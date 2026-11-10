@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/oneo-me/nsgo"
@@ -634,27 +635,43 @@ func (a *app) diffBody(cx *core.Scope) core.Node {
 	case git.Error != "":
 		status = ui.Text(git.Error, 12, ui.Regular, colors.Danger)
 	default:
-		meta := git.Branch
-		if git.Branch == "" {
-			meta = "detached HEAD"
+		branch := git.Branch
+		if branch == "" {
+			branch = "detached HEAD"
 		}
+		var detail []string
 		if git.Dirty {
-			meta += " · uncommitted changes"
+			detail = append(detail, "uncommitted changes")
 		}
 		if git.Ahead > 0 {
-			meta += fmt.Sprintf(" · %d ahead", git.Ahead)
+			detail = append(detail, fmt.Sprintf("%d ahead", git.Ahead))
 		}
 		if git.Behind > 0 {
-			meta += fmt.Sprintf(" · %d behind", git.Behind)
+			detail = append(detail, fmt.Sprintf("%d behind", git.Behind))
 		}
-		status = core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinWidth: core.Pt(0)}, Children: []core.Node{
-			ui.Icon(lucide.GitBranch, 13, colors.Muted),
-			core.View{Style: core.Style{Direction: core.Column, MinWidth: core.Pt(0), FlexGrow: 1, Gap: 1}, Children: []core.Node{
-				core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold},
-					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-				core.Text{Content: git.Root, MaxLines: 1, Style: core.Style{FontSize: 11},
-					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-			}},
+		var branchField core.Node = ui.Text(branch, 12, ui.Semibold, colors.Text)
+		if refs := a.branches.Get(); len(refs) > 1 {
+			var items []core.Node
+			for _, ref := range refs {
+				ref := ref
+				items = append(items, ui.MenuItem{Text: ref.Name, TestID: "git-branch-" + ref.Name,
+					Checked:  func() bool { return ref.Current },
+					OnSelect: func() { a.switchBranch(ref.Name) }})
+			}
+			branchField = ui.Menu{TestID: "git-branch",
+				Trigger:   ui.Button{Text: branch, Icon: lucide.GitBranch, Variant: ui.ButtonGhost, Size: ui.SizeSmall},
+				MaxHeight: 320, Children: items}
+		}
+		line := []core.Node{branchField}
+		if len(detail) > 0 {
+			line = append(line, core.Text{Content: strings.Join(detail, " · "), MaxLines: 1,
+				Style:     core.Style{FontSize: 11.5, FlexShrink: 1},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
+		}
+		status = core.View{Style: core.Style{Direction: core.Column, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinWidth: core.Pt(0)}, Children: line},
+			core.Text{Content: git.Root, MaxLines: 1, Style: core.Style{FontSize: 11},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 		}}
 	}
 	buttons := core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
