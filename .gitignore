@@ -2,6 +2,7 @@
 /bin/
 /t3go
 /t3go-app
+/*.exe
 
 # local data
 .t3go/

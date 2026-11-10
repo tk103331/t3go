@@ -6,9 +6,11 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"runtime"
+	"strings"
 	"sync"
 
-	"github.com/creack/pty"
+	gopty "github.com/aymanbagabas/go-pty"
 	"github.com/tk/t3go/internal/id"
 )
 
@@ -25,8 +27,8 @@ type Session struct {
 	Cwd      string
 
 	mu       sync.Mutex
-	file     *os.File
-	cmd      *exec.Cmd
+	term     gopty.Pty
+	cmd      *gopty.Cmd
 	output   []byte
 	cols     uint16
 	rows     uint16
@@ -59,13 +61,8 @@ func (m *Manager) Ensure(threadID, dir, shell string) (*Session, error) {
 		delete(m.byID, old.ID)
 		delete(m.byThread, threadID)
 	}
-	if shell == "" {
-		shell = os.Getenv("SHELL")
-	}
-	if shell == "" {
-		shell = "/bin/sh"
-	}
-	session, err := start(id.New("term"), threadID, dir, shell)
+	shell, args := shellCommand(shell)
+	session, err := start(id.New("term"), threadID, dir, shell, args)
 	if err != nil {
 		return nil, err
 	}
@@ -126,16 +123,58 @@ func (m *Manager) Shutdown() {
 	}
 }
 
-func start(sessionID, threadID, dir, shell string) (*Session, error) {
-	cmd := exec.Command(shell, "-l")
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor", "T3GO_TERMINAL=1")
-	file, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 80, Rows: 24})
+// shellCommand picks a login shell and its first arguments. Windows uses
+// PowerShell when it is there and cmd otherwise, through ConPTY.
+func shellCommand(shell string) (string, []string) {
+	if shell == "" {
+		if runtime.GOOS == "windows" {
+			for _, name := range []string{"pwsh.exe", "powershell.exe"} {
+				if path, err := exec.LookPath(name); err == nil {
+					return path, []string{"-NoLogo"}
+				}
+			}
+			if comspec := os.Getenv("COMSPEC"); comspec != "" {
+				return comspec, nil
+			}
+			return "cmd.exe", nil
+		}
+		shell = os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/sh"
+		}
+	}
+	if runtime.GOOS != "windows" {
+		return shell, []string{"-l"}
+	}
+	switch strings.ToLower(strings.TrimSuffix(strings.ToLower(filepathBase(shell)), ".exe")) {
+	case "pwsh", "powershell":
+		return shell, []string{"-NoLogo"}
+	}
+	return shell, nil
+}
+
+func filepathBase(path string) string {
+	if i := strings.LastIndexAny(path, `\/`); i >= 0 {
+		return path[i+1:]
+	}
+	return path
+}
+
+func start(sessionID, threadID, dir, shell string, args []string) (*Session, error) {
+	term, err := gopty.New()
 	if err != nil {
 		return nil, err
 	}
+	cmd := term.Command(shell, args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor", "T3GO_TERMINAL=1")
+	if err := cmd.Start(); err != nil {
+		_ = term.Close()
+		return nil, err
+	}
+	_ = term.Resize(80, 24)
 	session := &Session{ID: sessionID, ThreadID: threadID, Shell: shell, Cwd: dir,
-		file: file, cmd: cmd, cols: 80, rows: 24, done: make(chan struct{}), subs: map[chan []byte]struct{}{}}
+		term: term, cmd: cmd, cols: 80, rows: 24, done: make(chan struct{}), subs: map[chan []byte]struct{}{}}
 	go session.read()
 	go session.wait()
 	return session, nil
@@ -144,7 +183,7 @@ func start(sessionID, threadID, dir, shell string) (*Session, error) {
 func (s *Session) read() {
 	buf := make([]byte, 32<<10)
 	for {
-		n, err := s.file.Read(buf)
+		n, err := s.term.Read(buf)
 		if n > 0 {
 			s.broadcast(buf[:n])
 		}
@@ -155,13 +194,10 @@ func (s *Session) read() {
 }
 
 func (s *Session) wait() {
-	err := s.cmd.Wait()
-	code := 0
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		code = exitErr.ExitCode()
-	} else if err != nil {
-		code = -1
+	_ = s.cmd.Wait()
+	code := -1
+	if s.cmd.ProcessState != nil {
+		code = s.cmd.ProcessState.ExitCode()
 	}
 	s.finish(code)
 }
@@ -196,7 +232,7 @@ func (s *Session) finish(code int) {
 	}
 	s.subs = map[chan []byte]struct{}{}
 	s.mu.Unlock()
-	_ = s.file.Close()
+	_ = s.term.Close()
 }
 
 // Exited reports whether the shell has ended.
@@ -221,7 +257,7 @@ func (s *Session) Write(data []byte) error {
 	if exited {
 		return errors.New("terminal has exited")
 	}
-	_, err := s.file.Write(data)
+	_, err := s.term.Write(data)
 	return err
 }
 
@@ -237,7 +273,7 @@ func (s *Session) Resize(cols, rows int) error {
 	if exited {
 		return errors.New("terminal has exited")
 	}
-	return pty.Setsize(s.file, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+	return s.term.Resize(cols, rows)
 }
 
 // Subscribe returns the current output and a channel of later output. The
@@ -274,7 +310,7 @@ func (s *Session) Close() {
 	if s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
 	}
-	_ = s.file.Close()
+	_ = s.term.Close()
 	s.finish(-1)
 }
 

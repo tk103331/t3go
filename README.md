@@ -266,5 +266,5 @@ transcript 的渲染，命令面板与快捷键，运行中排队并自动发送
 - 网页版由服务端同源提供，使用浏览器 `localStorage` 保存地址和 token；附件用系统文件选择器添加。
 - 语音听写只在系统提供识别器时显示（macOS/iOS），其他平台不出现麦克风按钮。
 - 审批目前只覆盖 Claude Code；一次 run 结束时未回答的审批自动拒绝。
-- 终端依赖 PTY，支持 macOS/Linux/BSD；Windows 上会返回不支持错误。
+- 终端在 macOS/Linux/BSD 使用 PTY，Windows 使用 ConPTY；Windows 优先 `pwsh.exe`，其次 `powershell.exe`，最后 `cmd.exe`。
 - 终端前端使用 `@xterm/xterm` 与 `@xterm/addon-fit`（MIT），资源内嵌在客户端二进制中。
