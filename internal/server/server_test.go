@@ -2145,6 +2145,22 @@ func TestAgentCommands(t *testing.T) {
 		[]byte("---\ndescription: Audit a change\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	mcp := filepath.Join(repo, "mcp.sh")
+	script := `#!/bin/sh
+while IFS= read -r line; do
+case "$line" in
+*'"method":"initialize"'*) printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"prompts":{}},"serverInfo":{"name":"fake","version":"1"}}}';;
+*'"method":"prompts/list"'*) printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"prompts":[{"name":"summarize","description":"Summarize with MCP"}]}}';;
+esac
+done
+`
+	if err := os.WriteFile(mcp, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".mcp.json"),
+		[]byte(`{"mcpServers":{"fake":{"command":"`+mcp+`"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	var project proto.Project
 	if code := e.request(t, http.MethodPost, "/api/v1/projects",
 		map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
@@ -2157,7 +2173,7 @@ func TestAgentCommands(t *testing.T) {
 	if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/commands", nil, e.token, &result); code != http.StatusOK {
 		t.Fatalf("commands = %d", code)
 	}
-	var review, audit bool
+	var review, audit, prompt bool
 	for _, command := range result.Commands {
 		if command.Name == "review" && command.Source == "claude" && command.Kind == "command" {
 			review = command.Description == "Review the change"
@@ -2165,8 +2181,11 @@ func TestAgentCommands(t *testing.T) {
 		if command.Name == "audit" && command.Source == "opencode" && command.Kind == "skill" {
 			audit = command.Description == "Audit a change"
 		}
+		if command.Name == "mcp__fake__summarize" && command.Source == "mcp" && command.Kind == "prompt" {
+			prompt = command.Description == "Summarize with MCP"
+		}
 	}
-	if !review || !audit {
+	if !review || !audit || !prompt {
 		t.Fatalf("commands = %#v", result.Commands)
 	}
 }

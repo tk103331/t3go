@@ -20,6 +20,7 @@ func (s *Server) handleAgentCommands(w http.ResponseWriter, r *http.Request) {
 	}
 	root := s.Service.ThreadDir(r.Context(), t)
 	commands := discoverCommands(root)
+	commands = append(commands, discoverMCPPrompts(root)...)
 	writeJSON(w, 200, map[string]any{"commands": commands})
 }
 
