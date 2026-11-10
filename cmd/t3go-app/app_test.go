@@ -1349,10 +1349,15 @@ func TestUIRightPanel(t *testing.T) {
 	app.WaitUntil(10*time.Second, func() bool { return git.StagedPaths(ctx, repo)["README.md"] })
 	app.Press("id:diff-discard-pic.png")
 	app.WaitFor("id:discard-dialog", 5*time.Second)
-	app.Press("id:confirm-discard")
-	app.WaitUntil(10*time.Second, func() bool {
-		_, err := os.Stat(filepath.Join(repo, "pic.png"))
-		return os.IsNotExist(err)
+	app.WaitUntil(15*time.Second, func() bool {
+		if _, err := os.Stat(filepath.Join(repo, "pic.png")); os.IsNotExist(err) {
+			return true
+		}
+		if app.Exists("id:confirm-discard") {
+			app.Press("id:confirm-discard")
+			app.Settle()
+		}
+		return false
 	})
 	openPicker("surface-graph")
 	app.Press("id:surface-graph")

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
@@ -309,7 +310,19 @@ func (a *app) toolCard(cx *core.Scope, m proto.Message) core.Node {
 	case "completed":
 		trigger = append(trigger, ui.Icon(lucide.CircleCheck, 13, colors.Faint))
 	}
+	files := toolChangedFiles(head, m.Detail)
+	if len(files) > 0 {
+		label := "1 file"
+		if len(files) > 1 {
+			label = fmt.Sprintf("%d files", len(files))
+		}
+		trigger = append(trigger, core.Text{Content: label, MaxLines: 1,
+			Style: core.Style{FontSize: 10, FlexShrink: 0}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
+	}
 	var blocks []core.Node
+	if len(files) > 0 {
+		blocks = append(blocks, a.changedFilesBlock(cx, files))
+	}
 	if detail := prettyDetail(m.Detail); detail != "" {
 		blocks = append(blocks, detailBlock(cx, "Input", detail))
 	}
@@ -325,6 +338,41 @@ func (a *app) toolCard(cx *core.Scope, m proto.Message) core.Node {
 			OnOpenChange: func(open bool) { a.setExpanded(key, open) },
 			TestID:       "tool-" + m.ID,
 			Content:      core.View{Style: core.Style{Direction: core.Column, Gap: 6, MinWidth: core.Pt(0)}, Children: blocks}},
+	}}
+}
+
+// changedFilesBlock lists the files a tool call changed.
+func (a *app) changedFilesBlock(cx *core.Scope, files []string) core.Node {
+	colors := ui.ColorsOf(cx)
+	root := ""
+	if git := a.detail.Get().Git; git != nil {
+		root = git.Root
+	}
+	var rows []core.Node
+	for _, path := range files {
+		path := path
+		label := core.Text{Content: path, MaxLines: 1, Style: core.Style{FontSize: 11, FontFamily: "Menlo, monospace", FlexGrow: 1, FlexShrink: 1},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }}
+		row := []core.Node{ui.Icon(lucide.FileText, 11, colors.Muted), label}
+		relative := toolFileRelative(root, path)
+		if relative == "" {
+			rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5,
+				Padding: core.Symmetric(2, 4)}, Children: row})
+			continue
+		}
+		rows = append(rows, base.Button{OnPress: func(core.PressEvent) {
+			a.showSurface("files")
+			a.openFile(relative)
+		}, Label: "Open " + path, TestID: "tool-file-" + relative,
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Width: core.Pct(100),
+				Padding: core.Symmetric(2, 4), CornerRadius: 5, Cursor: core.CursorDefault},
+			StyleFunc: func() core.Style {
+				return core.Style{Hover: &core.Style{Background: colors.Hover()}, Focus: ui.FocusRing(cx, -2)}
+			}, Children: row})
+	}
+	return core.View{Style: core.Style{Direction: core.Column, Gap: 2}, Children: []core.Node{
+		ui.Text("Changed files", 10, ui.Semibold, colors.Faint),
+		core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: rows},
 	}}
 }
 
