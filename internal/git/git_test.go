@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -96,5 +97,72 @@ func TestWorktree(t *testing.T) {
 	}
 	if err := RemoveWorktree(ctx, dir, path); err != nil {
 		t.Fatalf("remove worktree: %v", err)
+	}
+}
+
+// fakeGH puts a gh that reports and creates pull request 7 on PATH.
+func fakeGH(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	state := filepath.Join(dir, "pr-open")
+	script := `#!/bin/sh
+case "$1 $2" in
+"pr view")
+  if [ -f "$PR_STATE" ]; then
+    echo '{"url":"https://github.com/acme/repo/pull/7","number":7,"title":"Add feature","baseRefName":"main","headRefName":"feature","state":"OPEN"}'
+  else
+    echo "no pull requests found" >&2
+    exit 1
+  fi
+  ;;
+"pr create")
+  touch "$PR_STATE"
+  echo "https://github.com/acme/repo/pull/7"
+  ;;
+*)
+  echo "unexpected gh $*" >&2
+  exit 2
+  ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PR_STATE", state)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return state
+}
+
+func TestCreatePullRequest(t *testing.T) {
+	ctx := context.Background()
+	dir := initRepo(t)
+	fakeGH(t)
+
+	pr, err := CreatePullRequest(ctx, dir, "main")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if pr.URL != "https://github.com/acme/repo/pull/7" || pr.Number != 7 || pr.Existed {
+		t.Fatalf("pr = %#v", pr)
+	}
+	if pr.Title != "Add feature" || pr.BaseBranch != "main" || pr.HeadBranch != "feature" {
+		t.Fatalf("pr details = %#v", pr)
+	}
+
+	// A second call finds the open pull request instead of making another.
+	again, err := CreatePullRequest(ctx, dir, "main")
+	if err != nil {
+		t.Fatalf("second create: %v", err)
+	}
+	if !again.Existed || again.Number != 7 {
+		t.Fatalf("second pr = %#v", again)
+	}
+}
+
+func TestCreatePullRequestNeedsGH(t *testing.T) {
+	dir := initRepo(t)
+	t.Setenv("PATH", t.TempDir())
+	if _, err := CreatePullRequest(context.Background(), dir, ""); !errors.Is(err, ErrGHMissing) {
+		t.Fatalf("err = %v", err)
 	}
 }

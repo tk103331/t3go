@@ -207,6 +207,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/threads/{id}/messages", s.auth(s.handleSend))
 	mux.HandleFunc("POST /api/v1/threads/{id}/stop", s.auth(s.handleStop))
 	mux.HandleFunc("GET /api/v1/threads/{id}/diff", s.auth(s.handleDiff))
+	mux.HandleFunc("POST /api/v1/threads/{id}/git", s.auth(s.handleGitAction))
 	mux.HandleFunc("GET /api/v1/providers", s.auth(s.handleProviders))
 	mux.HandleFunc("GET /api/v1/settings", s.auth(s.handleSettings))
 	mux.HandleFunc("PATCH /api/v1/settings", s.auth(s.handleUpdateSettings))
@@ -522,6 +523,26 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	stopped := s.Service.Stop(r.PathValue("id"))
 	writeJSON(w, 200, map[string]bool{"stopped": stopped})
+}
+
+func (s *Server) handleGitAction(w http.ResponseWriter, r *http.Request) {
+	var in proto.GitActionInput
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, 400, "invalid", err.Error())
+		return
+	}
+	switch in.Action {
+	case proto.GitCommit, proto.GitPush, proto.GitCreatePR, proto.GitCommitPush, proto.GitCommitPR:
+	default:
+		writeError(w, 400, "invalid", "unknown git action")
+		return
+	}
+	res, err := s.Service.GitAction(r.Context(), r.PathValue("id"), in)
+	if err != nil {
+		writeError(w, statusFor(err), "git", err.Error())
+		return
+	}
+	writeJSON(w, 200, res)
 }
 
 func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
@@ -1152,6 +1173,7 @@ func (s *Server) upstreamGitAction(ctx context.Context, writer *upstreamWriter, 
 		Action        string   `json:"action"`
 		CommitMessage string   `json:"commitMessage"`
 		FilePaths     []string `json:"filePaths"`
+		FeatureBranch bool     `json:"featureBranch"`
 	}
 	if err := json.Unmarshal(payload, &input); err != nil {
 		_ = writer.write(upstream.UnknownFailure(requestID, "invalid git action"))
@@ -1178,35 +1200,60 @@ func (s *Server) upstreamGitAction(ctx context.Context, writer *upstreamWriter, 
 		}
 		return writer.write(upstream.ExitVoid(requestID)) == nil
 	}
-	phases := []string{}
-	switch input.Action {
-	case "commit":
-		phases = []string{"commit"}
-	case "push":
-		phases = []string{"push"}
-	case "commit_push":
-		phases = []string{"commit", "push"}
-	case "create_pr", "commit_push_pr":
-		_ = fail(nil, "creating pull requests is not supported yet")
-		return true
-	default:
+	commit := input.Action == "commit" || input.Action == "commit_push" || input.Action == "commit_push_pr"
+	push := input.Action == "push" || input.Action == "commit_push" || input.Action == "create_pr" || input.Action == "commit_push_pr"
+	pr := input.Action == "create_pr" || input.Action == "commit_push_pr"
+	if !commit && !push && !pr {
 		_ = fail(nil, "unsupported git action: "+input.Action)
 		return true
+	}
+	if input.FeatureBranch && !commit {
+		_ = fail(nil, "a feature branch needs a commit action")
+		return true
+	}
+	phases := []string{}
+	if input.FeatureBranch {
+		phases = append(phases, "branch")
+	}
+	if commit {
+		phases = append(phases, "commit")
+	}
+	if push {
+		phases = append(phases, "push")
+	}
+	if pr {
+		phases = append(phases, "pr")
 	}
 	if !emit(map[string]any{"kind": "action_started", "phases": phases}) {
 		return false
 	}
-	commit := map[string]any{"status": "skipped_not_requested"}
-	push := map[string]any{"status": "skipped_not_requested"}
+	baseBranch := git.Status(ctx, input.Cwd).Branch
+	branchStep := map[string]any{"status": "skipped_not_requested"}
+	commitStep := map[string]any{"status": "skipped_not_requested"}
+	pushStep := map[string]any{"status": "skipped_not_requested"}
+	prStep := map[string]any{"status": "skipped_not_requested"}
+	currentBranch := baseBranch
 	for _, phase := range phases {
 		label := "Committing"
-		if phase == "push" {
+		switch phase {
+		case "branch":
+			label = "Preparing feature branch"
+		case "push":
 			label = "Pushing"
+		case "pr":
+			label = "Preparing pull request"
 		}
 		if !emit(map[string]any{"kind": "phase_started", "phase": phase, "label": label}) {
 			return false
 		}
 		switch phase {
+		case "branch":
+			name := uniqueFeatureBranch(ctx, input.Cwd, featureBranchName(input.CommitMessage))
+			if err := git.CreateRef(ctx, input.Cwd, name, true); err != nil {
+				return fail(phase, err.Error())
+			}
+			branchStep = map[string]any{"status": "created", "name": name}
+			currentBranch = name
 		case "commit":
 			if err := git.Stage(ctx, input.Cwd, input.FilePaths); err != nil {
 				return fail(phase, err.Error())
@@ -1214,32 +1261,106 @@ func (s *Server) upstreamGitAction(ctx context.Context, writer *upstreamWriter, 
 			sha, subject, err := git.Commit(ctx, input.Cwd, input.CommitMessage)
 			switch {
 			case errors.Is(err, git.ErrNoChanges):
-				commit = map[string]any{"status": "skipped_no_changes"}
+				commitStep = map[string]any{"status": "skipped_no_changes"}
 			case err != nil:
 				return fail(phase, err.Error())
 			default:
-				commit = map[string]any{"status": "created", "commitSha": sha, "subject": subject}
+				commitStep = map[string]any{"status": "created", "commitSha": sha, "subject": subject}
 			}
 		case "push":
-			branch := git.Status(ctx, input.Cwd).Branch
-			if err := git.Push(ctx, input.Cwd, branch); err != nil {
+			if currentBranch == "" {
+				return fail(phase, "cannot push from a detached HEAD")
+			}
+			if err := git.Push(ctx, input.Cwd, currentBranch); err != nil {
 				return fail(phase, err.Error())
 			}
-			push = map[string]any{"status": "pushed", "branch": branch, "upstreamBranch": branch, "setUpstream": true}
+			pushStep = map[string]any{"status": "pushed", "branch": currentBranch, "upstreamBranch": currentBranch, "setUpstream": true}
+		case "pr":
+			created, err := git.CreatePullRequest(ctx, input.Cwd, baseBranch)
+			if err != nil {
+				return fail(phase, err.Error())
+			}
+			status := "created"
+			if created.Existed {
+				status = "opened_existing"
+			}
+			prStep = map[string]any{"status": status, "url": created.URL}
+			if created.Number > 0 {
+				prStep["number"] = created.Number
+			}
+			if created.BaseBranch != "" {
+				prStep["baseBranch"] = created.BaseBranch
+			}
+			if created.HeadBranch != "" {
+				prStep["headBranch"] = created.HeadBranch
+			}
+			if created.Title != "" {
+				prStep["title"] = created.Title
+			}
 		}
+	}
+	toast := map[string]any{"title": "Git action finished", "cta": map[string]any{"kind": "none"}}
+	if url, ok := prStep["url"].(string); ok && url != "" {
+		toast = map[string]any{"title": "Pull request ready", "cta": map[string]any{"kind": "open_pr", "label": "Open pull request", "url": url}}
 	}
 	result := map[string]any{
 		"action": input.Action,
-		"branch": map[string]any{"status": "skipped_not_requested"},
-		"commit": commit,
-		"push":   push,
-		"pr":     map[string]any{"status": "skipped_not_requested"},
-		"toast":  map[string]any{"title": "Git action finished", "cta": map[string]any{"kind": "none"}},
+		"branch": branchStep,
+		"commit": commitStep,
+		"push":   pushStep,
+		"pr":     prStep,
+		"toast":  toast,
 	}
 	if !emit(map[string]any{"kind": "action_finished", "result": result}) {
 		return false
 	}
 	return writer.write(upstream.ExitVoid(requestID)) == nil
+}
+
+// featureBranchName turns a commit subject, or a default, into a branch
+// name under t3go/.
+func featureBranchName(message string) string {
+	line := strings.TrimSpace(strings.SplitN(message, "\n", 2)[0])
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(line) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			dash = false
+		case r == ' ' || r == '-' || r == '_' || r == '/' || r == ':' || r == '.':
+			if b.Len() > 0 && !dash {
+				b.WriteByte('-')
+				dash = true
+			}
+		}
+		if b.Len() >= 48 {
+			break
+		}
+	}
+	name := strings.Trim(b.String(), "-")
+	if name == "" {
+		name = "update"
+	}
+	return "t3go/" + name
+}
+
+// uniqueFeatureBranch adds a suffix until name is free.
+func uniqueFeatureBranch(ctx context.Context, dir, name string) string {
+	branches, _ := git.Branches(ctx, dir)
+	taken := map[string]bool{}
+	for _, b := range branches {
+		taken[b] = true
+	}
+	if !taken[name] {
+		return name
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s-%d", name, i)
+		if !taken[candidate] {
+			return candidate
+		}
+	}
 }
 
 // upstreamVcsWrite performs the git writes a client asks for.

@@ -613,16 +613,90 @@ func (a *app) settingsBody(cx *core.Scope) core.Node {
 }
 
 func (a *app) diffDialog(cx *core.Scope) core.Node {
-	colors := ui.ColorsOf(cx)
-	return ui.Dialog{Open: a.showDiff.Get, OnOpenChange: closeDialog(a.showDiff), Title: "Changes", Description: "The working tree against the run's checkpoint.",
-		Children: []core.Node{
-			core.Scroll{Style: core.Style{MaxHeight: core.Pt(420), Background: colors.Inset(), CornerRadius: 8, Padding: core.All(10)}, Children: []core.Node{
-				core.Text{Content: a.diffText.Get(), Selectable: core.SelectableOn, Style: core.Style{FontSize: 11.5, LineHeight: 16, FontFamily: "Menlo, monospace"},
-					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-			}},
-		}, Footer: []core.Node{
+	return ui.Dialog{Open: a.showDiff.Get, OnOpenChange: closeDialog(a.showDiff), Title: "Changes",
+		Description: "Commit, push, and open a pull request for this thread's checkout.", TestID: "diff-dialog",
+		Children: []core.Node{core.Dynamic(a.diffBody)},
+		Footer: []core.Node{
 			ui.Button{Text: "Close", Variant: ui.ButtonSecondary, OnPress: func() { a.showDiff.Set(false) }},
 		}}
+}
+
+// diffBody is the Changes dialog's status, source control actions and
+// diff, rebuilt on its own so typing a commit message keeps the dialog
+// still.
+func (a *app) diffBody(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	git := a.detail.Get().Git
+	var status core.Node
+	switch {
+	case git == nil:
+		status = ui.Text("This thread is not in a git repository.", 12, ui.Regular, colors.Faint)
+	case git.Error != "":
+		status = ui.Text(git.Error, 12, ui.Regular, colors.Danger)
+	default:
+		meta := git.Branch
+		if git.Branch == "" {
+			meta = "detached HEAD"
+		}
+		if git.Dirty {
+			meta += " · uncommitted changes"
+		}
+		if git.Ahead > 0 {
+			meta += fmt.Sprintf(" · %d ahead", git.Ahead)
+		}
+		if git.Behind > 0 {
+			meta += fmt.Sprintf(" · %d behind", git.Behind)
+		}
+		status = core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinWidth: core.Pt(0)}, Children: []core.Node{
+			ui.Icon(lucide.GitBranch, 13, colors.Muted),
+			core.View{Style: core.Style{Direction: core.Column, MinWidth: core.Pt(0), FlexGrow: 1, Gap: 1}, Children: []core.Node{
+				core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+				core.Text{Content: git.Root, MaxLines: 1, Style: core.Style{FontSize: 11},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+			}},
+		}}
+	}
+	buttons := core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+		ui.Button{Text: "Commit", Icon: lucide.Check, Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+			TestID: "git-commit", Disabled: a.gitBusy.Get, OnPress: func() { a.runGitAction(proto.GitCommit) }},
+		ui.Button{Text: "Push", Icon: lucide.ArrowUp, Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+			TestID: "git-push", Disabled: a.gitBusy.Get, OnPress: func() { a.runGitAction(proto.GitPush) }},
+		ui.Button{Text: "Create PR", Icon: lucide.GitPullRequest, Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+			TestID: "git-pr", Disabled: a.gitBusy.Get, OnPress: func() { a.runGitAction(proto.GitCommitPR) }},
+		core.Show{When: a.gitBusy.Get, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 14, Label: "Running git action"} }},
+	}}
+	fields := []core.Node{
+		status,
+		ui.Input{Input: base.Input{Value: a.gitMessage.Get, OnChange: a.gitMessage.Set,
+			Placeholder: "Commit message (defaults to an update)", Label: "Commit message"}},
+		buttons,
+	}
+	if note := a.gitNote.Get(); note != "" {
+		fields = append(fields, core.Text{Content: note, Style: core.Style{FontSize: 11.5, LineHeight: 16},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }})
+	}
+	if pr := a.gitPR.Get(); pr != "" {
+		fields = append(fields, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinWidth: core.Pt(0)}, Children: []core.Node{
+			core.Text{Content: pr, MaxLines: 1, Style: core.Style{FontSize: 11.5, FlexGrow: 1},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Accent()} }},
+			ui.Button{Text: "Open", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "git-open-pr",
+				OnPress: a.openPR},
+		}})
+	}
+	fields = append(fields, core.Scroll{Style: core.Style{MaxHeight: core.Pt(320), Background: colors.Inset(),
+		CornerRadius: 8, Padding: core.All(10)}, Children: []core.Node{
+		core.Text{Content: a.diffText.Get(), Selectable: core.SelectableOn, Style: core.Style{FontSize: 11.5, LineHeight: 16, FontFamily: "Menlo, monospace"},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+	}})
+	return core.View{Style: core.Style{Direction: core.Column, Gap: 10, MinWidth: core.Pt(0)}, Children: fields}
+}
+
+// openPR opens the pull request a git action made.
+func (a *app) openPR() {
+	if pr := a.gitPR.GetUntracked(); pr != "" {
+		a.cx.OpenURL(pr, nil)
+	}
 }
 
 // runsDialog is the thread's run history, newest first, each with what it

@@ -951,3 +951,53 @@ func TestUIDialogsFit(t *testing.T) {
 		t.Fatal("pressing a new-thread option rebuilt the dialog")
 	}
 }
+
+// TestUIGitDialog commits the thread's checkout from the Changes dialog.
+func TestUIGitDialog(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	project, err := srv.Service.CreateProject(ctx, "Repo", repo)
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Git thread", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:open-diff", 10*time.Second)
+	app.Press("id:open-diff")
+	app.WaitFor("id:diff-dialog", 10*time.Second)
+	app.WaitFor("id:git-commit", 10*time.Second)
+
+	// Typing a message updates the dialog's body, not the dialog.
+	before := app.Find("id:git-commit").ID
+	app.Type("label:Commit message", "Commit from the UI")
+	app.Settle()
+	if after := app.Find("id:git-commit").ID; after != before {
+		t.Fatal("typing a commit message rebuilt the dialog")
+	}
+	app.Press("id:git-commit")
+	app.WaitFor("text:Committed", 15*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		cmd := exec.Command("git", "log", "-1", "--pretty=%s")
+		cmd.Dir = repo
+		out, err := cmd.Output()
+		return err == nil && strings.TrimSpace(string(out)) == "Commit from the UI"
+	})
+	if st := git.Status(ctx, repo); st.Dirty {
+		t.Fatalf("checkout is still dirty after commit: %#v", st)
+	}
+}

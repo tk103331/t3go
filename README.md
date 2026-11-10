@@ -14,7 +14,7 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - SQLite 持久化：项目、线程、消息、运行、设置、事件重放窗口
 - 线程运行生命周期：流式文本、思考过程、工具调用、停止、失败、用量，重启时清理中断的 run
 - Provider CLI 适配：`claude`、`codex`、`opencode`，含模型列表与版本探测
-- Git：工作区状态、每个 run 的 checkpoint（`git stash create` + 隐藏 ref）、run diff、worktree
+- Git：工作区状态、每个 run 的 checkpoint（`git stash create` + 隐藏 ref）、run diff、worktree、提交/推送、经本机 `gh` 创建或复用 PR
 - HTTP REST API、SSE 事件流、WebSocket 事件流、Bearer token 鉴权、CORS
 - Web 客户端：同一份 NSGo 代码用 `GOOS=js GOARCH=wasm` 构建，由 `t3go serve --web` 直接提供
 - `t3go` CLI：`serve`、`pair`、`doctor`、`version`
@@ -24,7 +24,6 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 
 尚未实现（有意留到后续）：
 
-- 交互式权限审批（supervised 模式下 CLI 进程内的确认框）
 - 非 Apple 平台的语音听写（NSGo 目前只在 macOS/iOS 识别）
 - 上游 T3 Code 协议的完整兼容：已实现发现、配置、生命周期和线程列表，线程
   详情/发送/事件投影尚未完成，见 [docs/upstream-compat.md](docs/upstream-compat.md)
@@ -39,7 +38,8 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
   - `claude`（Claude Code）
   - `codex`（Codex CLI）
   - `opencode`（OpenCode）
-- `git` 可选，用于 checkpoint、diff 和 worktree
+- `git` 可选，用于 checkpoint、diff、worktree 和提交/推送
+- `gh` 可选，用于从 Changes 对话框创建 GitHub pull request
 
 ## 快速开始
 
@@ -138,6 +138,7 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
 | `POST /api/v1/threads/{id}/messages` | 发送消息（`content` + `attachmentIds`），启动一次 run |
 | `POST /api/v1/threads/{id}/stop` | 停止当前 run |
 | `GET /api/v1/threads/{id}/diff?runId=` | 某次 run 的 checkpoint diff |
+| `POST /api/v1/threads/{id}/git` | 线程 checkout 的 `commit`/`push`/`create_pr`/`commit_push`/`commit_push_pr` |
 | `GET /api/v1/providers` | provider 与模型 |
 | `GET/PATCH /api/v1/settings` | 环境默认设置 |
 | `GET /api/v1/fs?path=` | 列出子目录，供目录选择器使用 |

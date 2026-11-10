@@ -426,6 +426,59 @@ func (s *runSink) finish(runErr error) {
 	s.svc.publish(ctx, proto.Event{Type: proto.EventThreadUpdated, ThreadID: thread.ID, Data: thread})
 }
 
+// GitAction commits, pushes, or opens a pull request in a thread's
+// checkout. It never runs an agent turn.
+func (s *Service) GitAction(ctx context.Context, threadID string, in proto.GitActionInput) (proto.GitActionResult, error) {
+	t, err := s.Store.Thread(ctx, threadID)
+	if err != nil {
+		return proto.GitActionResult{}, err
+	}
+	dir := s.ThreadDir(ctx, t)
+	if !git.IsRepo(ctx, dir) {
+		return proto.GitActionResult{}, errors.New("this thread is not in a git repository")
+	}
+	res := proto.GitActionResult{Action: in.Action, Branch: git.Status(ctx, dir).Branch}
+	commit := in.Action == proto.GitCommit || in.Action == proto.GitCommitPush || in.Action == proto.GitCommitPR
+	push := in.Action == proto.GitPush || in.Action == proto.GitCommitPush || in.Action == proto.GitCreatePR || in.Action == proto.GitCommitPR
+	pr := in.Action == proto.GitCreatePR || in.Action == proto.GitCommitPR
+	if !commit && !push && !pr {
+		return proto.GitActionResult{}, fmt.Errorf("unknown git action %q", in.Action)
+	}
+	if commit {
+		if err := git.Stage(ctx, dir, in.Files); err != nil {
+			return proto.GitActionResult{}, err
+		}
+		sha, subject, err := git.Commit(ctx, dir, in.Message)
+		switch {
+		case errors.Is(err, git.ErrNoChanges):
+			res.NoChanges = true
+		case err != nil:
+			return proto.GitActionResult{}, err
+		default:
+			res.CommitSHA, res.CommitSubject = sha, subject
+		}
+	}
+	if push {
+		branch := git.Status(ctx, dir).Branch
+		if branch == "" {
+			return proto.GitActionResult{}, errors.New("cannot push from a detached HEAD")
+		}
+		if err := git.Push(ctx, dir, branch); err != nil {
+			return proto.GitActionResult{}, err
+		}
+		res.Branch, res.Pushed = branch, true
+	}
+	if pr {
+		created, err := git.CreatePullRequest(ctx, dir, in.Base)
+		if err != nil {
+			return proto.GitActionResult{}, err
+		}
+		res.PRURL, res.PRNumber, res.PRExisted = created.URL, created.Number, created.Existed
+	}
+	res.Status = git.Status(ctx, dir)
+	return res, nil
+}
+
 // Diff returns a run's checkpoint diff.
 func (s *Service) Diff(ctx context.Context, threadID, runID string) (string, error) {
 	t, err := s.Store.Thread(ctx, threadID)

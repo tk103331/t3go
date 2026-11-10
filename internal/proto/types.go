@@ -175,6 +175,39 @@ type GitStatus struct {
 	DiffStat   string `json:"diffStat,omitempty"`
 }
 
+// GitAction names a source control operation on a thread's checkout.
+type GitAction string
+
+const (
+	GitCommit     GitAction = "commit"
+	GitPush       GitAction = "push"
+	GitCreatePR   GitAction = "create_pr"
+	GitCommitPush GitAction = "commit_push"
+	GitCommitPR   GitAction = "commit_push_pr"
+)
+
+// GitActionInput runs a source control action in a thread's checkout.
+type GitActionInput struct {
+	Action  GitAction `json:"action"`
+	Message string    `json:"message,omitempty"`
+	Files   []string  `json:"files,omitempty"`
+	Base    string    `json:"base,omitempty"`
+}
+
+// GitActionResult reports what a source control action changed.
+type GitActionResult struct {
+	Action        GitAction `json:"action"`
+	Branch        string    `json:"branch,omitempty"`
+	CommitSHA     string    `json:"commitSha,omitempty"`
+	CommitSubject string    `json:"commitSubject,omitempty"`
+	Pushed        bool      `json:"pushed,omitempty"`
+	PRURL         string    `json:"prUrl,omitempty"`
+	PRNumber      int       `json:"prNumber,omitempty"`
+	PRExisted     bool      `json:"prExisted,omitempty"`
+	NoChanges     bool      `json:"noChanges,omitempty"`
+	Status        GitStatus `json:"status"`
+}
+
 // Settings are environment defaults and the UI's preferences.
 type Settings struct {
 	DefaultProvider   string `json:"defaultProvider"`

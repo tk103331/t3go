@@ -306,6 +306,15 @@ func (c *Client) Diff(ctx context.Context, threadID, runID string) (string, erro
 	return out.Diff, err
 }
 
+// GitAction commits, pushes, or opens a pull request in a thread's
+// checkout.
+func (c *Client) GitAction(ctx context.Context, threadID string, in proto.GitActionInput) (proto.GitActionResult, error) {
+	var out proto.GitActionResult
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/git"
+	err := c.do(ctx, http.MethodPost, path, in, &out)
+	return out, err
+}
+
 // Providers lists agent CLIs and their models.
 func (c *Client) Providers(ctx context.Context) ([]proto.Provider, []proto.Model, error) {
 	var out struct {

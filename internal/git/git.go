@@ -3,6 +3,7 @@ package git
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -298,4 +299,99 @@ func Push(ctx context.Context, dir, branch string) error {
 	}
 	_, err := run(ctx, dir, "push", "-u", "origin", branch)
 	return err
+}
+
+// ErrGHMissing says the GitHub CLI is not on PATH.
+var ErrGHMissing = errors.New("GitHub CLI (gh) is not installed")
+
+// PullRequest is the pull request for a branch as GitHub reports it.
+type PullRequest struct {
+	URL        string `json:"url"`
+	Number     int    `json:"number"`
+	Title      string `json:"title"`
+	BaseBranch string `json:"baseBranch"`
+	HeadBranch string `json:"headBranch"`
+	State      string `json:"state"`
+	// Existed is true when the branch already had one open.
+	Existed bool `json:"existed,omitempty"`
+}
+
+// runGH runs the GitHub CLI in dir and returns its trimmed output.
+func runGH(ctx context.Context, dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "gh", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GH_PROMPT_DISABLED=1")
+	out, err := cmd.Output()
+	if err != nil {
+		var stderr string
+		if ee, ok := err.(*exec.ExitError); ok {
+			stderr = strings.TrimSpace(string(ee.Stderr))
+		}
+		if stderr == "" {
+			stderr = err.Error()
+		}
+		return "", fmt.Errorf("gh %s: %s", strings.Join(args, " "), stderr)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ExistingPullRequest reads the open pull request for the current branch.
+func ExistingPullRequest(ctx context.Context, dir string) (PullRequest, error) {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return PullRequest{}, ErrGHMissing
+	}
+	out, err := runGH(ctx, dir, "pr", "view", "--json", "url,number,title,baseRefName,headRefName,state")
+	if err != nil {
+		return PullRequest{}, err
+	}
+	var raw struct {
+		URL         string `json:"url"`
+		Number      int    `json:"number"`
+		Title       string `json:"title"`
+		BaseRefName string `json:"baseRefName"`
+		HeadRefName string `json:"headRefName"`
+		State       string `json:"state"`
+	}
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		return PullRequest{}, fmt.Errorf("read pull request: %w", err)
+	}
+	if raw.URL == "" {
+		return PullRequest{}, errors.New("pull request has no url")
+	}
+	return PullRequest{URL: raw.URL, Number: raw.Number, Title: raw.Title,
+		BaseBranch: raw.BaseRefName, HeadBranch: raw.HeadRefName, State: raw.State}, nil
+}
+
+// CreatePullRequest opens a pull request for the current branch, or
+// returns the one that is already open. base, when set, overrides the
+// repository's default base branch.
+func CreatePullRequest(ctx context.Context, dir, base string) (PullRequest, error) {
+	if existing, err := ExistingPullRequest(ctx, dir); err == nil {
+		existing.Existed = true
+		return existing, nil
+	} else if errors.Is(err, ErrGHMissing) {
+		return PullRequest{}, err
+	}
+	args := []string{"pr", "create", "--fill"}
+	if strings.TrimSpace(base) != "" {
+		args = append(args, "--base", base)
+	}
+	out, err := runGH(ctx, dir, args...)
+	if err != nil {
+		return PullRequest{}, err
+	}
+	if pr, err := ExistingPullRequest(ctx, dir); err == nil {
+		return pr, nil
+	}
+	// The create command prints the URL even when the follow-up view
+	// fails on an older gh, so never lose a PR that was created.
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "https://") {
+			return PullRequest{URL: line}, nil
+		}
+	}
+	return PullRequest{}, errors.New("pull request was created but its URL could not be read")
 }

@@ -31,7 +31,7 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
 | `vcs.refreshStatus` / `subscribeVcsStatus` | 项目或 worktree 的分支、ahead/behind、工作区文件增删行；订阅先发 snapshot，之后每 2 秒轮询并推送 `localUpdated` / `remoteUpdated` |
 | `vcs.refreshBranch` / `subscribeVcsBranch` | 当前分支名，订阅会轮询分支变化 |
 | `vcs.createRef` / `vcs.switchRef` / `vcs.pull` | 建分支、切分支、fast-forward pull |
-| `git.runStackedAction` | `commit`、`push`、`commit_push` 的进度流；PR 动作返回明确失败 |
+| `git.runStackedAction` | `commit`、`push`、`commit_push`、`create_pr`、`commit_push_pr` 的进度流；可选 `featureBranch` 建分支，PR 经本机 `gh` 创建或复用已打开的 PR |
 | `orchestration.searchThreads` | 跨线程搜索文本消息，返回 thread/project、消息 id、片段和匹配度 |
 | `orchestration.searchThread` | 线程内查找，返回匹配总数、当前匹配和 entry id |
 | `server.getUsageSummary` | 按天/provider/model 聚合 T3Go 的 run 用量与费用 |
@@ -49,7 +49,7 @@ schema 校验过。
 - `t3code://pair` 链接本身：`t3go serve`/`t3go pair --json` 会给出
   `http://host/#token=...` 形式的直连地址，官方客户端可直接作为 pairing URL
 - run attempt/node、审批、用量等更深层的 v2 投影
-- PR 创建（`create_pr` / `commit_push_pr`）和 GitHub/GitLab 认证
+- PR 列表、评论、review、merge 等完整 GitHub/GitLab 面板（创建 PR 已支持）
 - provider 登录/安装 RPC
 - 图片尺寸与内联预览之外的 asset 类型（workspace-file 等）
 - 上游 `t3code://pair` 链接格式

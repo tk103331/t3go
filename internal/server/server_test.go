@@ -1428,6 +1428,151 @@ func TestUpstreamGitCommit(t *testing.T) {
 	}
 }
 
+func TestGitActionEndpoint(t *testing.T) {
+	e := newTestEnv(t)
+	repo := upstreamGitRepo(t)
+	var project proto.Project
+	if code := e.request(t, http.MethodPost, "/api/v1/projects",
+		map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
+		t.Fatalf("project = %d", code)
+	}
+	thread := e.thread(t, project.ID)
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("endpoint\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var result proto.GitActionResult
+	path := "/api/v1/threads/" + thread.ID + "/git"
+	if code := e.request(t, http.MethodPost, path, map[string]string{
+		"action": "commit", "message": "From the endpoint",
+	}, e.token, &result); code != http.StatusOK {
+		t.Fatalf("git action = %d", code)
+	}
+	if result.CommitSHA == "" || result.CommitSubject != "From the endpoint" || result.Status.Dirty {
+		t.Fatalf("result = %#v", result)
+	}
+	if code := e.request(t, http.MethodPost, path, map[string]string{"action": "nope"}, e.token, nil); code != http.StatusBadRequest {
+		t.Fatalf("bad action = %d", code)
+	}
+	if code := e.request(t, http.MethodPost, path, map[string]string{"action": "commit"}, "", nil); code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized action = %d", code)
+	}
+}
+
+// fakeServerGH puts a gh that reports and creates pull request 7 on PATH.
+func fakeServerGH(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	state := filepath.Join(dir, "pr-open")
+	script := `#!/bin/sh
+case "$1 $2" in
+"pr view")
+  if [ -f "$PR_STATE" ]; then
+    echo '{"url":"https://github.com/acme/repo/pull/7","number":7,"title":"Add feature","baseRefName":"main","headRefName":"feature","state":"OPEN"}'
+  else
+    echo "no pull requests found" >&2
+    exit 1
+  fi
+  ;;
+"pr create")
+  touch "$PR_STATE"
+  echo "https://github.com/acme/repo/pull/7"
+  ;;
+*)
+  echo "unexpected gh $*" >&2
+  exit 2
+  ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PR_STATE", state)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// TestUpstreamGitPullRequest runs the stacked commit, push and pull
+// request action, including the feature branch official clients ask for.
+func TestUpstreamGitPullRequest(t *testing.T) {
+	e := newTestEnv(t)
+	repo := upstreamGitRepo(t)
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	cmd := exec.Command("git", "init", "-q", "--bare", remote)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("bare remote: %v\n%s", err, out)
+	}
+	for _, args := range [][]string{
+		{"remote", "add", "origin", remote},
+		{"push", "-qu", "origin", "main"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	fakeServerGH(t)
+	var project proto.Project
+	if code := e.request(t, http.MethodPost, "/api/v1/projects",
+		map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
+		t.Fatalf("project = %d", code)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("pull request\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2"
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+		"Authorization": []string{"Bearer " + e.token},
+	}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+	if err := wsjson.Write(ctx, conn, map[string]any{"_tag": "Request", "id": 1, "tag": "git.runStackedAction",
+		"headers": []any{}, "payload": map[string]any{"actionId": "act_pr", "cwd": repo,
+			"action": "commit_push_pr", "commitMessage": "Add feature", "featureBranch": true}}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	var finished map[string]any
+	for finished == nil {
+		var frame map[string]any
+		if err := wsjson.Read(ctx, conn, &frame); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		values, _ := frame["values"].([]any)
+		if len(values) != 1 {
+			continue
+		}
+		event, _ := values[0].(map[string]any)
+		if event["kind"] == "action_failed" {
+			t.Fatalf("action failed: %#v", event)
+		}
+		if event["kind"] == "action_finished" {
+			finished = event["result"].(map[string]any)
+		}
+	}
+	branch := finished["branch"].(map[string]any)
+	if branch["status"] != "created" || !strings.HasPrefix(branch["name"].(string), "t3go/add-feature") {
+		t.Fatalf("branch = %#v", branch)
+	}
+	if finished["commit"].(map[string]any)["status"] != "created" {
+		t.Fatalf("commit = %#v", finished["commit"])
+	}
+	if finished["push"].(map[string]any)["status"] != "pushed" {
+		t.Fatalf("push = %#v", finished["push"])
+	}
+	pr := finished["pr"].(map[string]any)
+	if pr["status"] != "created" || pr["url"] != "https://github.com/acme/repo/pull/7" {
+		t.Fatalf("pr = %#v", pr)
+	}
+	toast := finished["toast"].(map[string]any)
+	if toast["title"] != "Pull request ready" {
+		t.Fatalf("toast = %#v", toast)
+	}
+}
+
 // TestUpstreamRuntimeApproval projects a pending approval and answers it
 // through the runtime-request command.
 func TestUpstreamRuntimeApproval(t *testing.T) {

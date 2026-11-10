@@ -67,6 +67,10 @@ type app struct {
 	showDiff       *core.Signal[bool]
 	showRuns       *core.Signal[bool]
 	diffText       *core.Signal[string]
+	gitMessage     *core.Signal[string]
+	gitBusy        *core.Signal[bool]
+	gitNote        *core.Signal[string]
+	gitPR          *core.Signal[string]
 	pendingDelete  *core.Signal[itemTarget]
 	pendingRename  *core.Signal[itemTarget]
 	renameName     *core.Signal[string]
@@ -133,6 +137,10 @@ func newApp(cx *core.Scope) *app {
 		showDiff:       core.NewSignal(cx, false),
 		showRuns:       core.NewSignal(cx, false),
 		diffText:       core.NewSignal(cx, ""),
+		gitMessage:     core.NewSignal(cx, ""),
+		gitBusy:        core.NewSignal(cx, false),
+		gitNote:        core.NewSignal(cx, ""),
+		gitPR:          core.NewSignal(cx, ""),
 		pendingDelete: core.NewSignalFunc(cx, itemTarget{}, func(a, b itemTarget) bool {
 			return a == b
 		}),
@@ -633,6 +641,8 @@ func (a *app) selectThread(id string) {
 	a.messages.Set(nil)
 	a.detail.Set(proto.ThreadDetail{})
 	a.running.Set(false)
+	a.gitNote.Set("")
+	a.gitPR.Set("")
 	a.refreshQueue()
 	a.loadDetail(id)
 }
@@ -978,6 +988,70 @@ func (a *app) openRunDiff(runID string) {
 	}
 	a.closeRuns()
 	a.loadDiff(id, runID)
+}
+
+// runGitAction commits, pushes, or opens a pull request for the selected
+// thread's checkout, then reports what happened in the Changes dialog.
+func (a *app) runGitAction(action proto.GitAction) {
+	id := a.selected.GetUntracked()
+	c := a.client()
+	if id == "" || c == nil || a.gitBusy.GetUntracked() {
+		return
+	}
+	in := proto.GitActionInput{Action: action, Message: strings.TrimSpace(a.gitMessage.GetUntracked())}
+	a.gitBusy.Set(true)
+	a.gitNote.Set("Working…")
+	a.gitPR.Set("")
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		res, err := c.GitAction(ctx, id, in)
+		a.cx.Post(func() {
+			a.gitBusy.Set(false)
+			if err != nil {
+				a.gitNote.Set(friendlyError(err))
+				return
+			}
+			if d := a.detail.GetUntracked(); d.Thread.ID == id {
+				st := res.Status
+				d.Git = &st
+				a.detail.Set(d)
+			}
+			if res.CommitSHA != "" {
+				a.gitMessage.Set("")
+			}
+			var parts []string
+			if res.CommitSHA != "" {
+				parts = append(parts, "Committed "+shortID(res.CommitSHA))
+			}
+			if res.NoChanges {
+				parts = append(parts, "No changes to commit")
+			}
+			if res.Pushed {
+				parts = append(parts, "Pushed "+res.Branch)
+			}
+			if res.PRURL != "" {
+				a.gitPR.Set(res.PRURL)
+				if res.PRExisted {
+					parts = append(parts, "Pull request already open")
+				} else {
+					parts = append(parts, "Pull request created")
+				}
+			}
+			if len(parts) == 0 {
+				parts = append(parts, "Done")
+			}
+			a.gitNote.Set(strings.Join(parts, " · "))
+		})
+	}()
+}
+
+// shortID is the human-sized prefix of an id or hash.
+func shortID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
 }
 
 func (a *app) openDiff() {
