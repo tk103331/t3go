@@ -12,6 +12,8 @@ import (
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/oneo-me/nsgo/ui/commitgraph"
+	uidiff "github.com/oneo-me/nsgo/ui/diff"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -40,6 +42,8 @@ func (a *app) rightHeader(cx *core.Scope) core.Node {
 		title = "Diff"
 	case "pr":
 		title = "Pull request"
+	case "graph":
+		title = "Git graph"
 	}
 	header := []core.Node{}
 	if surface != "" {
@@ -65,6 +69,8 @@ func (a *app) rightBody(cx *core.Scope) core.Node {
 		return a.rightDiff(cx)
 	case "pr":
 		return a.rightPullRequest(cx)
+	case "graph":
+		return a.rightGraph(cx)
 	}
 	return a.surfacePicker(cx)
 }
@@ -79,6 +85,7 @@ func (a *app) surfacePicker(cx *core.Scope) core.Node {
 		a.surfaceRow(cx, "terminal", "Terminal", lucide.Terminal, "T", false),
 		a.surfaceRow(cx, "files", "Files", lucide.Folder, "F", hasThread),
 		a.surfaceRow(cx, "diff", "Diff", lucide.GitCompare, "D", hasThread),
+		a.surfaceRow(cx, "graph", "Git graph", lucide.GitBranch, "G", hasThread),
 		a.surfaceRow(cx, "pr", "Pull request", lucide.GitPullRequest, "P", hasThread),
 		a.surfaceRow(cx, "linked", "Linked pull requests", lucide.Link2, "L", false),
 		a.surfaceRow(cx, "device", "Device", lucide.MonitorSmartphone, "M", false),
@@ -265,11 +272,8 @@ func (a *app) rightDiff(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(10)}, Children: []core.Node{
 		head,
 		a.rightError(cx),
-		core.Scroll{Style: ui.FillRest, Children: []core.Node{
-			core.Text{Content: a.diffText.Get(), Selectable: core.SelectableOn,
-				Style:     core.Style{FontSize: 11, LineHeight: 15, FontFamily: "Menlo, monospace"},
-				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-		}},
+		core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Overflow: core.Hidden, Background: colors.Inset(), CornerRadius: 8},
+			Children: []core.Node{a.diffNode(cx, a.diffText.Get())}},
 	}}
 }
 
@@ -345,6 +349,63 @@ func (a *app) rightError(cx *core.Scope) core.Node {
 		return core.Text{Content: a.rightErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 11.5, LineHeight: 16},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }}
 	}}
+}
+
+// rightGraph draws the repository's commits beside their revision graph.
+func (a *app) rightGraph(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	if a.selected.Get() == "" {
+		return a.rightNotice(cx, "Pick a thread to see its commit graph.")
+	}
+	commits := a.graph.Get()
+	view := commitgraph.View{Label: "Commits", TestID: "git-graph", Empty: ui.Text("No commits yet.", 12, ui.Regular, colors.Faint),
+		Style: ui.FillRest,
+		Commits: func() []commitgraph.Commit {
+			list := a.graph.Get()
+			out := make([]commitgraph.Commit, 0, len(list))
+			for _, commit := range list {
+				refs := make([]commitgraph.Ref, 0, len(commit.Refs))
+				for _, ref := range commit.Refs {
+					kind := commitgraph.RefBranch
+					switch ref.Kind {
+					case "remote":
+						kind = commitgraph.RefRemote
+					case "tag":
+						kind = commitgraph.RefTag
+					}
+					refs = append(refs, commitgraph.Ref{Name: ref.Name, Kind: kind, Current: ref.Current})
+				}
+				out = append(out, commitgraph.Commit{Hash: commit.Hash, Parents: commit.Parents, Short: commit.Short,
+					Subject: commit.Subject, Author: commit.Author, Date: commit.Date, Refs: refs, Head: commit.Head})
+			}
+			return out
+		}}
+	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
+		core.Text{Content: fmt.Sprintf("%d commits", len(commits)), MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+		ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh graph", TestID: "git-graph-refresh",
+			OnPress: func() { a.loadGraph(a.selected.GetUntracked()) }},
+	}}
+	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(10)}, Children: []core.Node{
+		head,
+		a.rightError(cx),
+		core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Overflow: core.Hidden}, Children: []core.Node{view}},
+	}}
+}
+
+// diffNode renders a unified diff with colors and line numbers, and any
+// message that is not a patch as text.
+func (a *app) diffNode(cx *core.Scope, patch string) core.Node {
+	colors := ui.ColorsOf(cx)
+	trimmed := strings.TrimSpace(patch)
+	if strings.HasPrefix(trimmed, "diff --git") || strings.Contains(trimmed, "\n@@ ") {
+		return uidiff.View{Patch: func() string { return patch }, Unified: true, Selectable: true, ContextLines: 3,
+			SoftWrap: true, FontSize: 11.5, LineHeight: 16, TestID: "code-diff",
+			Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0)}}
+	}
+	return core.Text{Content: patch, Selectable: core.SelectableOn,
+		Style:     core.Style{FontSize: 11.5, LineHeight: 16, FontFamily: "Menlo, monospace"},
+		StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }}
 }
 
 // fileKind names how a file previews: markdown, an image, or text.

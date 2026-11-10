@@ -1905,6 +1905,16 @@ func TestWorkspaceFilesAndPullRequest(t *testing.T) {
 	if prResult.PullRequest == nil || prResult.PullRequest.Number != 7 {
 		t.Fatalf("pull request = %#v", prResult)
 	}
+
+	var graph struct {
+		Commits []proto.GraphCommit `json:"commits"`
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/graph", nil, e.token, &graph); code != http.StatusOK {
+		t.Fatalf("graph = %d", code)
+	}
+	if len(graph.Commits) == 0 || !graph.Commits[0].Head || graph.Commits[0].Short == "" {
+		t.Fatalf("graph = %#v", graph.Commits)
+	}
 }
 
 // TestUpstreamRuntimeApproval projects a pending approval and answers it

@@ -106,6 +106,7 @@ type app struct {
 	rightBusy    *core.Signal[bool]
 	pullRequest  *core.Signal[proto.PullRequest]
 	prDetail     *core.Signal[string]
+	graph        *core.Signal[[]proto.GraphCommit]
 
 	conv *chat.ConversationState
 
@@ -196,6 +197,7 @@ func newApp(cx *core.Scope) *app {
 		rightBusy:        core.NewSignal(cx, false),
 		pullRequest:      core.NewSignal(cx, proto.PullRequest{}),
 		prDetail:         core.NewSignal(cx, ""),
+		graph:            sliceSignal[proto.GraphCommit](cx),
 	}
 	a.conv = chat.NewConversationState(cx)
 	a.bindKeys()
@@ -744,6 +746,7 @@ func (a *app) selectThread(id string) {
 	a.file.Set(proto.WorkspaceFile{})
 	a.pullRequest.Set(proto.PullRequest{})
 	a.prDetail.Set("")
+	a.graph.Set(nil)
 	a.rightErr.Set("")
 	if surface := a.surface.GetUntracked(); surface != "" {
 		a.openSurface(surface)
@@ -1320,6 +1323,8 @@ func (a *app) openSurface(name string) {
 		}
 	case "pr":
 		a.loadPullRequest(a.selected.GetUntracked())
+	case "graph":
+		a.loadGraph(a.selected.GetUntracked())
 	}
 }
 
@@ -1387,6 +1392,31 @@ func (a *app) rawFileURL(path string) string {
 		return ""
 	}
 	return c.RawFileURL(a.selected.GetUntracked(), path)
+}
+
+// loadGraph reads the repository's commits for the graph surface.
+func (a *app) loadGraph(id string) {
+	if id == "" {
+		return
+	}
+	a.rightBusy.Set(true)
+	a.call(func(ctx context.Context, c *client.Client) error {
+		commits, err := c.Graph(ctx, id)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			a.rightBusy.Set(false)
+			a.graph.Set(commits)
+			a.rightErr.Set("")
+		})
+		return nil
+	}, func(err error) {
+		a.rightBusy.Set(false)
+		if err != nil {
+			a.rightErr.Set(friendlyError(err))
+		}
+	})
 }
 
 // loadPullRequest reads the branch's open pull request.

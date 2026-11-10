@@ -287,3 +287,40 @@ func mustGit(t *testing.T, dir string, args ...string) string {
 	}
 	return string(out)
 }
+
+func TestGraphCommits(t *testing.T) {
+	ctx := context.Background()
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "add", "a.txt")
+	gitRun(t, dir, "commit", "-qm", "second")
+	gitRun(t, dir, "tag", "v1")
+
+	commits, err := GraphCommits(ctx, dir, 20)
+	if err != nil {
+		t.Fatalf("graph: %v", err)
+	}
+	if len(commits) < 2 {
+		t.Fatalf("commits = %#v", commits)
+	}
+	if commits[0].Subject != "second" || !commits[0].Head || commits[0].Short == "" {
+		t.Fatalf("head commit = %#v", commits[0])
+	}
+	if len(commits[0].Parents) != 1 || commits[0].Parents[0] != commits[1].Hash {
+		t.Fatalf("parents = %#v", commits[0].Parents)
+	}
+	var branch, tag bool
+	for _, ref := range commits[0].Refs {
+		switch ref.Kind {
+		case "branch":
+			branch = branch || ref.Current
+		case "tag":
+			tag = ref.Name == "v1"
+		}
+	}
+	if !branch || !tag {
+		t.Fatalf("refs = %#v", commits[0].Refs)
+	}
+}

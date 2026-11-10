@@ -1210,6 +1210,20 @@ func TestUIRightPanel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("thread: %v", err)
 	}
+	checkpoint, err := git.Checkpoint(ctx, repo, thread.ID, "run_surface")
+	if err != nil {
+		t.Fatalf("checkpoint: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("# Preview title\n\nMore diff.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now().Add(-time.Second)
+	ended := time.Now()
+	if err := srv.Store.CreateRun(ctx, proto.Run{ID: "run_surface", ThreadID: thread.ID, Status: proto.RunCompleted,
+		Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess, Prompt: "edit",
+		StartedAt: started, EndedAt: &ended, Checkpoint: checkpoint}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
 	app := nsgotest.Start(t, Root, nsgotest.Size(1300, 760), nsgotest.Storage(map[string]string{
 		"serverUrl": ts.URL,
 		"token":     cfg.Token,
@@ -1246,12 +1260,42 @@ func TestUIRightPanel(t *testing.T) {
 	app.Press("id:file-pic.png")
 	app.WaitFor("id:file-image", 5*time.Second)
 
-	app.Press("id:surface-back")
-	app.WaitFor("id:surface-diff", 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:surface-diff") {
+			return true
+		}
+		if app.Exists("id:surface-back") {
+			app.Press("id:surface-back")
+			app.Settle()
+		}
+		return app.Exists("id:surface-diff")
+	})
 	app.Press("id:surface-diff")
 	app.WaitFor("id:right-diff-refresh", 5*time.Second)
-	app.Press("id:surface-back")
-	app.WaitFor("id:surface-pr", 5*time.Second)
+	app.WaitFor("id:code-diff", 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:surface-graph") {
+			return true
+		}
+		if app.Exists("id:surface-back") {
+			app.Press("id:surface-back")
+			app.Settle()
+		}
+		return app.Exists("id:surface-graph")
+	})
+	app.Press("id:surface-graph")
+	app.WaitFor("id:git-graph", 5*time.Second)
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:initial")) > 0 })
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:surface-pr") {
+			return true
+		}
+		if app.Exists("id:surface-back") {
+			app.Press("id:surface-back")
+			app.Settle()
+		}
+		return app.Exists("id:surface-pr")
+	})
 	app.Press("id:surface-pr")
 	app.WaitFor("id:right-pr-refresh", 5*time.Second)
 

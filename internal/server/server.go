@@ -213,6 +213,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/threads/{id}/file", s.auth(s.handleThreadFile))
 	mux.HandleFunc("GET /api/v1/threads/{id}/raw", s.auth(s.handleThreadRaw))
 	mux.HandleFunc("GET /api/v1/threads/{id}/pull-request", s.auth(s.handlePullRequest))
+	mux.HandleFunc("GET /api/v1/threads/{id}/graph", s.auth(s.handleThreadGraph))
 	mux.HandleFunc("POST /api/v1/threads/{id}/branches", s.auth(s.handleSwitchBranch))
 	mux.HandleFunc("GET /api/v1/providers", s.auth(s.handleProviders))
 	mux.HandleFunc("GET /api/v1/settings", s.auth(s.handleSettings))

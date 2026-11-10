@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -149,6 +150,30 @@ func fileMime(path string, raw []byte) string {
 		return "application/octet-stream"
 	}
 	return "text/plain; charset=utf-8"
+}
+
+// handleThreadGraph lists commits from all refs for the graph view.
+func (s *Server) handleThreadGraph(w http.ResponseWriter, r *http.Request) {
+	t, err := s.Store.Thread(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), "thread", err.Error())
+		return
+	}
+	limit := 120
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 500 {
+			limit = n
+		}
+	}
+	commits, err := git.GraphCommits(r.Context(), s.Service.ThreadDir(r.Context(), t), limit)
+	if err != nil {
+		writeError(w, statusFor(err), "graph", err.Error())
+		return
+	}
+	if commits == nil {
+		commits = []proto.GraphCommit{}
+	}
+	writeJSON(w, 200, map[string]any{"commits": commits})
 }
 
 // handlePullRequest reads the open pull request for a thread's branch.

@@ -848,11 +848,9 @@ func (a *app) diffBody(cx *core.Scope) core.Node {
 				OnPress: a.openPR},
 		}})
 	}
-	fields = append(fields, core.Scroll{Style: core.Style{MaxHeight: core.Pt(320), Background: colors.Inset(),
-		CornerRadius: 8, Padding: core.All(10)}, Children: []core.Node{
-		core.Text{Content: a.diffText.Get(), Selectable: core.SelectableOn, Style: core.Style{FontSize: 11.5, LineHeight: 16, FontFamily: "Menlo, monospace"},
-			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-	}})
+	fields = append(fields, core.View{Style: core.Style{Height: core.Pt(340), MinHeight: core.Pt(180),
+		Background: colors.Inset(), CornerRadius: 8, Overflow: core.Hidden},
+		Children: []core.Node{a.diffNode(cx, a.diffText.Get())}})
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 10, MinWidth: core.Pt(0)}, Children: fields}
 }
 

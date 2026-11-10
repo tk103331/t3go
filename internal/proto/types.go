@@ -175,6 +175,25 @@ type GitStatus struct {
 	DiffStat   string `json:"diffStat,omitempty"`
 }
 
+// GraphRef is a branch, remote or tag label on a commit.
+type GraphRef struct {
+	Name    string `json:"name"`
+	Kind    string `json:"kind"`
+	Current bool   `json:"current,omitempty"`
+}
+
+// GraphCommit is one row of the repository's commit graph.
+type GraphCommit struct {
+	Hash    string     `json:"hash"`
+	Short   string     `json:"short"`
+	Parents []string   `json:"parents,omitempty"`
+	Subject string     `json:"subject"`
+	Author  string     `json:"author,omitempty"`
+	Date    time.Time  `json:"date"`
+	Refs    []GraphRef `json:"refs,omitempty"`
+	Head    bool       `json:"head,omitempty"`
+}
+
 // WorkspaceEntry is a directory or file in a thread's checkout.
 type WorkspaceEntry struct {
 	Name      string `json:"name"`

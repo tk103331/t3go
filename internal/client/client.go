@@ -306,6 +306,16 @@ func (c *Client) Diff(ctx context.Context, threadID, runID string) (string, erro
 	return out.Diff, err
 }
 
+// Graph lists the repository's commits for the graph view.
+func (c *Client) Graph(ctx context.Context, threadID string) ([]proto.GraphCommit, error) {
+	var out struct {
+		Commits []proto.GraphCommit `json:"commits"`
+	}
+	endpoint := "/api/v1/threads/" + url.PathEscape(threadID) + "/graph?limit=200"
+	err := c.do(ctx, http.MethodGet, endpoint, nil, &out)
+	return out.Commits, err
+}
+
 // Files lists a directory in a thread's checkout.
 func (c *Client) Files(ctx context.Context, threadID, path string) ([]proto.WorkspaceEntry, error) {
 	var out struct {

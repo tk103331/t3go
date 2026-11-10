@@ -527,3 +527,74 @@ func Init(ctx context.Context, dir string) error {
 	_, err := run(ctx, dir, "init")
 	return err
 }
+
+// GraphCommits lists commits from all refs, newest first, with parents
+// and the labels pointing at them.
+func GraphCommits(ctx context.Context, dir string, limit int) ([]proto.GraphCommit, error) {
+	if !IsRepo(ctx, dir) {
+		return nil, ErrNotRepo
+	}
+	if limit <= 0 {
+		limit = 120
+	}
+	out, err := run(ctx, dir, "log", "--branches", "--remotes", "--tags", "HEAD", "--date-order",
+		fmt.Sprintf("--max-count=%d", limit), "--format=%H%x1f%P%x1f%an%x1f%cI%x1f%s")
+	if err != nil {
+		return nil, err
+	}
+	head, _ := run(ctx, dir, "rev-parse", "HEAD")
+	current := Status(ctx, dir).Branch
+	refs := graphRefs(ctx, dir, current)
+	var commits []proto.GraphCommit
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "\x1f")
+		if len(fields) < 5 {
+			continue
+		}
+		commit := proto.GraphCommit{Hash: fields[0], Subject: fields[4], Author: fields[2], Head: fields[0] == head}
+		commit.Short = commit.Hash
+		if len(commit.Short) > 7 {
+			commit.Short = commit.Short[:7]
+		}
+		commit.Parents = strings.Fields(fields[1])
+		if date, err := time.Parse(time.RFC3339, fields[3]); err == nil {
+			commit.Date = date
+		}
+		commit.Refs = refs[commit.Hash]
+		commits = append(commits, commit)
+	}
+	return commits, nil
+}
+
+// graphRefs maps commit hashes to the refs that point at them.
+func graphRefs(ctx context.Context, dir, current string) map[string][]proto.GraphRef {
+	out, err := run(ctx, dir, "for-each-ref",
+		"--format=%(objectname)%09%(*objectname)%09%(refname:short)%09%(refname)", "refs/heads", "refs/remotes", "refs/tags")
+	if err != nil {
+		return nil
+	}
+	refs := map[string][]proto.GraphRef{}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Split(line, "\t")
+		if len(fields) < 4 || strings.HasSuffix(fields[3], "/HEAD") {
+			continue
+		}
+		hash := fields[0]
+		if fields[1] != "" {
+			hash = fields[1]
+		}
+		kind := "branch"
+		switch {
+		case strings.HasPrefix(fields[3], "refs/remotes/"):
+			kind = "remote"
+		case strings.HasPrefix(fields[3], "refs/tags/"):
+			kind = "tag"
+		}
+		refs[hash] = append(refs[hash], proto.GraphRef{Name: fields[2], Kind: kind,
+			Current: kind == "branch" && fields[2] == current})
+	}
+	return refs
+}
