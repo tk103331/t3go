@@ -58,6 +58,7 @@ func New(cfg config.Config, logger *log.Logger) (*Server, error) {
 	bus := events.New(st)
 	providers := provider.NewRegistry()
 	svc := orchestrator.New(st, providers, bus, cfg.Home, logger)
+	svc.ApprovalToken = cfg.Token
 	s := &Server{Config: cfg, Store: st, Service: svc, Bus: bus, Log: logger, ID: id.New("env"), StartedAt: time.Now(),
 		closing: make(chan struct{})}
 	if runs, threads, err := svc.RecoverInterrupted(context.Background()); err != nil {
@@ -92,6 +93,7 @@ func (s *Server) Start(listen string) error {
 	s.mu.Lock()
 	s.listener = ln
 	s.addr = ln.Addr().String()
+	s.Service.ApprovalURL = localURL(s.addr)
 	s.http = &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 15 * time.Second}
 	httpServer := s.http
 	addr := s.addr
@@ -111,6 +113,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	s.mu.Lock()
 	s.listener = ln
 	s.addr = ln.Addr().String()
+	s.Service.ApprovalURL = localURL(s.addr)
 	s.http = &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 15 * time.Second}
 	httpServer := s.http
 	s.mu.Unlock()
@@ -189,6 +192,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/settings", s.auth(s.handleSettings))
 	mux.HandleFunc("PATCH /api/v1/settings", s.auth(s.handleUpdateSettings))
 	mux.HandleFunc("GET /api/v1/fs", s.auth(s.handleListDir))
+	mux.HandleFunc("POST /api/v1/threads/{id}/approvals", s.auth(s.handleRequestApproval))
+	mux.HandleFunc("GET /api/v1/approvals", s.auth(s.handleApprovals))
+	mux.HandleFunc("POST /api/v1/approvals/{id}", s.auth(s.handleResolveApproval))
 	mux.HandleFunc("POST /api/v1/uploads", s.auth(s.handleCreateUpload))
 	mux.HandleFunc("GET /api/v1/uploads/{id}", s.auth(s.handleUpload))
 	mux.HandleFunc("DELETE /api/v1/uploads/{id}", s.auth(s.handleDeleteUpload))
@@ -500,6 +506,61 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]string{"diff": diff})
+}
+
+// localURL is where a program on this machine reaches listen, with a
+// wildcard host turned into loopback.
+func localURL(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "http://" + addr
+	}
+	switch host {
+	case "", "0.0.0.0", "::", "[::]":
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port)
+}
+
+// handleRequestApproval publishes a provider's tool call and waits for a
+// person, which the provider's helper calls.
+func (s *Server) handleRequestApproval(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		RunID string         `json:"runId"`
+		Tool  string         `json:"tool"`
+		Input map[string]any `json:"input"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, 400, "invalid", err.Error())
+		return
+	}
+	if strings.TrimSpace(in.Tool) == "" {
+		writeError(w, 400, "invalid", "tool is required")
+		return
+	}
+	decision := s.Service.RequestApproval(r.Context(), proto.ApprovalRequest{
+		ThreadID: r.PathValue("id"), RunID: in.RunID, Tool: in.Tool, Input: in.Input,
+	})
+	writeJSON(w, 200, decision)
+}
+
+// handleApprovals lists the requests still waiting.
+func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]any{"approvals": nonNil(s.Service.PendingApprovals(r.URL.Query().Get("threadId")))})
+}
+
+// handleResolveApproval answers a waiting request.
+func (s *Server) handleResolveApproval(w http.ResponseWriter, r *http.Request) {
+	var decision proto.ApprovalDecision
+	if err := decodeJSON(r, &decision); err != nil {
+		writeError(w, 400, "invalid", err.Error())
+		return
+	}
+	if err := s.Service.ResolveApproval(r.Context(), r.PathValue("id"), decision); err != nil {
+		writeError(w, statusFor(err), "approval", err.Error())
+		return
+	}
+	writeJSON(w, 200, decision)
 }
 
 // handleWeb serves the built web client: only files, never a listing.

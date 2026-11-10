@@ -41,8 +41,14 @@ type Service struct {
 	Home      string
 	Log       *log.Logger
 
-	mu     sync.Mutex
-	active map[string]*activeRun
+	// ApprovalURL and ApprovalToken let a provider ask this environment
+	// about a tool call; without them tools that would prompt are denied.
+	ApprovalURL   string
+	ApprovalToken string
+
+	mu        sync.Mutex
+	active    map[string]*activeRun
+	approvals *approvalManager
 }
 
 type activeRun struct {
@@ -56,7 +62,8 @@ func New(st *store.Store, providers *provider.Registry, bus *events.Bus, home st
 	if logger == nil {
 		logger = log.Default()
 	}
-	return &Service{Store: st, Providers: providers, Bus: bus, Home: home, Log: logger, active: map[string]*activeRun{}}
+	return &Service{Store: st, Providers: providers, Bus: bus, Home: home, Log: logger,
+		active: map[string]*activeRun{}, approvals: newApprovalManager()}
 }
 
 // interruptedReason is what a run a crash or shutdown cut short reports.

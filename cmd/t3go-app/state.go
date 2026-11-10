@@ -54,6 +54,7 @@ type app struct {
 	attachments *core.Signal[[]proto.Attachment]
 	dictating   *core.Signal[bool]
 	speech      *core.SpeechSession
+	approvals   *core.Signal[[]proto.ApprovalRequest]
 
 	// dialogs
 	showNewProject *core.Signal[bool]
@@ -119,6 +120,7 @@ func newApp(cx *core.Scope) *app {
 		queued:      map[string][]queuedPrompt{},
 		attachments: sliceSignal[proto.Attachment](cx),
 		dictating:   core.NewSignal(cx, false),
+		approvals:   sliceSignal[proto.ApprovalRequest](cx),
 
 		showNewProject: core.NewSignal(cx, false),
 		showNewThread:  core.NewSignal(cx, false),
@@ -221,6 +223,7 @@ func (a *app) connect(url, token string) {
 			a.offline.Set(false)
 			a.connected.Set(true)
 			a.startStream(c, st.Seq)
+			a.loadApprovals()
 		})
 	}()
 }
@@ -339,6 +342,16 @@ func (a *app) applyEvent(e proto.Event) {
 			a.messages.Set(nil)
 			a.detail.Set(proto.ThreadDetail{})
 		}
+	case proto.EventApproval:
+		if request, ok := decodeData[proto.ApprovalRequest](e.Data); ok && request.ID != "" {
+			a.addApproval(request)
+		}
+	case proto.EventApprovalResolved:
+		if resolved, ok := decodeData[map[string]any](e.Data); ok {
+			if id, _ := resolved["id"].(string); id != "" {
+				a.removeApproval(id)
+			}
+		}
 	case proto.EventSettings:
 		if settings, ok := decodeData[proto.Settings](e.Data); ok {
 			a.applyTheme(settings.Theme)
@@ -388,6 +401,66 @@ func (a *app) applyEvent(e proto.Event) {
 			}
 		}
 	}
+}
+
+// loadApprovals picks up requests that were waiting before the stream
+// started.
+func (a *app) loadApprovals() {
+	c := a.client()
+	if c == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		approvals, err := c.Approvals(ctx, "")
+		if err != nil {
+			return
+		}
+		a.cx.Post(func() {
+			if len(approvals) == 0 && len(a.approvals.GetUntracked()) == 0 {
+				return
+			}
+			a.approvals.Set(approvals)
+		})
+	}()
+}
+
+func (a *app) addApproval(request proto.ApprovalRequest) {
+	list := a.approvals.GetUntracked()
+	for _, existing := range list {
+		if existing.ID == request.ID {
+			return
+		}
+	}
+	next := make([]proto.ApprovalRequest, len(list), len(list)+1)
+	copy(next, list)
+	a.approvals.Set(append(next, request))
+}
+
+func (a *app) removeApproval(id string) {
+	list := a.approvals.GetUntracked()
+	next := make([]proto.ApprovalRequest, 0, len(list))
+	for _, request := range list {
+		if request.ID != id {
+			next = append(next, request)
+		}
+	}
+	a.approvals.Set(next)
+}
+
+// resolveApproval answers the waiting tool call, closing its dialog now
+// and reopening the question if the server refused.
+func (a *app) resolveApproval(id string, allow bool, message string) {
+	a.removeApproval(id)
+	a.call(func(ctx context.Context, c *client.Client) error {
+		return c.ResolveApproval(ctx, id, allow, message)
+	}, func(err error) {
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
+			a.loadApprovals()
+		}
+	})
 }
 
 func (a *app) upsertThread(t proto.Thread) {

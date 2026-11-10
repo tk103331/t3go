@@ -18,7 +18,8 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - HTTP REST API、SSE 事件流、WebSocket 事件流、Bearer token 鉴权、CORS
 - Web 客户端：同一份 NSGo 代码用 `GOOS=js GOARCH=wasm` 构建，由 `t3go serve --web` 直接提供
 - `t3go` CLI：`serve`、`pair`、`doctor`、`version`
-- NSGo 客户端：连接页、项目/线程侧栏、聊天流、新建/重命名/删除项目与线程、新建线程可选项目与 worktree 分支、线程归档与筛选、命令面板与快捷键、记住侧栏宽度与显隐、设置（环境名、默认 provider/model/权限、主题）、运行历史与逐次 diff、运行中排队发送、附件（选择或拖入文件并随消息发送）、语音听写、断线重连提示、窄屏布局、错误提示条
+- 交互式权限审批：supervised 模式下 Claude Code 通过本地 MCP 询问 T3Go 客户端，允许/拒绝工具调用
+- NSGo 客户端：连接页、项目/线程侧栏、聊天流、新建/重命名/删除项目与线程、新建线程可选项目与 worktree 分支、线程归档与筛选、命令面板与快捷键、记住侧栏宽度与显隐、设置（环境名、默认 provider/model/权限、主题）、运行历史与逐次 diff、运行中排队发送、附件（选择或拖入文件并随消息发送）、语音听写、审批对话框、断线重连提示、窄屏布局、错误提示条
 - 测试：store、orchestrator（fake provider）、provider 流解析、HTTP/SSE/WS、Go 客户端、NSGo UI 集成
 
 尚未实现（有意留到后续）：
@@ -26,6 +27,7 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - 交互式权限审批（supervised 模式下 CLI 进程内的确认框）
 - 与上游 t3code 客户端协议的兼容
 - 非 Apple 平台的语音听写（NSGo 目前只在 macOS/iOS 识别）
+- Codex / OpenCode 的交互式审批（两者目前按各自的沙箱/自动策略运行）
 
 排队消息保存在客户端内存里，退出客户端会丢失；服务端仍是一次只跑一个 run。
 
@@ -138,6 +140,9 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
 | `GET /api/v1/providers` | provider 与模型 |
 | `GET/PATCH /api/v1/settings` | 环境默认设置 |
 | `GET /api/v1/fs?path=` | 列出子目录，供目录选择器使用 |
+| `POST /api/v1/threads/{id}/approvals` | provider 的 MCP helper 登记一次工具调用并等待决定 |
+| `GET /api/v1/approvals?threadId=` | 等待中的审批 |
+| `POST /api/v1/approvals/{id}` | 允许或拒绝一次工具调用 |
 | `POST /api/v1/uploads?name=` | 上传一个附件（请求体为文件内容，上限 25 MB） |
 | `GET/DELETE /api/v1/uploads/{id}` | 下载/删除附件 |
 | `GET /api/v1/events?after=<seq>` | SSE 事件流 |
@@ -153,21 +158,22 @@ REST，socket 只负责推送。
 ```
 project.updated   settings.updated   thread.created   thread.updated
 thread.deleted    run.started        run.finished     message.updated
-message.delta     notice
+message.delta     approval.requested approval.resolved notice
 ```
 
 ## 权限模式
 
 | T3Go | Claude Code | Codex |
 | --- | --- | --- |
-| `supervised` | `manual`，且关闭交互提示 | `workspace-write` 沙箱 |
+| `supervised` | `manual`，通过 MCP 审批工具询问 T3Go 客户端 | `workspace-write` 沙箱 |
 | `accept-edits` | `acceptEdits` | `workspace-write` + `--approve-for-me` |
 | `auto` | `auto` | `workspace-write` + `--approve-for-me` |
 | `full-access` | `bypassPermissions` | `--dangerously-bypass-approvals-and-sandbox` |
 
-因为 provider 以非交互的 print 模式运行，**supervised 无法弹出审批**：
-需要审批的动作会直接失败或被拒绝，而不是等待用户确认。需要 agent 自主完成
-工作时请选择 `accept-edits`、`auto` 或 `full-access`。
+Claude Code 的 `supervised` 会启动一个本地 MCP helper（`t3go mcp`），
+把要执行的工具和参数发回环境；客户端弹出审批框，允许后工具才执行。没有审批
+通道时（例如直接调用 provider 适配器）需要审批的动作会被拒绝。Codex 和
+OpenCode 没有等价的非交互审批入口，按上表的沙箱/自动策略运行。
 
 ## 代码结构
 
@@ -213,3 +219,4 @@ transcript 的渲染，命令面板与快捷键，运行中排队并自动发送
 - NSGo 仍处于早期，API 可能随版本变化；本仓库锁定了一个伪版本。
 - 网页版由服务端同源提供，使用浏览器 `localStorage` 保存地址和 token；附件用系统文件选择器添加。
 - 语音听写只在系统提供识别器时显示（macOS/iOS），其他平台不出现麦克风按钮。
+- 审批目前只覆盖 Claude Code；一次 run 结束时未回答的审批自动拒绝。

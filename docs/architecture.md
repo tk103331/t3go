@@ -61,6 +61,17 @@ client POST /threads/{id}/messages
   然后推送 `event` 帧。客户端可发 `ping`、`subscribe`、`unsubscribe` 做线程过滤。
 - 两个通道都不接受写操作，避免同一业务出现第二套入口。
 
+## 权限审批
+
+supervised 的 Claude 运行时，适配器写一份临时 MCP 配置并传
+`--permission-prompt-tool mcp__t3go__approve`，其中服务器命令是
+`t3go mcp --url ... --token ... --thread ... --run ...`。Claude 需要审批时调用
+该工具；helper 用 stdio JSON-RPC 应答，同时把工具名和参数 POST 到
+`/api/v1/threads/{id}/approvals`，请求一直挂起，直到客户端
+`POST /api/v1/approvals/{id}` 给出允许/拒绝（或 run 结束，自动拒绝）。审批和
+结果以 `approval.requested` / `approval.resolved` 事件广播，客户端重连时会用
+`GET /api/v1/approvals` 补齐还没回答的请求。
+
 ## Web 客户端
 
 `scripts/build-web.sh` 用 `GOOS=js GOARCH=wasm` 构建 `cmd/t3go-app`，生成

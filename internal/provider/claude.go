@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/tk/t3go/internal/proto"
@@ -14,9 +15,9 @@ import (
 //
 // The CLI keeps its own authenticated session store. T3Go gives it the
 // project as its working directory and resumes the conversation by the
-// session id Claude reports. Permission prompts cannot be answered in
-// this mode, so a supervised turn is denied anything that would prompt;
-// Auto, Auto-accept edits and Full access run without asking.
+// session id Claude reports. A supervised turn asks the environment's
+// person through the mcp helper; without one, anything that would prompt
+// is denied. Auto, Auto-accept edits and Full access run without asking.
 type Claude struct{}
 
 func (*Claude) ID() string   { return "claude" }
@@ -36,17 +37,69 @@ func (*Claude) Snapshot(ctx context.Context) proto.Provider {
 	return p
 }
 
-func claudePermission(m proto.PermissionMode) (string, []string) {
+func claudePermission(m proto.PermissionMode) string {
 	switch m {
 	case proto.PermissionSupervised:
-		return "manual", []string{"--permission-prompts", "none"}
+		return "manual"
 	case proto.PermissionAcceptEdits:
-		return "acceptEdits", nil
+		return "acceptEdits"
 	case proto.PermissionAuto:
-		return "auto", nil
+		return "auto"
 	default:
-		return "bypassPermissions", nil
+		return "bypassPermissions"
 	}
+}
+
+// claudeArgs builds the print-mode command. mcpConfig holds the approval
+// server when the turn can ask; without one supervised tools are denied.
+func claudeArgs(turn Turn, mcpConfig string) []string {
+	args := []string{"--print", "--verbose", "--output-format", "stream-json", "--include-partial-messages",
+		"--permission-mode", claudePermission(turn.Permission)}
+	if turn.Permission == proto.PermissionSupervised {
+		if mcpConfig != "" {
+			args = append(args, "--mcp-config", mcpConfig, "--permission-prompts", "host",
+				"--permission-prompt-tool", "mcp__t3go__approve")
+		} else {
+			args = append(args, "--permission-prompts", "none")
+		}
+	}
+	if turn.Model != "" {
+		args = append(args, "--model", turn.Model)
+	}
+	if turn.SessionID != "" {
+		args = append(args, "--resume", turn.SessionID)
+	}
+	return args
+}
+
+// writeApprovalConfig writes the MCP server Claude runs for approvals.
+func writeApprovalConfig(turn Turn) (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	raw, err := json.Marshal(map[string]any{"mcpServers": map[string]any{"t3go": map[string]any{
+		"command": executable,
+		"args": []string{"mcp", "--url", turn.ApprovalURL, "--token", turn.ApprovalToken,
+			"--thread", turn.ThreadID, "--run", turn.RunID},
+	}}})
+	if err != nil {
+		return "", err
+	}
+	file, err := os.CreateTemp("", "t3go-mcp-*.json")
+	if err != nil {
+		return "", err
+	}
+	if _, err := file.Write(raw); err != nil {
+		file.Close()
+		os.Remove(file.Name())
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		os.Remove(file.Name())
+		return "", err
+	}
+	return file.Name(), nil
 }
 
 func (c *Claude) Run(ctx context.Context, turn Turn, sink Sink) error {
@@ -54,15 +107,14 @@ func (c *Claude) Run(ctx context.Context, turn Turn, sink Sink) error {
 	if err != nil {
 		return ErrNotInstalled
 	}
-	mode, extra := claudePermission(turn.Permission)
-	args := []string{"--print", "--verbose", "--output-format", "stream-json", "--include-partial-messages", "--permission-mode", mode}
-	args = append(args, extra...)
-	if turn.Model != "" {
-		args = append(args, "--model", turn.Model)
+	mcpConfig := ""
+	if turn.Permission == proto.PermissionSupervised && turn.ApprovalURL != "" {
+		if path, err := writeApprovalConfig(turn); err == nil {
+			mcpConfig = path
+			defer os.Remove(path)
+		}
 	}
-	if turn.SessionID != "" {
-		args = append(args, "--resume", turn.SessionID)
-	}
+	args := claudeArgs(turn, mcpConfig)
 	s := newClaudeStream(sink, turn.SessionID)
 	res := runJSON(ctx, procSpec{Path: path, Args: args, CWD: turn.CWD}, turn.Prompt, s.line)
 	if errors.Is(res.Err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {

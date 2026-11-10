@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -770,5 +771,65 @@ func TestUIDictationNeedsRecognizer(t *testing.T) {
 	app.WaitFor("id:attach", 10*time.Second)
 	if app.Exists("id:dictate") {
 		t.Fatal("the headless environment shows a microphone without a recognizer")
+	}
+}
+
+// TestUIApprovalDialog answers a supervised tool call, both one waiting
+// before the app connected and one that arrives live.
+func TestUIApprovalDialog(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	project, err := srv.Service.CreateProject(ctx, "Demo", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Approvals", Provider: "claude", Model: "test-model", Permission: proto.PermissionSupervised,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+
+	decision := make(chan proto.ApprovalDecision, 2)
+	go func() {
+		decision <- srv.Service.RequestApproval(ctx, proto.ApprovalRequest{ThreadID: thread.ID, RunID: "run_a",
+			Tool: "Read", Input: map[string]any{"file_path": "/tmp/notes.txt"}})
+	}()
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:approval-dialog", 15*time.Second)
+	if !app.Exists("text:notes.txt") {
+		t.Fatal("the dialog does not show the tool's input")
+	}
+	app.Press("id:approval-allow")
+	select {
+	case d := <-decision:
+		if !d.Allow {
+			t.Fatalf("first decision = %#v", d)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the first approval was not allowed")
+	}
+	app.WaitForGone("id:approval-dialog", 5*time.Second)
+
+	go func() {
+		decision <- srv.Service.RequestApproval(ctx, proto.ApprovalRequest{ThreadID: thread.ID, RunID: "run_b",
+			Tool: "Bash", Input: map[string]any{"command": "rm -rf build"}})
+	}()
+	app.WaitFor("id:approval-dialog", 10*time.Second)
+	app.WaitFor("text:Bash", 5*time.Second)
+	app.Press("id:approval-deny")
+	select {
+	case d := <-decision:
+		if d.Allow || !strings.Contains(d.Message, "Denied") {
+			t.Fatalf("second decision = %#v", d)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the second approval was not denied")
 	}
 }

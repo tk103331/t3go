@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -277,7 +278,52 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 
 func (a *app) dialogs(cx *core.Scope) core.Node {
 	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.runsDialog(cx),
-		a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx)}
+		a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx), a.approvalDialog(cx)}
+}
+
+// approvalDialog asks about the first tool call a supervised run is
+// waiting on.
+func (a *app) approvalDialog(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	approvals := a.approvals.Get()
+	if len(approvals) == 0 {
+		return ui.Dialog{Open: func() bool { return false }}
+	}
+	request := approvals[0]
+	description := "A supervised agent wants to use " + request.Tool + "."
+	for _, t := range a.threads.Get() {
+		if t.ID == request.ThreadID {
+			description = "In " + t.Title + ", the agent wants to use " + request.Tool + "."
+			break
+		}
+	}
+	var children []core.Node
+	if raw, err := json.MarshalIndent(request.Input, "", "  "); err == nil && len(request.Input) > 0 {
+		children = append(children, core.Scroll{Style: core.Style{MaxHeight: core.Pt(280), Background: colors.Inset(),
+			CornerRadius: 8, Padding: core.All(10)}, Children: []core.Node{
+			core.Text{Content: string(raw), Selectable: core.SelectableOn, Style: core.Style{FontSize: 11.5, LineHeight: 16, FontFamily: "Menlo, monospace"},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+		}})
+	}
+	if len(approvals) > 1 {
+		children = append(children, ui.Text(fmt.Sprintf("%d more waiting", len(approvals)-1), 11.5, ui.Regular, colors.Faint))
+	}
+	return ui.Dialog{
+		Open:         func() bool { return len(a.approvals.Get()) > 0 },
+		OnOpenChange: func(bool, base.Reason) {},
+		Title:        "Allow tool call?",
+		Description:  description,
+		Children:     children,
+		TestID:       "approval-dialog",
+		Footer: []core.Node{
+			ui.Button{Text: "Deny", Variant: ui.ButtonGhost, TestID: "approval-deny", OnPress: func() {
+				a.resolveApproval(request.ID, false, "Denied by the person running T3Go.")
+			}},
+			ui.Button{Text: "Allow", Variant: ui.ButtonPrimary, TestID: "approval-allow", OnPress: func() {
+				a.resolveApproval(request.ID, true, "")
+			}},
+		},
+	}
 }
 
 func closeDialog(sig *core.Signal[bool]) func(bool, base.Reason) {

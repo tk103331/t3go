@@ -225,17 +225,35 @@ type Event struct {
 
 // Event types.
 const (
-	EventThreadCreated = "thread.created"
-	EventThreadUpdated = "thread.updated"
-	EventThreadDeleted = "thread.deleted"
-	EventMessage       = "message.updated"
-	EventMessageDelta  = "message.delta"
-	EventRunStarted    = "run.started"
-	EventRunFinished   = "run.finished"
-	EventProject       = "project.updated"
-	EventSettings      = "settings.updated"
-	EventNotice        = "notice"
+	EventThreadCreated    = "thread.created"
+	EventThreadUpdated    = "thread.updated"
+	EventThreadDeleted    = "thread.deleted"
+	EventMessage          = "message.updated"
+	EventMessageDelta     = "message.delta"
+	EventRunStarted       = "run.started"
+	EventRunFinished      = "run.finished"
+	EventProject          = "project.updated"
+	EventSettings         = "settings.updated"
+	EventApproval         = "approval.requested"
+	EventApprovalResolved = "approval.resolved"
+	EventNotice           = "notice"
 )
+
+// ApprovalRequest is a tool call waiting for a person's decision.
+type ApprovalRequest struct {
+	ID        string         `json:"id"`
+	ThreadID  string         `json:"threadId"`
+	RunID     string         `json:"runId,omitempty"`
+	Tool      string         `json:"tool"`
+	Input     map[string]any `json:"input,omitempty"`
+	CreatedAt time.Time      `json:"createdAt"`
+}
+
+// ApprovalDecision is what the person answered, and why when denied.
+type ApprovalDecision struct {
+	Allow   bool   `json:"allow"`
+	Message string `json:"message,omitempty"`
+}
 
 // MessageDelta is an event's payload for a streaming assistant message.
 type MessageDelta struct {

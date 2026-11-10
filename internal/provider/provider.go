@@ -19,6 +19,10 @@ type Turn struct {
 	Model      string
 	Permission proto.PermissionMode
 	SessionID  string
+	// ApprovalURL and ApprovalToken let a supervised Claude turn ask this
+	// environment's person about a tool, through the mcp helper.
+	ApprovalURL   string
+	ApprovalToken string
 }
 
 // Sink receives a turn's output while it runs. Calls are made on the

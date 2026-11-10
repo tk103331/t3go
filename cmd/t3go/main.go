@@ -42,6 +42,8 @@ func run(args []string) int {
 		return cmdPair(args[1:])
 	case "doctor":
 		return cmdDoctor(args[1:])
+	case "mcp":
+		return cmdMCP(args[1:])
 	case "version", "-v", "--version":
 		fmt.Printf("t3go %s (%s/%s, go %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 		return 0

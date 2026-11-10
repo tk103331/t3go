@@ -408,3 +408,59 @@ func status(t *testing.T, method, url string) int {
 	resp.Body.Close()
 	return resp.StatusCode
 }
+
+// TestApprovalEndpoints lets a helper wait for an approval and answers it
+// from the REST API.
+func TestApprovalEndpoints(t *testing.T) {
+	e := newTestEnv(t)
+	p := e.project(t)
+	th := e.thread(t, p.ID)
+
+	type answered struct {
+		decision proto.ApprovalDecision
+		status   int
+	}
+	done := make(chan answered, 1)
+	go func() {
+		var decision proto.ApprovalDecision
+		code := e.request(t, http.MethodPost, "/api/v1/threads/"+th.ID+"/approvals",
+			map[string]any{"runId": "run_x", "tool": "Bash", "input": map[string]any{"command": "ls"}}, e.token, &decision)
+		done <- answered{decision: decision, status: code}
+	}()
+
+	var approval proto.ApprovalRequest
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var list struct {
+			Approvals []proto.ApprovalRequest `json:"approvals"`
+		}
+		if code := e.request(t, http.MethodGet, "/api/v1/approvals?threadId="+th.ID, nil, e.token, &list); code != http.StatusOK {
+			t.Fatalf("list = %d", code)
+		}
+		if len(list.Approvals) == 1 {
+			approval = list.Approvals[0]
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the approval never became pending")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if approval.Tool != "Bash" || approval.RunID != "run_x" {
+		t.Fatalf("approval = %#v", approval)
+	}
+	if code := e.request(t, http.MethodPost, "/api/v1/approvals/"+approval.ID, proto.ApprovalDecision{Allow: true}, e.token, nil); code != http.StatusOK {
+		t.Fatalf("resolve = %d", code)
+	}
+	select {
+	case got := <-done:
+		if got.status != http.StatusOK || !got.decision.Allow {
+			t.Fatalf("helper answer = %#v", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the helper never got an answer")
+	}
+	if code := e.request(t, http.MethodPost, "/api/v1/approvals/"+approval.ID, proto.ApprovalDecision{Allow: true}, e.token, nil); code != http.StatusNotFound {
+		t.Fatalf("second resolve = %d", code)
+	}
+}

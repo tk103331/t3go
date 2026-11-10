@@ -364,3 +364,71 @@ func TestSendWithAttachments(t *testing.T) {
 		t.Fatalf("upload file still there: %v", err)
 	}
 }
+
+// TestApprovals waits for a person's decision, and denies when the run
+// ends first.
+func TestApprovals(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t, &fakeRunner{})
+
+	decisions := make(chan proto.ApprovalDecision, 1)
+	go func() {
+		decisions <- svc.RequestApproval(ctx, proto.ApprovalRequest{ThreadID: "thr_a", RunID: "run_a", Tool: "Bash",
+			Input: map[string]any{"command": "ls"}})
+	}()
+	var approval proto.ApprovalRequest
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if pending := svc.PendingApprovals("thr_a"); len(pending) == 1 {
+			approval = pending[0]
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the approval never became pending")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if approval.Tool != "Bash" || approval.RunID != "run_a" {
+		t.Fatalf("approval = %#v", approval)
+	}
+	if err := svc.ResolveApproval(ctx, approval.ID, proto.ApprovalDecision{Allow: true}); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	select {
+	case decision := <-decisions:
+		if !decision.Allow {
+			t.Fatalf("decision = %#v", decision)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the decision never arrived")
+	}
+	if err := svc.ResolveApproval(ctx, approval.ID, proto.ApprovalDecision{Allow: true}); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("second resolve = %v", err)
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		decisions <- svc.RequestApproval(runCtx, proto.ApprovalRequest{ThreadID: "thr_b", Tool: "Write"})
+	}()
+	for {
+		if len(svc.PendingApprovals("thr_b")) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the second approval never became pending")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case decision := <-decisions:
+		if decision.Allow || !strings.Contains(decision.Message, "run ended") {
+			t.Fatalf("canceled decision = %#v", decision)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the canceled decision never arrived")
+	}
+	if pending := svc.PendingApprovals(""); len(pending) != 0 {
+		t.Fatalf("pending after cancel = %#v", pending)
+	}
+}

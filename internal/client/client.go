@@ -265,6 +265,25 @@ func (c *Client) DeleteUpload(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/api/v1/uploads/"+url.PathEscape(id), nil, nil)
 }
 
+// Approvals lists the tool calls waiting for a decision.
+func (c *Client) Approvals(ctx context.Context, threadID string) ([]proto.ApprovalRequest, error) {
+	path := "/api/v1/approvals"
+	if threadID != "" {
+		path += "?threadId=" + url.QueryEscape(threadID)
+	}
+	var out struct {
+		Approvals []proto.ApprovalRequest `json:"approvals"`
+	}
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out.Approvals, err
+}
+
+// ResolveApproval answers a waiting tool call.
+func (c *Client) ResolveApproval(ctx context.Context, id string, allow bool, message string) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/approvals/"+url.PathEscape(id),
+		proto.ApprovalDecision{Allow: allow, Message: message}, nil)
+}
+
 // Stop cancels a thread's run.
 func (c *Client) Stop(ctx context.Context, threadID string) (bool, error) {
 	var out struct {
