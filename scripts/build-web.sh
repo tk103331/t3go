@@ -4,6 +4,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 out=${1:-web}
+mkdir -p "$out"
 GOOS=js GOARCH=wasm go build -o "$out/app.wasm" ./cmd/t3go-app
 cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" "$out/wasm_exec.js"
 if [ "$out" != "web" ]; then

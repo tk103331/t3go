@@ -92,6 +92,14 @@ func cmdServe(args []string) int {
 			fmt.Fprintf(os.Stderr, "t3go: --web: %v\n", err)
 			return 1
 		}
+		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+			fmt.Fprintf(os.Stderr, "t3go: --web: %s is not a directory\n", dir)
+			return 1
+		}
+		if _, err := os.Stat(filepath.Join(dir, "index.html")); err != nil {
+			fmt.Fprintf(os.Stderr, "t3go: --web: %s has no index.html; run scripts/build-web.sh first\n", dir)
+			return 1
+		}
 		cfg.WebDir = dir
 	}
 	logger := newLogger(*quiet, cfg.Home)
