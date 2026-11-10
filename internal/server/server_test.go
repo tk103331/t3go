@@ -2188,4 +2188,22 @@ done
 	if !review || !audit || !prompt {
 		t.Fatalf("commands = %#v", result.Commands)
 	}
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := "[mcp_servers.codexfake]\ncommand = \"" + mcp + "\"\n"
+	if err := os.WriteFile(filepath.Join(home, ".codex", "config.toml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var codexPrompt bool
+	for _, command := range discoverMCPPromptsAt(repo, home) {
+		if command.Name == "mcp__codexfake__summarize" && command.Source == "mcp" {
+			codexPrompt = true
+		}
+	}
+	if !codexPrompt {
+		t.Fatalf("codex MCP prompt missing")
+	}
 }

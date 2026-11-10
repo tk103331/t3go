@@ -122,11 +122,30 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 		core.View{Style: core.Style{Padding: core.Edges{Top: 8, Right: 16, Bottom: 16, Left: 16}, AlignItems: core.AlignCenter}, Children: []core.Node{
 			core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(chat.ContentWidth)}, Children: []core.Node{
 				a.queuedBlock(cx),
+				core.Dynamic(a.planBanner),
 				core.Dynamic(a.composerMentions),
 				core.Dynamic(a.composerSuggestions),
 				core.View{TestID: "composer-drop", OnFileDrop: a.attachPaths, Children: []core.Node{composer}},
 			}},
 		}},
+	}}
+}
+
+// planBanner offers to leave plan mode once a planning turn finishes.
+func (a *app) planBanner(cx *core.Scope) core.Node {
+	if !a.planReady() {
+		return core.View{}
+	}
+	colors := ui.ColorsOf(cx)
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
+		Padding: core.Symmetric(7, 10), Background: ui.Alpha(colors.Accent(), 0.08), CornerRadius: 8,
+		BorderWidth: 1, BorderColor: ui.Alpha(colors.Accent(), 0.24)}, Children: []core.Node{
+		ui.Icon(lucide.Lightbulb, 15, colors.Accent),
+		core.Text{Content: "Plan ready — review it, then start implementing.", MaxLines: 2,
+			Style:     core.Style{FontSize: 11.5, FlexGrow: 1, FlexShrink: 1},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+		ui.Button{Text: "Implement", Icon: lucide.ClipboardCheck, Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+			TestID: "plan-implement", OnPress: a.approvePlan},
 	}}
 }
 

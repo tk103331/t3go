@@ -2028,6 +2028,26 @@ func (a *app) setThreadModel(model proto.Model) {
 	a.updateThreadSettings(map[string]any{"model": model.ID, "provider": model.Provider})
 }
 
+// planReady reports a finished turn while plan mode is on.
+func (a *app) planReady() bool {
+	detail := a.detail.Get()
+	if !detail.Thread.Plan || a.running.Get() {
+		return false
+	}
+	for i := len(detail.Runs) - 1; i >= 0; i-- {
+		if detail.Runs[i].Status == proto.RunCompleted {
+			return true
+		}
+	}
+	return false
+}
+
+// approvePlan leaves plan mode and stages the implementation prompt.
+func (a *app) approvePlan() {
+	a.setThreadPlan(false)
+	a.setDraft("Implement the plan.")
+}
+
 // setThreadPlan turns the open thread's plan-first mode on or off.
 func (a *app) setThreadPlan(plan bool) {
 	a.updateThreadSettings(map[string]any{"plan": plan})

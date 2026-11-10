@@ -1142,6 +1142,15 @@ func TestUITranscriptChrome(t *testing.T) {
 		}
 		return false
 	})
+	app.WaitFor("id:plan-implement", 5*time.Second)
+	app.Press("id:plan-implement")
+	app.WaitUntil(10*time.Second, func() bool {
+		thread, err := srv.Store.Thread(ctx, thread.ID)
+		return err == nil && !thread.Plan
+	})
+	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "Implement the plan." })
+	app.Clear("label:Message")
+
 	app.Press("id:composer-permission")
 	app.WaitFor("id:composer-perm-auto", 5*time.Second)
 	app.Press("id:composer-perm-auto")

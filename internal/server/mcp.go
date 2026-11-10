@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	toml "github.com/pelletier/go-toml/v2"
+
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -31,13 +33,18 @@ type mcpConfigFile struct {
 // discoverMCPPrompts asks the workspace's local MCP servers for their
 // prompts. Remote servers and Codex's TOML config are not read.
 func discoverMCPPrompts(root string) []proto.AgentCommand {
+	home, _ := os.UserHomeDir()
+	return discoverMCPPromptsAt(root, home)
+}
+
+func discoverMCPPromptsAt(root, home string) []proto.AgentCommand {
 	servers := map[string]mcpServer{}
 	loadMCPFile(filepath.Join(root, ".mcp.json"), servers)
 	loadMCPFile(filepath.Join(root, ".claude", "settings.json"), servers)
 	loadMCPFile(filepath.Join(root, ".claude", "settings.local.json"), servers)
-	home, _ := os.UserHomeDir()
 	if home != "" {
 		loadMCPFile(filepath.Join(home, ".claude.json"), servers)
+		loadCodexMCP(filepath.Join(home, ".codex", "config.toml"), servers)
 	}
 	var names []string
 	for name, server := range servers {
@@ -96,6 +103,30 @@ func loadMCPFile(path string, servers map[string]mcpServer) {
 				servers[name] = server
 			}
 		}
+	}
+}
+
+// loadCodexMCP reads Codex's TOML mcp_servers table.
+func loadCodexMCP(path string, servers map[string]mcpServer) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var config struct {
+		Servers map[string]struct {
+			Command string            `toml:"command"`
+			Args    []string          `toml:"args"`
+			Env     map[string]string `toml:"env"`
+		} `toml:"mcp_servers"`
+	}
+	if toml.Unmarshal(raw, &config) != nil {
+		return
+	}
+	for name, server := range config.Servers {
+		if _, ok := servers[name]; ok {
+			continue
+		}
+		servers[name] = mcpServer{Command: server.Command, Args: server.Args, Env: server.Env}
 	}
 }
 
