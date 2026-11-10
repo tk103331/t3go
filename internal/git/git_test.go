@@ -213,3 +213,77 @@ func TestListRefs(t *testing.T) {
 		t.Fatalf("remove worktree: %v", err)
 	}
 }
+
+func TestReviewData(t *testing.T) {
+	ctx := context.Background()
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "add", "a.txt")
+	gitRun(t, dir, "commit", "-qm", "second")
+
+	commits, truncated, err := BranchCommits(ctx, dir, "HEAD~1", 10)
+	if err != nil {
+		t.Fatalf("commits: %v", err)
+	}
+	if truncated || len(commits) != 1 || commits[0].Subject != "second" || commits[0].CommittedAt == "" {
+		t.Fatalf("commits = %#v, truncated = %v", commits, truncated)
+	}
+
+	// A tracked and an untracked change share one working-tree preview.
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("three\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := ReviewDiff(ctx, dir, "HEAD", "", nil, false, false, false)
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	if len(stats.Files) != 2 || stats.Patch != "" {
+		t.Fatalf("stats = %#v", stats)
+	}
+	diff, err := ReviewDiff(ctx, dir, "HEAD", "", nil, false, false, true)
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if !strings.Contains(diff.Patch, "+three") || !strings.Contains(diff.Patch, "b.txt") {
+		t.Fatalf("patch = %q", diff.Patch)
+	}
+	if DiffHash(diff.Patch, diff.Files) == "" {
+		t.Fatal("no diff hash")
+	}
+
+	old, current, err := FileContents(ctx, dir, "working-tree", "HEAD", "", "a.txt", "a.txt")
+	if err != nil || old != "two\n" || current != "three\n" {
+		t.Fatalf("contents = %q, %q, %v", old, current, err)
+	}
+	oldNew, newNew, err := FileContents(ctx, dir, "working-tree", "HEAD", "", "b.txt", "b.txt")
+	if err != nil || oldNew != "" || newNew != "new\n" {
+		t.Fatalf("new file contents = %q, %q, %v", oldNew, newNew, err)
+	}
+
+	// A commit preview compares against its parent.
+	sha := strings.TrimSpace(mustGit(t, dir, "rev-parse", "HEAD"))
+	subject, parent, err := CommitMeta(ctx, dir, sha)
+	if err != nil || subject != "second" || parent == "" {
+		t.Fatalf("meta = %q, %q, %v", subject, parent, err)
+	}
+	commitDiff, err := ReviewDiff(ctx, dir, parent, sha, nil, false, false, true)
+	if err != nil || !strings.Contains(commitDiff.Patch, "+two") {
+		t.Fatalf("commit diff = %q, %v", commitDiff.Patch, err)
+	}
+}
+
+func mustGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return string(out)
+}

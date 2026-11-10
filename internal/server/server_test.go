@@ -1718,7 +1718,97 @@ func TestUpstreamVcsRefsAndWorktrees(t *testing.T) {
 	}
 }
 
-// TestUpstreamRuntimeApproval projects a pending approval and answers it
+// TestUpstreamReview serves the branch commits, diff preview and file
+// contents the official review panel reads.
+func TestUpstreamReview(t *testing.T) {
+	e := newTestEnv(t)
+	repo := upstreamGitRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("second\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "README.md"}, {"commit", "-qm", "Second commit"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	var project proto.Project
+	if code := e.request(t, http.MethodPost, "/api/v1/projects",
+		map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
+		t.Fatalf("project = %d", code)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2"
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+		"Authorization": []string{"Bearer " + e.token},
+	}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+
+	value := upstreamCall(t, ctx, conn, 1, "review.getBranchCommits", map[string]any{"cwd": repo, "baseRef": "HEAD~1"})
+	commits := value.(map[string]any)
+	if commits["truncated"] != false || len(commits["commits"].([]any)) != 1 {
+		t.Fatalf("commits = %#v", commits)
+	}
+	first := commits["commits"].([]any)[0].(map[string]any)
+	if first["subject"] != "Second commit" {
+		t.Fatalf("commit = %#v", first)
+	}
+	sha := first["sha"].(string)
+
+	// A metadata-only working-tree preview lists tracked and untracked
+	// files but defers their patches.
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("working\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "new.txt"), []byte("untracked\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	value = upstreamCall(t, ctx, conn, 2, "review.getDiffPreview", map[string]any{
+		"cwd": repo, "sourceKind": "working-tree", "metadataOnly": true,
+	})
+	preview := value.(map[string]any)
+	source := preview["sources"].([]any)[0].(map[string]any)
+	if source["kind"] != "working-tree" || source["patchesDeferred"] != true || source["diff"] != "" {
+		t.Fatalf("source = %#v", source)
+	}
+	files := source["files"].([]any)
+	if len(files) != 2 {
+		t.Fatalf("files = %#v", files)
+	}
+
+	value = upstreamCall(t, ctx, conn, 3, "review.getDiffPreview", map[string]any{
+		"cwd": repo, "sourceKind": "working-tree",
+	})
+	source = value.(map[string]any)["sources"].([]any)[0].(map[string]any)
+	if !strings.Contains(source["diff"].(string), "+working") || !strings.Contains(source["diff"].(string), "new.txt") {
+		t.Fatalf("diff = %q", source["diff"])
+	}
+
+	value = upstreamCall(t, ctx, conn, 4, "review.getDiffFileContents", map[string]any{
+		"cwd": repo, "sourceKind": "working-tree", "baseRef": nil, "headRef": "main",
+		"changeType": "new", "oldPath": "new.txt", "newPath": "new.txt",
+	})
+	contents := value.(map[string]any)
+	if contents["oldContents"] != "" || contents["newContents"] != "untracked\n" {
+		t.Fatalf("contents = %#v", contents)
+	}
+
+	// A commit preview compares the selected commit with its parent.
+	value = upstreamCall(t, ctx, conn, 5, "review.getDiffPreview", map[string]any{
+		"cwd": repo, "commitSha": sha,
+	})
+	source = value.(map[string]any)["sources"].([]any)[0].(map[string]any)
+	if source["kind"] != "commit" || source["commitSubject"] != "Second commit" || source["baseRef"] == nil {
+		t.Fatalf("commit source = %#v", source)
+	}
+}
+
+// TestUpstreamRuntimeApproval projects a pending approval and answers it// TestUpstreamRuntimeApproval projects a pending approval and answers it
 // through the runtime-request command.
 func TestUpstreamRuntimeApproval(t *testing.T) {
 	e := newTestEnv(t)

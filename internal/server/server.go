@@ -843,6 +843,21 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			continue
+		case "review.getBranchCommits":
+			if !s.upstreamReviewCommit(ctx, writer, envelope.ID, envelope.Payload) {
+				return
+			}
+			continue
+		case "review.getDiffPreview":
+			if !s.upstreamReviewDiff(ctx, writer, envelope.ID, envelope.Payload) {
+				return
+			}
+			continue
+		case "review.getDiffFileContents":
+			if !s.upstreamReviewFile(ctx, writer, envelope.ID, envelope.Payload) {
+				return
+			}
+			continue
 		case "vcs.listRefs":
 			if !s.upstreamVcsRefs(ctx, writer, envelope.ID, envelope.Payload) {
 				return

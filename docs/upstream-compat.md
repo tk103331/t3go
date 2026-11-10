@@ -25,6 +25,9 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
 | `orchestration.launchThread` | 用客户端的 threadId、项目、模型和 runtime mode 创建线程，可带首条消息；`workspaceStrategy` 的 `root`、`worktree`、`existing_worktree` 都映射到 T3Go |
 | `orchestration.dispatchCommand` | `message.dispatch`、`thread.stop`、`thread.archive`/`unarchive`、`thread.delete`、`runtime-request.respond` |
 | `orchestration.getTurnDiff` / `getFullThreadDiff` | 从 run checkpoint 到当前工作区的 diff，带 turn 范围 |
+| `review.getBranchCommits` | 当前分支相对 base 的提交列表，含 sha、subject、提交时间与截断标记 |
+| `review.getDiffPreview` | 工作区、分支范围或单个 commit 的 diff：文件增删统计、patch、diff hash；支持 metadata-only、忽略空白和单文件 |
+| `review.getDiffFileContents` | 展开单个文件时读取其旧/新内容，支持 commit、branch-range 和工作区 |
 | `attachments.createUploadUrl` / `attachments.delete` | 预建附件并返回带 token 的上传 URL；文件用 POST 写入 |
 | `assets.persistChatAttachments` | 把粘贴图片的 data URL 存成附件 |
 | `assets.createUrl` | 给附件签发可预览/下载的 URL |
