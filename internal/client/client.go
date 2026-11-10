@@ -382,6 +382,11 @@ func (c *Client) File(ctx context.Context, threadID, path string) (proto.Workspa
 	return out, err
 }
 
+// UploadURL is where an uploaded attachment can be read.
+func (c *Client) UploadURL(id string) string {
+	return c.BaseURL + "/api/v1/uploads/" + url.PathEscape(id) + "?token=" + url.QueryEscape(c.Token)
+}
+
 // RawFileURL is where a browser or image view can read one file.
 func (c *Client) RawFileURL(threadID, path string) string {
 	return c.BaseURL + "/api/v1/threads/" + url.PathEscape(threadID) + "/raw?path=" + url.QueryEscape(path) + "&token=" + url.QueryEscape(c.Token)

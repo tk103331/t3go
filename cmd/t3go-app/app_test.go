@@ -1126,6 +1126,15 @@ func TestUITranscriptChrome(t *testing.T) {
 	app.WaitFor("id:edit-message-dialog", 5*time.Second)
 	app.Press("id:cancel-edit-message")
 	app.WaitForGone("id:edit-message-dialog", 5*time.Second)
+	app.WaitFor("id:composer-permission", 5*time.Second)
+	app.Press("id:composer-permission")
+	app.WaitFor("id:composer-perm-auto", 5*time.Second)
+	app.Press("id:composer-perm-auto")
+	app.WaitUntil(10*time.Second, func() bool {
+		thread, err := srv.Store.Thread(ctx, thread.ID)
+		return err == nil && thread.Permission == proto.PermissionAuto
+	})
+
 	app.Press("id:copy-message-msg_reply")
 	app.WaitUntil(5*time.Second, func() bool { return app.Clipboard == "Hi there" })
 }
@@ -1415,6 +1424,9 @@ func TestUIComposerMentionsAndCommands(t *testing.T) {
 	})
 	app.Press("id:mention-file-README.md")
 	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "Look at @README.md " })
+	app.WaitFor("id:mention-chip-README.md", 5*time.Second)
+	app.Press("id:mention-chip-README.md")
+	app.WaitUntil(5*time.Second, func() bool { return !strings.Contains(app.Find("label:Message").Text, "README.md") })
 
 	app.Clear("label:Message")
 	app.WaitUntil(15*time.Second, func() bool {

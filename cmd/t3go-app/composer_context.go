@@ -131,6 +131,54 @@ func activeMention(draft string) (int, string, bool) {
 	return at, query, true
 }
 
+// composerMentions shows the files named with @ in the draft.
+func (a *app) composerMentions(cx *core.Scope) core.Node {
+	paths := mentionPaths(a.draft.Get())
+	if len(paths) == 0 {
+		return core.View{}
+	}
+	colors := ui.ColorsOf(cx)
+	var chips []core.Node
+	for _, path := range paths {
+		path := path
+		chips = append(chips, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
+			Padding: core.Symmetric(3, 7), Background: colors.Field(), CornerRadius: 7, MaxWidth: core.Pt(280)}, Children: []core.Node{
+			ui.Icon(lucide.FileText, 11, colors.Muted),
+			core.Text{Content: path, MaxLines: 1, Style: core.Style{FontSize: 11, FontFamily: "Menlo, monospace", FlexShrink: 1},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+			ui.IconButton{Icon: lucide.X, Label: "Remove " + path, Size: 17, IconSize: 9, Tint: colors.Faint,
+				TestID: "mention-chip-" + path, OnPress: func() { a.removeMention(path) }},
+		}})
+	}
+	return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4, Padding: core.Edges{Bottom: 4}}, Children: chips}
+}
+
+// mentionPaths reads the @ paths in the draft without duplicates.
+func mentionPaths(draft string) []string {
+	var paths []string
+	seen := map[string]bool{}
+	for _, field := range strings.Fields(draft) {
+		path := strings.TrimPrefix(field, "@")
+		if path == field || path == "" {
+			continue
+		}
+		path = strings.TrimRight(path, ".,;:!?)]")
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		paths = append(paths, path)
+	}
+	return paths
+}
+
+// removeMention takes one @ path out of the draft.
+func (a *app) removeMention(path string) {
+	draft := a.draft.GetUntracked()
+	draft = strings.Replace(draft, "@"+path, "", 1)
+	a.setDraft(strings.Join(strings.Fields(draft), " "))
+}
+
 // insertMention replaces the mention being typed with one file.
 func (a *app) insertMention(path string) {
 	draft := a.draft.GetUntracked()

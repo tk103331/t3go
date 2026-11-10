@@ -103,6 +103,7 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 			}}
 		},
 		OnDropFiles: a.attachPaths,
+		Trailing:    a.composerControls,
 		TestID:      "composer-card",
 	}
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
@@ -120,11 +121,69 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 		core.View{Style: core.Style{Padding: core.Edges{Top: 8, Right: 16, Bottom: 16, Left: 16}, AlignItems: core.AlignCenter}, Children: []core.Node{
 			core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(chat.ContentWidth)}, Children: []core.Node{
 				a.queuedBlock(cx),
+				core.Dynamic(a.composerMentions),
 				core.Dynamic(a.composerSuggestions),
 				core.View{TestID: "composer-drop", OnFileDrop: a.attachPaths, Children: []core.Node{composer}},
 			}},
 		}},
 	}}
+}
+
+// composerControls are the thread's model and permission pickers.
+func (a *app) composerControls(cx *core.Scope) core.Node {
+	thread := a.detail.Get().Thread
+	if thread.ID == "" {
+		return core.View{}
+	}
+	colors := ui.ColorsOf(cx)
+	var modelItems []core.Node
+	modelLabel := shortModel(thread.Model)
+	for _, model := range a.models.Get() {
+		model := model
+		label := model.Name
+		if model.Provider != thread.Provider {
+			label += " · " + model.Provider
+		}
+		if model.ID == thread.Model && model.Provider == thread.Provider {
+			modelLabel = shortModel(model.Name)
+		}
+		modelItems = append(modelItems, ui.MenuItem{Text: label, TestID: "composer-model-" + model.ID,
+			Checked: func() bool {
+				return a.detail.Get().Thread.Model == model.ID && a.detail.Get().Thread.Provider == model.Provider
+			},
+			OnSelect: func() { a.setThreadModel(model) }})
+	}
+	var model core.Node = ui.Text(modelLabel, 10.5, ui.Regular, colors.Faint)
+	if len(modelItems) > 0 {
+		model = ui.Menu{TestID: "composer-model", MaxHeight: 320,
+			Trigger:  ui.Button{Text: modelLabel, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Model"},
+			Children: modelItems}
+	}
+	var permItems []core.Node
+	for _, permission := range []proto.PermissionMode{proto.PermissionSupervised, proto.PermissionAcceptEdits,
+		proto.PermissionAuto, proto.PermissionFullAccess} {
+		permission := permission
+		permItems = append(permItems, ui.MenuItem{Text: string(permission), TestID: "composer-perm-" + string(permission),
+			Checked:  func() bool { return a.detail.Get().Thread.Permission == permission },
+			OnSelect: func() { a.setThreadPermission(permission) }})
+	}
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
+		model,
+		ui.Menu{TestID: "composer-permission", MaxHeight: 240,
+			Trigger:  ui.Button{Text: string(thread.Permission), Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Permission"},
+			Children: permItems},
+	}}
+}
+
+func shortModel(name string) string {
+	if name == "" {
+		return "Model"
+	}
+	r := []rune(name)
+	if len(r) > 18 {
+		return string(r[:17]) + "…"
+	}
+	return name
 }
 
 // attachmentChips are the files the next message carries.
@@ -134,14 +193,19 @@ func (a *app) attachmentChips(cx *core.Scope) core.Node {
 	rows := make([]core.Node, 0, len(files))
 	for _, f := range files {
 		f := f
-		rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
-			Padding: core.Symmetric(4, 8), Background: colors.Field(), CornerRadius: 8, MaxWidth: core.Pt(280)}, Children: []core.Node{
-			ui.Icon(lucide.Paperclip, 12, colors.Muted),
+		lead := []core.Node{ui.Icon(lucide.Paperclip, 12, colors.Muted)}
+		if strings.HasPrefix(f.MimeType, "image/") {
+			lead = []core.Node{ui.Image{Source: core.ImageSource{URI: a.uploadURL(f.ID)}, ResizeMode: core.Cover, Label: f.Name,
+				Style: core.Style{Width: core.Pt(34), Height: core.Pt(34), AspectRatio: 1, CornerRadius: 6}}}
+		}
+		children := append(lead,
 			core.Text{Content: f.Name + " · " + humanSize(f.Size), MaxLines: 1, Style: core.Style{FontSize: 11.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 			ui.Button{Text: "×", Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Remove attachment",
 				TestID: "remove-attachment-" + f.ID, OnPress: func() { a.removeAttachment(f.ID) }},
-		}})
+		)
+		rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+			Padding: core.Symmetric(4, 8), Background: colors.Field(), CornerRadius: 8, MaxWidth: core.Pt(280)}, Children: children})
 	}
 	return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: rows}
 }
@@ -211,6 +275,12 @@ func (a *app) renderMessage(cx *core.Scope, m proto.Message) core.Node {
 		if len(m.Attachments) > 0 {
 			files := make([]core.Node, 0, len(m.Attachments))
 			for _, f := range m.Attachments {
+				f := f
+				if strings.HasPrefix(f.MimeType, "image/") {
+					files = append(files, ui.Image{Source: core.ImageSource{URI: a.uploadURL(f.ID)}, ResizeMode: core.Cover, Label: f.Name,
+						Style: core.Style{Width: core.Pt(72), Height: core.Pt(72), AspectRatio: 1, CornerRadius: 6}})
+					continue
+				}
 				files = append(files, ui.Text(f.Name+" · "+humanSize(f.Size), 11, ui.Regular, colors.Faint))
 			}
 			body = append(body, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 8}, Children: files})
@@ -244,7 +314,7 @@ func (a *app) renderMessage(cx *core.Scope, m proto.Message) core.Node {
 		}
 		return core.View{}
 	}
-	body := ui.TextView{MarkdownFunc: func() string { return m.Content }, Selectable: true, OpenLinks: true}
+	body := ui.TextView{MarkdownFunc: func() string { return a.markdownPreview(m.Content, "") }, Selectable: true, OpenLinks: true}
 	footer := a.messageFooter(cx, m)
 	if m.Status == "cancelled" {
 		return core.View{Style: core.Style{Direction: core.Column, Gap: 3, MinWidth: core.Pt(0)}, Children: []core.Node{

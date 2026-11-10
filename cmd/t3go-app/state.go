@@ -1820,6 +1820,15 @@ func (a *app) openFile(path string) {
 	})
 }
 
+// uploadURL is where an attachment's image can be read.
+func (a *app) uploadURL(id string) string {
+	c := a.client()
+	if c == nil {
+		return ""
+	}
+	return c.UploadURL(id)
+}
+
 // rawFileURL is where the panel loads an image or opens one outside the
 // app.
 func (a *app) rawFileURL(path string) string {
@@ -1971,6 +1980,43 @@ func (a *app) switchBranch(name string) {
 		if err != nil {
 			a.gitBusy.Set(false)
 			a.gitNote.Set(friendlyError(err))
+		}
+	})
+}
+
+// setThreadModel changes the open thread's model, and its provider when
+// the model belongs to another one.
+func (a *app) setThreadModel(model proto.Model) {
+	a.updateThreadSettings(map[string]any{"model": model.ID, "provider": model.Provider})
+}
+
+// setThreadPermission changes the open thread's permission mode.
+func (a *app) setThreadPermission(permission proto.PermissionMode) {
+	a.updateThreadSettings(map[string]any{"permission": string(permission)})
+}
+
+func (a *app) updateThreadSettings(patch map[string]any) {
+	id := a.selected.GetUntracked()
+	if id == "" {
+		return
+	}
+	a.call(func(ctx context.Context, c *client.Client) error {
+		thread, err := c.UpdateThread(ctx, id, patch)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			a.upsertThread(thread)
+			detail := a.detail.GetUntracked()
+			if detail.Thread.ID == id {
+				detail.Thread = thread
+				a.detail.Set(detail)
+			}
+		})
+		return nil
+	}, func(err error) {
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
 		}
 	})
 }

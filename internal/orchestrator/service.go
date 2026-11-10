@@ -371,8 +371,9 @@ func (s *Service) UpdateThread(ctx context.Context, threadID string, patch Threa
 			t.Title = "Untitled thread"
 		}
 	}
-	if patch.Provider != nil && *patch.Provider != "" {
+	if patch.Provider != nil && *patch.Provider != "" && *patch.Provider != t.Provider {
 		t.Provider = *patch.Provider
+		t.ProviderSession = ""
 	}
 	if patch.Model != nil && *patch.Model != "" {
 		t.Model = *patch.Model
