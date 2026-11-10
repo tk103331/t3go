@@ -28,8 +28,47 @@ func (s *Server) handleEnsureTerminal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "terminal", err.Error())
 		return
 	}
-	writeJSON(w, 200, proto.TerminalSession{ID: session.ID, ThreadID: session.ThreadID, Shell: session.Shell,
-		Cwd: session.Cwd, Cols: session.Cols(), Rows: session.Rows()})
+	writeJSON(w, 200, terminalProto(session))
+}
+
+// handleCreateTerminal starts another shell for the thread.
+func (s *Server) handleCreateTerminal(w http.ResponseWriter, r *http.Request) {
+	t, err := s.Store.Thread(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), "thread", err.Error())
+		return
+	}
+	dir := s.Service.ThreadDir(r.Context(), t)
+	if dir == "" {
+		writeError(w, 400, "terminal", "this thread has no checkout")
+		return
+	}
+	session, err := s.Terminals.Create(t.ID, dir, "")
+	if err != nil {
+		writeError(w, 500, "terminal", err.Error())
+		return
+	}
+	writeJSON(w, 200, terminalProto(session))
+}
+
+// handleListTerminals lists a thread's shells.
+func (s *Server) handleListTerminals(w http.ResponseWriter, r *http.Request) {
+	t, err := s.Store.Thread(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), "thread", err.Error())
+		return
+	}
+	sessions := s.Terminals.List(t.ID)
+	items := make([]proto.TerminalSession, 0, len(sessions))
+	for _, session := range sessions {
+		items = append(items, terminalProto(session))
+	}
+	writeJSON(w, 200, map[string]any{"sessions": items})
+}
+
+func terminalProto(session *terminal.Session) proto.TerminalSession {
+	return proto.TerminalSession{ID: session.ID, ThreadID: session.ThreadID, Title: session.Title,
+		Shell: session.Shell, Cwd: session.Cwd, Cols: session.Cols(), Rows: session.Rows(), Exited: session.Exited()}
 }
 
 // handleCloseTerminal ends one shell.

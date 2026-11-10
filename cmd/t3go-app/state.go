@@ -115,6 +115,7 @@ type app struct {
 	browserRef   *core.Ref
 
 	terminalSession *core.Signal[proto.TerminalSession]
+	terminals       *core.Signal[[]proto.TerminalSession]
 	terminalBusy    *core.Signal[bool]
 	terminalErr     *core.Signal[string]
 
@@ -215,6 +216,7 @@ func newApp(cx *core.Scope) *app {
 		browserNext:      core.NewSignal(cx, false),
 		browserRef:       &core.Ref{},
 		terminalSession:  core.NewSignal(cx, proto.TerminalSession{}),
+		terminals:        sliceSignal[proto.TerminalSession](cx),
 		terminalBusy:     core.NewSignal(cx, false),
 		terminalErr:      core.NewSignal(cx, ""),
 	}
@@ -767,6 +769,7 @@ func (a *app) selectThread(id string) {
 	a.prDetail.Set("")
 	a.graph.Set(nil)
 	a.terminalSession.Set(proto.TerminalSession{})
+	a.terminals.Set(nil)
 	a.terminalErr.Set("")
 	a.rightErr.Set("")
 	if surface := a.surface.GetUntracked(); surface != "" {
@@ -1336,15 +1339,64 @@ func (a *app) openTerminal() {
 	if id == "" {
 		return
 	}
+	previous := a.terminalSession.GetUntracked().ID
 	a.terminalBusy.Set(true)
 	a.terminalErr.Set("")
 	a.call(func(ctx context.Context, c *client.Client) error {
-		session, err := c.EnsureTerminal(ctx, id)
+		sessions, err := c.Terminals(ctx, id)
+		if err != nil {
+			return err
+		}
+		live := false
+		for _, session := range sessions {
+			live = live || !session.Exited
+		}
+		if !live {
+			session, err := c.EnsureTerminal(ctx, id)
+			if err != nil {
+				return err
+			}
+			sessions = append(sessions, session)
+		}
+		active := sessions[len(sessions)-1]
+		for _, session := range sessions {
+			if session.ID == previous && !session.Exited {
+				active = session
+				break
+			}
+		}
+		a.cx.Post(func() {
+			a.cx.Batch(func() {
+				a.terminals.Set(sessions)
+				a.terminalSession.Set(active)
+				a.terminalBusy.Set(false)
+			})
+		})
+		return nil
+	}, func(err error) {
+		a.terminalBusy.Set(false)
+		if err != nil {
+			a.terminalErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// newTerminal opens another shell tab for the thread.
+func (a *app) newTerminal() {
+	id := a.selected.GetUntracked()
+	if id == "" {
+		return
+	}
+	a.terminalBusy.Set(true)
+	a.terminalErr.Set("")
+	a.call(func(ctx context.Context, c *client.Client) error {
+		session, err := c.NewTerminal(ctx, id)
 		if err != nil {
 			return err
 		}
 		a.cx.Post(func() {
 			a.cx.Batch(func() {
+				a.terminals.Set(append(a.terminals.GetUntracked(), session))
 				a.terminalSession.Set(session)
 				a.terminalBusy.Set(false)
 			})
@@ -1358,26 +1410,79 @@ func (a *app) openTerminal() {
 	})
 }
 
-// restartTerminal closes the shell and starts a fresh one.
+// selectTerminal makes one shell tab active.
+func (a *app) selectTerminal(session proto.TerminalSession) {
+	a.terminalSession.Set(session)
+}
+
+// closeTerminalTab ends one shell and moves to the next tab.
+func (a *app) closeTerminalTab(session proto.TerminalSession) {
+	id := a.selected.GetUntracked()
+	if id == "" {
+		return
+	}
+	a.call(func(ctx context.Context, c *client.Client) error {
+		_ = c.CloseTerminal(ctx, session.ID)
+		a.cx.Post(func() {
+			list := a.terminals.GetUntracked()
+			next := make([]proto.TerminalSession, 0, len(list))
+			for _, item := range list {
+				if item.ID != session.ID {
+					next = append(next, item)
+				}
+			}
+			active := a.terminalSession.GetUntracked()
+			if active.ID == session.ID {
+				if len(next) > 0 {
+					active = next[len(next)-1]
+				} else {
+					active = proto.TerminalSession{}
+				}
+			}
+			a.cx.Batch(func() {
+				a.terminals.Set(next)
+				a.terminalSession.Set(active)
+			})
+		})
+		return nil
+	}, nil)
+}
+
+// restartTerminal closes the active shell and starts a fresh one in its
+// place.
 func (a *app) restartTerminal() {
 	id := a.selected.GetUntracked()
 	if id == "" {
 		return
 	}
 	old := a.terminalSession.GetUntracked()
-	a.terminalSession.Set(proto.TerminalSession{})
+	if old.ID == "" {
+		a.newTerminal()
+		return
+	}
 	a.terminalBusy.Set(true)
 	a.terminalErr.Set("")
 	a.call(func(ctx context.Context, c *client.Client) error {
-		if old.ID != "" {
-			_ = c.CloseTerminal(ctx, old.ID)
-		}
-		session, err := c.EnsureTerminal(ctx, id)
+		_ = c.CloseTerminal(ctx, old.ID)
+		session, err := c.NewTerminal(ctx, id)
 		if err != nil {
 			return err
 		}
 		a.cx.Post(func() {
+			list := a.terminals.GetUntracked()
+			next := make([]proto.TerminalSession, 0, len(list))
+			for _, item := range list {
+				if item.ID == old.ID {
+					next = append(next, session)
+				} else {
+					next = append(next, item)
+				}
+			}
+			if len(next) == 0 {
+				next = append(next, session)
+			}
 			a.cx.Batch(func() {
+				a.terminals.Set(next)
 				a.terminalSession.Set(session)
 				a.terminalBusy.Set(false)
 			})

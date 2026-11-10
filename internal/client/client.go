@@ -314,6 +314,24 @@ func (c *Client) EnsureTerminal(ctx context.Context, threadID string) (proto.Ter
 	return out, err
 }
 
+// Terminals lists a thread's shells.
+func (c *Client) Terminals(ctx context.Context, threadID string) ([]proto.TerminalSession, error) {
+	var out struct {
+		Sessions []proto.TerminalSession `json:"sessions"`
+	}
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/terminals"
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out.Sessions, err
+}
+
+// NewTerminal starts another shell for a thread.
+func (c *Client) NewTerminal(ctx context.Context, threadID string) (proto.TerminalSession, error) {
+	var out proto.TerminalSession
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/terminals"
+	err := c.do(ctx, http.MethodPost, path, map[string]any{}, &out)
+	return out, err
+}
+
 // CloseTerminal ends one shell.
 func (c *Client) CloseTerminal(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/api/v1/terminals/"+url.PathEscape(id), nil, nil)

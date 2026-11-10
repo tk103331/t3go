@@ -219,6 +219,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/threads/{id}/pull-request", s.auth(s.handlePullRequest))
 	mux.HandleFunc("GET /api/v1/threads/{id}/graph", s.auth(s.handleThreadGraph))
 	mux.HandleFunc("POST /api/v1/threads/{id}/terminal", s.auth(s.handleEnsureTerminal))
+	mux.HandleFunc("POST /api/v1/threads/{id}/terminals", s.auth(s.handleCreateTerminal))
+	mux.HandleFunc("GET /api/v1/threads/{id}/terminals", s.auth(s.handleListTerminals))
 	mux.HandleFunc("DELETE /api/v1/terminals/{id}", s.auth(s.handleCloseTerminal))
 	mux.HandleFunc("GET /api/v1/terminals/{id}/ws", s.auth(s.handleTerminalWS))
 	mux.HandleFunc("POST /api/v1/threads/{id}/branches", s.auth(s.handleSwitchBranch))

@@ -2005,8 +2005,30 @@ func TestTerminalSession(t *testing.T) {
 	if code := e.request(t, http.MethodPost, path, map[string]any{}, e.token, &session); code != http.StatusOK {
 		t.Fatalf("terminal = %d", code)
 	}
-	if session.ID == "" || session.Cwd == "" || session.Shell == "" {
+	if session.ID == "" || session.Cwd == "" || session.Shell == "" || session.Title == "" {
 		t.Fatalf("session = %#v", session)
+	}
+	var listed struct {
+		Sessions []proto.TerminalSession `json:"sessions"`
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/terminals", nil, e.token, &listed); code != http.StatusOK || len(listed.Sessions) != 1 {
+		t.Fatalf("terminal list = %d, %#v", code, listed.Sessions)
+	}
+	var extra proto.TerminalSession
+	if code := e.request(t, http.MethodPost, "/api/v1/threads/"+thread.ID+"/terminals", map[string]any{}, e.token, &extra); code != http.StatusOK {
+		t.Fatalf("new terminal = %d", code)
+	}
+	if extra.ID == "" || extra.ID == session.ID || extra.Title == "" {
+		t.Fatalf("extra = %#v", extra)
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/terminals", nil, e.token, &listed); code != http.StatusOK || len(listed.Sessions) != 2 {
+		t.Fatalf("terminal list after new = %d, %#v", code, listed.Sessions)
+	}
+	if code := e.request(t, http.MethodDelete, "/api/v1/terminals/"+extra.ID, nil, e.token, nil); code != http.StatusOK {
+		t.Fatalf("close extra = %d", code)
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/terminals", nil, e.token, &listed); code != http.StatusOK || len(listed.Sessions) != 1 {
+		t.Fatalf("terminal list after close = %d, %#v", code, listed.Sessions)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

@@ -4,6 +4,7 @@ package terminal
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -23,6 +24,7 @@ const maxBuffer = 256 << 10
 type Session struct {
 	ID       string
 	ThreadID string
+	Title    string
 	Shell    string
 	Cwd      string
 
@@ -42,12 +44,12 @@ type Session struct {
 type Manager struct {
 	mu       sync.Mutex
 	byID     map[string]*Session
-	byThread map[string]*Session
+	byThread map[string][]*Session
 }
 
 // NewManager returns an empty manager.
 func NewManager() *Manager {
-	return &Manager{byID: map[string]*Session{}, byThread: map[string]*Session{}}
+	return &Manager{byID: map[string]*Session{}, byThread: map[string][]*Session{}}
 }
 
 // Ensure returns the thread's live session, starting a shell when it has
@@ -55,20 +57,41 @@ func NewManager() *Manager {
 func (m *Manager) Ensure(threadID, dir, shell string) (*Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if old := m.byThread[threadID]; old != nil && !old.Exited() {
-		return old, nil
-	} else if old != nil {
-		delete(m.byID, old.ID)
-		delete(m.byThread, threadID)
+	list := m.byThread[threadID]
+	for i := len(list) - 1; i >= 0; i-- {
+		if !list[i].Exited() {
+			return list[i], nil
+		}
 	}
+	return m.createLocked(threadID, dir, shell)
+}
+
+// Create starts a new session even when the thread already has live ones.
+func (m *Manager) Create(threadID, dir, shell string) (*Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.createLocked(threadID, dir, shell)
+}
+
+func (m *Manager) createLocked(threadID, dir, shell string) (*Session, error) {
+	list := m.byThread[threadID]
 	shell, args := shellCommand(shell)
 	session, err := start(id.New("term"), threadID, dir, shell, args)
 	if err != nil {
 		return nil, err
 	}
+	session.Title = fmt.Sprintf("Terminal %d", len(list)+1)
 	m.byID[session.ID] = session
-	m.byThread[threadID] = session
+	m.byThread[threadID] = append(list, session)
 	return session, nil
+}
+
+// List returns a thread's sessions in creation order.
+func (m *Manager) List(threadID string) []*Session {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	list := m.byThread[threadID]
+	return append([]*Session(nil), list...)
 }
 
 // Get returns a session by id.
@@ -85,8 +108,17 @@ func (m *Manager) Close(id string) {
 	session := m.byID[id]
 	if session != nil {
 		delete(m.byID, id)
-		if m.byThread[session.ThreadID] == session {
+		list := m.byThread[session.ThreadID]
+		next := list[:0]
+		for _, candidate := range list {
+			if candidate != session {
+				next = append(next, candidate)
+			}
+		}
+		if len(next) == 0 {
 			delete(m.byThread, session.ThreadID)
+		} else {
+			m.byThread[session.ThreadID] = next
 		}
 	}
 	m.mu.Unlock()
@@ -98,13 +130,13 @@ func (m *Manager) Close(id string) {
 // CloseThread kills the session attached to a thread.
 func (m *Manager) CloseThread(threadID string) {
 	m.mu.Lock()
-	session := m.byThread[threadID]
-	if session != nil {
-		delete(m.byThread, threadID)
+	list := m.byThread[threadID]
+	delete(m.byThread, threadID)
+	for _, session := range list {
 		delete(m.byID, session.ID)
 	}
 	m.mu.Unlock()
-	if session != nil {
+	for _, session := range list {
 		session.Close()
 	}
 }
@@ -116,7 +148,7 @@ func (m *Manager) Shutdown() {
 	for _, session := range m.byID {
 		sessions = append(sessions, session)
 	}
-	m.byID, m.byThread = map[string]*Session{}, map[string]*Session{}
+	m.byID, m.byThread = map[string]*Session{}, map[string][]*Session{}
 	m.mu.Unlock()
 	for _, session := range sessions {
 		session.Close()

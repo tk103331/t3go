@@ -365,38 +365,99 @@ func (a *app) rightTerminal(cx *core.Scope) core.Node {
 	if a.selected.Get() == "" {
 		return a.rightNotice(cx, "Pick a thread to open its terminal.")
 	}
+	sessions := a.terminals.Get()
 	session := a.terminalSession.Get()
 	shell := filepath.Base(session.Shell)
 	if shell == "" || shell == "." {
 		shell = "shell"
 	}
 	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
-		Padding: core.Edges{Top: 6, Right: 10, Bottom: 6, Left: 10}}, Children: []core.Node{
+		Padding: core.Edges{Top: 6, Right: 10, Bottom: 4, Left: 10}}, Children: []core.Node{
 		ui.Icon(lucide.Terminal, 14, colors.Muted),
 		core.Text{Content: shell, MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 		core.Show{When: func() bool { return a.terminalBusy.Get() }, Then: func(*core.Scope) core.Node {
 			return ui.Spinner{Size: 12, Label: "Starting terminal"}
 		}},
+		ui.IconButton{Icon: lucide.Plus, Label: "New terminal", TestID: "terminal-new", OnPress: a.newTerminal},
 		ui.IconButton{Icon: lucide.RotateCcw, Label: "Restart terminal", TestID: "terminal-restart",
 			OnPress: a.restartTerminal},
 	}}
+	tabs := a.terminalTabs(cx, sessions, session.ID)
 	body := []core.Node{head}
+	if len(sessions) > 0 {
+		body = append(body, tabs)
+	}
 	if message := a.terminalErr.Get(); message != "" {
 		body = append(body, core.View{Style: core.Style{Padding: core.Symmetric(6, 10)}, Children: []core.Node{
 			core.Text{Content: message, MaxLines: 3, Style: core.Style{FontSize: 11.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }},
 		}})
 	}
-	if session.ID == "" {
-		body = append(body, core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-			Children: []core.Node{ui.Text("Starting shell…", 12, ui.Regular, colors.Faint)}})
-	} else {
+	switch {
+	case session.ID != "":
 		body = append(body, core.WebView{TestID: "terminal-view", Style: ui.FillRest,
 			SourceFunc: func() core.WebSource { return core.WebHTML(a.terminalHTML(session.ID), "") }})
+	case len(sessions) == 0 && !a.terminalBusy.Get():
+		body = append(body, core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
+			Children: []core.Node{
+				ui.Text("No terminal open", 12.5, ui.Regular, colors.Faint),
+				ui.Button{Text: "New terminal", Icon: lucide.Plus, Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+					TestID: "terminal-start", OnPress: a.newTerminal},
+			}})
+	default:
+		body = append(body, core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+			Children: []core.Node{ui.Text("Starting shell…", 12, ui.Regular, colors.Faint)}})
 	}
 	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Overflow: core.Hidden},
 		Children: body}
+}
+
+// terminalTabs lists a thread's shells with one active.
+func (a *app) terminalTabs(cx *core.Scope, sessions []proto.TerminalSession, active string) core.Node {
+	colors := ui.ColorsOf(cx)
+	var tabs []core.Node
+	for i, session := range sessions {
+		session, i := session, i
+		selected := session.ID == active
+		title := session.Title
+		if title == "" {
+			title = fmt.Sprintf("Terminal %d", i+1)
+		}
+		label := core.Text{Content: title, MaxLines: 1, Style: core.Style{FontSize: 11, FontWeight: ui.Medium, FlexGrow: 1},
+			StyleFunc: func() core.Style {
+				if selected {
+					return core.Style{Color: colors.Text()}
+				}
+				return core.Style{Color: colors.Muted()}
+			}}
+		tab := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2, FlexShrink: 0,
+			Padding: core.Edges{Left: 8, Right: 2, Top: 2, Bottom: 2}, CornerRadius: 6, BorderWidth: 1,
+			BorderColor: colors.Border()}, StyleFunc: func() core.Style {
+			style := core.Style{}
+			if selected {
+				style.Background = colors.Inset()
+				style.BorderColor = colors.FieldBorder()
+			}
+			return style
+		}, Children: []core.Node{
+			base.Button{OnPress: func(core.PressEvent) { a.selectTerminal(session) }, Label: title,
+				TestID: fmt.Sprintf("terminal-tab-%d", i), Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Cursor: core.CursorDefault},
+				StyleFunc: func() core.Style {
+					return core.Style{Hover: &core.Style{Background: colors.Hover()}, Focus: ui.FocusRing(cx, -2)}
+				}, Children: []core.Node{label}},
+			ui.IconButton{Icon: lucide.X, Label: "Close " + title, Size: 18, IconSize: 10,
+				TestID: fmt.Sprintf("terminal-tab-close-%d", i), Tint: colors.Faint,
+				OnPress: func() { a.closeTerminalTab(session) }},
+		}}
+		if session.Exited {
+			tab.Children = append(tab.Children, core.Text{Content: "exited", Style: core.Style{FontSize: 9.5},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
+		}
+		tabs = append(tabs, tab)
+	}
+	return core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 4,
+		Padding: core.Edges{Right: 10, Bottom: 6, Left: 10}}, Children: tabs}
 }
 
 // rightBrowser shows a web page with its address bar.

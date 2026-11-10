@@ -179,10 +179,12 @@ type GitStatus struct {
 type TerminalSession struct {
 	ID       string `json:"id"`
 	ThreadID string `json:"threadId"`
+	Title    string `json:"title"`
 	Shell    string `json:"shell"`
 	Cwd      string `json:"cwd"`
 	Cols     int    `json:"cols"`
 	Rows     int    `json:"rows"`
+	Exited   bool   `json:"exited,omitempty"`
 }
 
 // GraphRef is a branch, remote or tag label on a commit.
