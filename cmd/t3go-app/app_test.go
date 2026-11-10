@@ -729,3 +729,46 @@ func TestUIComposerAttachment(t *testing.T) {
 		t.Fatalf("upload: %v", err)
 	}
 }
+
+// TestSpeechDraftJoin checks what is dictated follows the draft.
+func TestSpeechDraftJoin(t *testing.T) {
+	cases := []struct{ base, text, want string }{
+		{"", "hello", "hello"},
+		{"write a test", "for this", "write a test for this"},
+		{"write a test", "  ", "write a test"},
+		{"  ", "hello", "hello"},
+	}
+	for _, c := range cases {
+		if got := joinSpeech(c.base, c.text); got != c.want {
+			t.Errorf("joinSpeech(%q, %q) = %q, want %q", c.base, c.text, got, c.want)
+		}
+	}
+}
+
+// TestUIDictationNeedsRecognizer hides the microphone where the platform
+// recognizes no speech.
+func TestUIDictationNeedsRecognizer(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Demo", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Mic", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:attach", 10*time.Second)
+	if app.Exists("id:dictate") {
+		t.Fatal("the headless environment shows a microphone without a recognizer")
+	}
+}

@@ -18,14 +18,14 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - HTTP REST API、SSE 事件流、WebSocket 事件流、Bearer token 鉴权、CORS
 - Web 客户端：同一份 NSGo 代码用 `GOOS=js GOARCH=wasm` 构建，由 `t3go serve --web` 直接提供
 - `t3go` CLI：`serve`、`pair`、`doctor`、`version`
-- NSGo 客户端：连接页、项目/线程侧栏、聊天流、新建/重命名/删除项目与线程、新建线程可选项目与 worktree 分支、线程归档与筛选、命令面板与快捷键、记住侧栏宽度与显隐、设置（环境名、默认 provider/model/权限、主题）、运行历史与逐次 diff、运行中排队发送、附件（选择或拖入文件并随消息发送）、断线重连提示、窄屏布局、错误提示条
+- NSGo 客户端：连接页、项目/线程侧栏、聊天流、新建/重命名/删除项目与线程、新建线程可选项目与 worktree 分支、线程归档与筛选、命令面板与快捷键、记住侧栏宽度与显隐、设置（环境名、默认 provider/model/权限、主题）、运行历史与逐次 diff、运行中排队发送、附件（选择或拖入文件并随消息发送）、语音听写、断线重连提示、窄屏布局、错误提示条
 - 测试：store、orchestrator（fake provider）、provider 流解析、HTTP/SSE/WS、Go 客户端、NSGo UI 集成
 
 尚未实现（有意留到后续）：
 
 - 交互式权限审批（supervised 模式下 CLI 进程内的确认框）
-- 语音输入（文件与图片已支持，按文件路径交给 provider 读取）
 - 与上游 t3code 客户端协议的兼容
+- 非 Apple 平台的语音听写（NSGo 目前只在 macOS/iOS 识别）
 
 排队消息保存在客户端内存里，退出客户端会丢失；服务端仍是一次只跑一个 run。
 
@@ -212,3 +212,4 @@ transcript 的渲染，命令面板与快捷键，运行中排队并自动发送
 - 删除项目会删除其线程记录和 worktree 引用，不会删除用户目录本身。
 - NSGo 仍处于早期，API 可能随版本变化；本仓库锁定了一个伪版本。
 - 网页版由服务端同源提供，使用浏览器 `localStorage` 保存地址和 token；附件用系统文件选择器添加。
+- 语音听写只在系统提供识别器时显示（macOS/iOS），其他平台不出现麦克风按钮。

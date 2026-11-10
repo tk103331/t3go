@@ -52,6 +52,8 @@ type app struct {
 	queue       *core.Signal[[]queuedPrompt]
 	queued      map[string][]queuedPrompt
 	attachments *core.Signal[[]proto.Attachment]
+	dictating   *core.Signal[bool]
+	speech      *core.SpeechSession
 
 	// dialogs
 	showNewProject *core.Signal[bool]
@@ -116,6 +118,7 @@ func newApp(cx *core.Scope) *app {
 		queue:       sliceSignal[queuedPrompt](cx),
 		queued:      map[string][]queuedPrompt{},
 		attachments: sliceSignal[proto.Attachment](cx),
+		dictating:   core.NewSignal(cx, false),
 
 		showNewProject: core.NewSignal(cx, false),
 		showNewThread:  core.NewSignal(cx, false),
@@ -266,6 +269,7 @@ func (a *app) disconnect() {
 	a.store.RemoveItem("token")
 	a.connected.Set(false)
 	a.offline.Set(false)
+	a.stopDictation()
 	a.queued = map[string][]queuedPrompt{}
 	a.queue.Set(nil)
 	a.attachments.Set(nil)
@@ -591,6 +595,7 @@ func (a *app) send() {
 		return
 	}
 	attachments := a.attachments.GetUntracked()
+	a.stopDictation()
 	a.draft.Set("")
 	a.attachments.Set(nil)
 	a.connErr.Set("")
@@ -741,6 +746,67 @@ func (a *app) attachFiles(files []core.File) {
 			})
 		}()
 	}
+}
+
+// toggleDictation starts listening, or stops the session that is.
+func (a *app) toggleDictation() {
+	if a.speech != nil && !a.speech.Ended() {
+		a.speech.Stop()
+		return
+	}
+	if !a.cx.Env().CanRecognizeSpeech() {
+		a.connErr.Set("This platform has no speech recognition.")
+		return
+	}
+	a.connErr.Set("")
+	base := strings.TrimSpace(a.draft.GetUntracked())
+	session, err := a.cx.StartSpeech(core.SpeechOptions{
+		Interim: true,
+		OnStart: func() { a.dictating.Set(true) },
+		OnResult: func(text string, final bool) {
+			a.draft.Set(joinSpeech(base, text))
+			if final {
+				a.dictating.Set(false)
+			}
+		},
+		OnEnd: func(_ string, err error) {
+			a.dictating.Set(false)
+			a.speech = nil
+			if err != nil {
+				var speechErr core.SpeechError
+				if errors.As(err, &speechErr) && speechErr != core.SpeechNoSpeech {
+					a.connErr.Set("Speech: " + string(speechErr))
+				}
+			}
+		},
+	})
+	if err != nil {
+		a.connErr.Set(err.Error())
+		return
+	}
+	a.speech = session
+	a.dictating.Set(!session.Ended())
+}
+
+// stopDictation ends a session that is still listening.
+func (a *app) stopDictation() {
+	if a.speech != nil && !a.speech.Ended() {
+		a.speech.Stop()
+	}
+	a.dictating.Set(false)
+}
+
+// joinSpeech puts what was dictated after the draft already there.
+func joinSpeech(base, text string) string {
+	base = strings.TrimSpace(base)
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return base
+	}
+	if base == "" {
+		return text
+	}
+	return base + " " + text
 }
 
 // removeAttachment drops a file from the composer and the environment.

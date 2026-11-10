@@ -59,7 +59,29 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 		Attachments:    func(cx *core.Scope) core.Node { return a.attachmentChips(cx) },
 		HasAttachments: func() bool { return len(a.attachments.Get()) > 0 },
 		Accessory: func(cx *core.Scope) core.Node {
-			return ui.IconButton{Icon: lucide.Paperclip, Label: "Attach files", TestID: "attach", OnPress: a.pickAttachments}
+			attach := ui.IconButton{Icon: lucide.Paperclip, Label: "Attach files", TestID: "attach", OnPress: a.pickAttachments}
+			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
+				attach,
+				core.Show{When: func() bool { return a.cx.Env().CanRecognizeSpeech() }, Then: func(*core.Scope) core.Node {
+					return ui.IconButton{
+						IconFunc: func() *core.SVG {
+							if a.dictating.Get() {
+								return lucide.MicOff()
+							}
+							return lucide.Mic()
+						},
+						LabelFunc: func() string {
+							if a.dictating.Get() {
+								return "Stop dictation"
+							}
+							return "Dictate"
+						},
+						Selected: a.dictating.Get,
+						TestID:   "dictate",
+						OnPress:  a.toggleDictation,
+					}
+				}},
+			}}
 		},
 		OnDropFiles: a.attachPaths,
 		TestID:      "composer-card",
