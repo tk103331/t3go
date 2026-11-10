@@ -87,8 +87,11 @@ type app struct {
 	newThreadProj   *core.Signal[string]
 	newThreadBranch *core.Signal[string]
 
-	sidebarOpen  *core.Signal[bool]
-	sidebarWidth *core.Signal[core.Points]
+	sidebarOpen      *core.Signal[bool]
+	sidebarWidth     *core.Signal[core.Points]
+	sidebarQuery     *core.Signal[string]
+	sidebarCollapsed *core.Signal[map[string]bool]
+	seen             *core.Signal[map[string]time.Time]
 
 	conv *chat.ConversationState
 
@@ -162,14 +165,23 @@ func newApp(cx *core.Scope) *app {
 		newThreadProj:   core.NewSignal(cx, ""),
 		newThreadBranch: core.NewSignal(cx, ""),
 
-		sidebarOpen:  core.NewSignal(cx, true),
-		sidebarWidth: core.NewSignal(cx, core.Points(260)),
+		sidebarOpen:      core.NewSignal(cx, true),
+		sidebarWidth:     core.NewSignal(cx, core.Points(260)),
+		sidebarQuery:     core.NewSignal(cx, ""),
+		sidebarCollapsed: core.NewSignalFunc(cx, map[string]bool{}, func(map[string]bool, map[string]bool) bool { return false }),
+		seen:             core.NewSignalFunc(cx, map[string]time.Time{}, func(map[string]time.Time, map[string]time.Time) bool { return false }),
 	}
 	a.conv = chat.NewConversationState(cx)
 	a.bindKeys()
 	// The sidebar keeps the size and state it had last time.
 	if raw, ok := a.store.GetItem("sidebarOpen"); ok {
 		a.sidebarOpen.Set(raw != "false")
+	}
+	if raw, ok := a.store.GetItem("sidebarCollapsed"); ok {
+		var collapsed map[string]bool
+		if json.Unmarshal([]byte(raw), &collapsed) == nil {
+			a.sidebarCollapsed.Set(collapsed)
+		}
 	}
 	if raw, ok := a.store.GetItem("sidebarWidth"); ok {
 		if w, err := strconv.ParseFloat(raw, 64); err == nil && w > 0 {
@@ -318,6 +330,7 @@ func (a *app) applyState(st proto.State) {
 		a.models.Set(st.Models)
 		a.settings.Set(st.Settings)
 	})
+	a.rememberThreads(st.Threads)
 }
 
 // reload fetches the environment snapshot again.
@@ -346,6 +359,7 @@ func (a *app) applyEvent(e proto.Event) {
 		}
 		a.upsertThread(t)
 		if a.selected.GetUntracked() == t.ID {
+			a.markSeen(t)
 			d := a.detail.GetUntracked()
 			d.Thread = t
 			a.detail.Set(d)
@@ -640,6 +654,12 @@ func (a *app) selectThread(id string) {
 		a.attachments.Set(nil)
 	}
 	a.selected.Set(id)
+	for _, t := range a.threads.GetUntracked() {
+		if t.ID == id {
+			a.markSeen(t)
+			break
+		}
+	}
 	a.messages.Set(nil)
 	a.detail.Set(proto.ThreadDetail{})
 	a.running.Set(false)
@@ -1055,6 +1075,64 @@ func shortID(id string) string {
 		return id[:8]
 	}
 	return id
+}
+
+// rememberThreads records the threads a snapshot first shows as seen, so
+// only later completions mark one unread.
+func (a *app) rememberThreads(threads []proto.Thread) {
+	seen := a.seen.GetUntracked()
+	next := make(map[string]time.Time, len(seen)+len(threads))
+	for id, at := range seen {
+		next[id] = at
+	}
+	for _, t := range threads {
+		if _, ok := next[t.ID]; !ok {
+			next[t.ID] = t.UpdatedAt
+		}
+	}
+	a.seen.Set(next)
+}
+
+// markSeen records that the reader has the thread's latest activity.
+func (a *app) markSeen(t proto.Thread) {
+	seen := a.seen.GetUntracked()
+	if at, ok := seen[t.ID]; ok && !t.UpdatedAt.After(at) {
+		return
+	}
+	next := make(map[string]time.Time, len(seen)+1)
+	for id, at := range seen {
+		next[id] = at
+	}
+	next[t.ID] = t.UpdatedAt
+	a.seen.Set(next)
+}
+
+// threadUnread reports whether a thread finished work after the reader
+// last saw it.
+func (a *app) threadUnread(t proto.Thread) bool {
+	if t.ID == a.selected.Get() || t.Status == proto.ThreadRunning {
+		return false
+	}
+	at, ok := a.seen.Get()[t.ID]
+	return ok && t.UpdatedAt.After(at)
+}
+
+// projectCollapsed reports whether a project's threads are folded away.
+func (a *app) projectCollapsed(id string) bool {
+	return a.sidebarCollapsed.Get()[id]
+}
+
+// setProjectCollapsed folds a project's threads and remembers the choice.
+func (a *app) setProjectCollapsed(id string, collapsed bool) {
+	next := make(map[string]bool, len(a.sidebarCollapsed.GetUntracked())+1)
+	for k, v := range a.sidebarCollapsed.GetUntracked() {
+		next[k] = v
+	}
+	next[id] = collapsed
+	a.sidebarCollapsed.Set(next)
+	if raw, err := json.Marshal(next); err == nil {
+		_ = a.store.SetItem("sidebarCollapsed", string(raw))
+	}
 }
 
 // loadBranches fills the Changes dialog's branch picker.

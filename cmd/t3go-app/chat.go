@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
@@ -18,11 +19,14 @@ import (
 type turnGroup struct {
 	ID       string
 	Messages []proto.Message
+	// Day starts a new date's messages, empty when they continue one.
+	Day string
 }
 
 func groupMessages(messages []proto.Message) []turnGroup {
 	var out []turnGroup
 	index := map[string]int{}
+	lastDay := ""
 	for _, m := range messages {
 		key := m.RunID
 		if key == "" {
@@ -33,7 +37,13 @@ func groupMessages(messages []proto.Message) []turnGroup {
 			continue
 		}
 		index[key] = len(out)
-		out = append(out, turnGroup{ID: key, Messages: []proto.Message{m}})
+		group := turnGroup{ID: key, Messages: []proto.Message{m}}
+		day := m.CreatedAt.Local().Format("2006-01-02")
+		if day != lastDay {
+			group.Day = dayLabel(m.CreatedAt)
+			lastDay = day
+		}
+		out = append(out, group)
 	}
 	return out
 }
@@ -46,9 +56,15 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 		func(cx *core.Scope, item func() turnGroup, _ func() int) core.Node {
 			return core.Func(func(cx *core.Scope) core.Node {
 				g := item()
-				rows := make([]core.Node, 0, len(g.Messages))
+				rows := make([]core.Node, 0, len(g.Messages)+2)
+				if g.Day != "" {
+					rows = append(rows, a.daySeparator(cx, g.Day))
+				}
 				for _, m := range g.Messages {
 					rows = append(rows, a.renderMessage(cx, m))
+				}
+				if footer := a.runFooter(cx, g.ID); footer != nil {
+					rows = append(rows, footer)
 				}
 				return core.View{Style: core.Style{Gap: 10, MinWidth: core.Pt(0)}, Children: rows}
 			})
@@ -197,9 +213,10 @@ func (a *app) renderMessage(cx *core.Scope, m proto.Message) core.Node {
 			}
 			body = append(body, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 8}, Children: files})
 		}
-		return core.View{Style: core.Style{Direction: core.Row, JustifyContent: core.JustifyEnd, MinWidth: core.Pt(0)}, Children: []core.Node{
+		return core.View{Style: core.Style{Direction: core.Column, AlignItems: core.AlignEnd, Gap: 2, MinWidth: core.Pt(0)}, Children: []core.Node{
 			core.View{Style: core.Style{MaxWidth: core.Pt(560), Background: colors.Inset(), Padding: core.Symmetric(10, 14), CornerRadius: 14,
 				Direction: core.Column, Gap: 6}, Children: body},
+			a.messageFooter(cx, m),
 		}}
 	}
 	switch m.Kind {
@@ -226,10 +243,12 @@ func (a *app) renderMessage(cx *core.Scope, m proto.Message) core.Node {
 		return core.View{}
 	}
 	body := ui.TextView{MarkdownFunc: func() string { return m.Content }, Selectable: true, OpenLinks: true}
+	footer := a.messageFooter(cx, m)
 	if m.Status == "cancelled" {
-		return core.Group{body, ui.Text("Stopped.", 11.5, ui.Regular, colors.Faint)}
+		return core.View{Style: core.Style{Direction: core.Column, Gap: 3, MinWidth: core.Pt(0)}, Children: []core.Node{
+			body, ui.Text("Stopped.", 11.5, ui.Regular, colors.Faint), footer}}
 	}
-	return body
+	return core.View{Style: core.Style{Direction: core.Column, Gap: 3, MinWidth: core.Pt(0)}, Children: []core.Node{body, footer}}
 }
 
 // reasoningCard folds a thinking stream into a disclosure. It opens while
@@ -399,4 +418,107 @@ func truncate(s string, limit int) string {
 		return s
 	}
 	return string(r[:limit]) + "\n…"
+}
+
+// daySeparator starts a new calendar day's messages.
+func (a *app) daySeparator(cx *core.Scope, label string) core.Node {
+	colors := ui.ColorsOf(cx)
+	line := core.View{Style: core.Style{Height: core.Pt(1), FlexGrow: 1, Background: colors.Line()}}
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10,
+		Padding: core.Edges{Top: 16, Bottom: 2}}, Children: []core.Node{
+		line, ui.Text(label, 10.5, ui.Semibold, colors.Faint), line,
+	}}
+}
+
+// dayLabel names a message day the way a transcript does.
+func dayLabel(at time.Time) string {
+	local := at.Local()
+	now := time.Now()
+	y, m, d := local.Date()
+	ny, nm, nd := now.Date()
+	yesterday := now.AddDate(0, 0, -1)
+	yy, ym, yd := yesterday.Date()
+	switch {
+	case y == ny && m == nm && d == nd:
+		return "Today"
+	case y == yy && m == ym && d == yd:
+		return "Yesterday"
+	case y == now.Year():
+		return local.Format("Jan 2")
+	}
+	return local.Format("Jan 2, 2006")
+}
+
+// messageFooter is a message's time and copy action.
+func (a *app) messageFooter(cx *core.Scope, m proto.Message) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Padding: core.Edges{Left: 2}}, Children: []core.Node{
+		ui.Text(m.CreatedAt.Local().Format("3:04 PM"), 10.5, ui.Regular, colors.Faint),
+		core.Show{When: func() bool { return strings.TrimSpace(m.Content) != "" }, Then: func(*core.Scope) core.Node {
+			return ui.IconButton{Icon: lucide.Copy, Label: "Copy message", Size: 20, IconSize: 11,
+				Tint: colors.Faint, TestID: "copy-message-" + m.ID, OnPress: func() { a.cx.SetClipboard(m.Content) }}
+		}},
+	}}
+}
+
+// runFooter reports a finished run's model, size and duration under its
+// turn.
+func (a *app) runFooter(cx *core.Scope, runID string) core.Node {
+	if runID == "" {
+		return nil
+	}
+	var run *proto.Run
+	runs := a.detail.Get().Runs
+	for i := range runs {
+		if runs[i].ID == runID {
+			r := runs[i]
+			run = &r
+			break
+		}
+	}
+	if run == nil || run.Status == proto.RunRunning {
+		return nil
+	}
+	colors := ui.ColorsOf(cx)
+	parts := []string{}
+	if run.Model != "" {
+		parts = append(parts, run.Model)
+	}
+	if run.Usage != nil {
+		if run.Usage.TotalTokens > 0 {
+			parts = append(parts, humanTokens(run.Usage.TotalTokens)+" tokens")
+		}
+		if run.Usage.CostUSD > 0 {
+			parts = append(parts, fmt.Sprintf("$%.2f", run.Usage.CostUSD))
+		}
+	}
+	if run.EndedAt != nil {
+		if d := run.EndedAt.Sub(run.StartedAt); d >= time.Second {
+			parts = append(parts, d.Round(time.Second).String())
+		}
+	}
+	if run.Status == proto.RunFailed {
+		parts = append(parts, "failed")
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	color := colors.Faint
+	if run.Status == proto.RunFailed {
+		color = colors.Danger
+	}
+	return core.View{Style: core.Style{Padding: core.Edges{Top: 2, Left: 2}}, Children: []core.Node{
+		ui.Text(strings.Join(parts, " · "), 10.5, ui.Regular, color),
+	}}
+}
+
+// humanTokens shortens a token count.
+func humanTokens(n int64) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1_000)
+	}
+	return fmt.Sprintf("%d", n)
 }

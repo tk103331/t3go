@@ -281,12 +281,11 @@ func TestUIArchiveThread(t *testing.T) {
 
 	app.Press("id:toggle-archived")
 	app.WaitFor("id:thread-"+thread.ID, 10*time.Second)
-	app.WaitFor("text:◌ Disposable thread", 5*time.Second)
+	app.WaitFor("text:Disposable thread", 5*time.Second)
 
 	app.LongPress("id:thread-" + thread.ID)
 	app.WaitFor("id:archive-thread-"+thread.ID, 5*time.Second)
 	app.Press("id:archive-thread-" + thread.ID)
-	app.WaitForGone("text:◌ Disposable thread", 10*time.Second)
 	app.WaitUntil(10*time.Second, func() bool {
 		th, err := srv.Store.Thread(ctx, thread.ID)
 		return err == nil && !th.Archived
@@ -709,8 +708,18 @@ func TestUIComposerAttachment(t *testing.T) {
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("uploads = %v, %v", entries, err)
 	}
-	app.Press("id:remove-attachment-" + entries[0].Name())
-	app.WaitForGone("text:note.txt", 5*time.Second)
+	remove := "id:remove-attachment-" + entries[0].Name()
+	app.WaitUntil(10*time.Second, func() bool {
+		if !app.Exists("text:note.txt") {
+			return true
+		}
+		// A press can land while the composer rebuilds after the upload.
+		if app.Exists(remove) {
+			app.Press(remove)
+			app.Settle()
+		}
+		return false
+	})
 	app.WaitUntil(5*time.Second, func() bool {
 		entries, err := os.ReadDir(uploads)
 		return err == nil && len(entries) == 0
@@ -1013,4 +1022,102 @@ func TestUIGitDialog(t *testing.T) {
 	app.Press("id:git-branch-feature")
 	app.WaitFor("text:On feature", 10*time.Second)
 	app.WaitUntil(10*time.Second, func() bool { return git.Status(ctx, repo).Branch == "feature" })
+}
+
+// TestUISidebarThreads covers the search, folding and unread markers of
+// the thread list.
+func TestUISidebarThreads(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Alpha", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	first, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "First thread", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("first thread: %v", err)
+	}
+	second, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Second thread", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("second thread: %v", err)
+	}
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+first.ID, 15*time.Second)
+	app.WaitFor("id:thread-"+second.ID, 15*time.Second)
+
+	// Search narrows the list by title, prompt and branch.
+	app.Type("label:Search threads", "Second")
+	app.WaitFor("id:thread-"+second.ID, 5*time.Second)
+	app.WaitForGone("id:thread-"+first.ID, 5*time.Second)
+	app.Clear("label:Search threads")
+	app.WaitFor("id:thread-"+first.ID, 5*time.Second)
+
+	// A project's title folds its threads away.
+	app.Press("label:Alpha")
+	app.WaitForGone("id:thread-"+first.ID, 5*time.Second)
+	app.Press("label:Alpha")
+	app.WaitFor("id:thread-"+first.ID, 5*time.Second)
+
+	// Work finished elsewhere marks the row until it is opened.
+	updated := "Second thread updated"
+	if _, err := srv.Service.UpdateThread(ctx, second.ID, orchestrator.ThreadPatch{Title: &updated}); err != nil {
+		t.Fatalf("update thread: %v", err)
+	}
+	app.WaitFor("id:unread-"+second.ID, 10*time.Second)
+	app.Press("id:thread-" + second.ID)
+	app.WaitForGone("id:unread-"+second.ID, 10*time.Second)
+}
+
+// TestUITranscriptChrome covers the day separator, message time, copy
+// action and a finished run's footer.
+func TestUITranscriptChrome(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Demo", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Chrome", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	start := time.Now().Add(-10 * time.Second)
+	end := start.Add(10 * time.Second)
+	if err := srv.Store.CreateRun(ctx, proto.Run{
+		ID: "run_chrome", ThreadID: thread.ID, Status: proto.RunCompleted, Provider: "claude", Model: "test-model",
+		Permission: proto.PermissionFullAccess, Prompt: "Say hi", StartedAt: start, EndedAt: &end,
+		Usage: &proto.Usage{TotalTokens: 1530, CostUSD: 0.012},
+	}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	for _, m := range []proto.Message{
+		{ID: "msg_user", ThreadID: thread.ID, Role: proto.RoleUser, Kind: proto.KindText, Content: "Say hi", CreatedAt: start},
+		{ID: "msg_reply", ThreadID: thread.ID, RunID: "run_chrome", Role: proto.RoleAssistant, Kind: proto.KindText,
+			Content: "Hi there", Status: "completed", CreatedAt: end},
+	} {
+		if _, err := srv.Store.AppendMessage(ctx, m); err != nil {
+			t.Fatalf("message: %v", err)
+		}
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("text:Today", 10*time.Second)
+	app.WaitFor("text:1.5k tokens", 10*time.Second)
+	app.WaitFor("text:10s", 10*time.Second)
+	app.Press("id:copy-message-msg_reply")
+	app.WaitUntil(5*time.Second, func() bool { return app.Clipboard == "Hi there" })
 }

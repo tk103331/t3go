@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -119,32 +120,45 @@ func (a *app) errorBanner(cx *core.Scope) core.Node {
 }
 
 func (a *app) sidebar(cx *core.Scope) core.Node {
+	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
+		core.View{Style: core.Style{Padding: core.Edges{Top: 4, Right: 10, Bottom: 2, Left: 10}}, Children: []core.Node{
+			ui.Input{Input: base.Input{Value: a.sidebarQuery.Get, OnChange: a.sidebarQuery.Set,
+				Placeholder: "Search threads", Label: "Search threads"}},
+		}},
+		core.View{Style: ui.FillRest, Children: []core.Node{
+			ui.Sidebar{SectionsFunc: func() []ui.SidebarSection { return a.sidebarSections(cx) },
+				Selected: a.selected.Get, OnSelect: a.selectThread},
+		}},
+		a.sidebarFooter(cx),
+	}}
+}
+
+// sidebarSections builds the project and thread groups under the current
+// search, inside the sidebar's own scope so typing keeps the field still.
+func (a *app) sidebarSections(cx *core.Scope) []ui.SidebarSection {
 	colors := ui.ColorsOf(cx)
 	projects := a.projects.Get()
 	allThreads := a.threads.Get()
 	showArchived := a.showArchived.Get()
+	query := strings.ToLower(strings.TrimSpace(a.sidebarQuery.Get()))
 	var sections []ui.SidebarSection
 	for _, p := range projects {
+		p := p
 		var items []ui.SidebarItem
 		for _, t := range allThreads {
 			if t.ProjectID != p.ID || (t.Archived && !showArchived) {
 				continue
 			}
 			t := t
-			title := t.Title
-			if t.Status == proto.ThreadRunning {
-				title = "● " + title
-			} else if t.Status == proto.ThreadFailed {
-				title = "! " + title
-			}
-			if t.Archived {
-				title = "◌ " + title
+			if query != "" && !threadMatches(t, query) {
+				continue
 			}
 			archiveText := "Archive thread"
 			if t.Archived {
 				archiveText = "Unarchive thread"
 			}
-			items = append(items, ui.SidebarItem{ID: t.ID, Text: title, TestID: "thread-" + t.ID,
+			items = append(items, ui.SidebarItem{ID: t.ID, Text: t.Title, TestID: "thread-" + t.ID,
+				Content: a.threadRow(cx, t, colors),
 				Menu: []core.Node{
 					ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread-" + t.ID, OnSelect: func() { a.askRenameThread(t) }},
 					ui.MenuItem{Text: archiveText, TestID: "archive-thread-" + t.ID, OnSelect: func() { a.setArchived(t, !t.Archived) }},
@@ -152,7 +166,15 @@ func (a *app) sidebar(cx *core.Scope) core.Node {
 						TestID: "delete-thread-" + t.ID, OnSelect: func() { a.askDeleteThread(t) }},
 				}})
 		}
-		section := ui.SidebarSection{Title: p.Name, Items: items}
+		if query != "" && len(items) == 0 {
+			continue
+		}
+		section := ui.SidebarSection{Title: p.Name, Items: items, Collapsible: true,
+			Open:         func() bool { return !a.projectCollapsed(p.ID) },
+			OnOpenChange: func(open bool) { a.setProjectCollapsed(p.ID, !open) },
+			Trailing:     ui.Text(strconv.Itoa(len(items)), 10.5, ui.Regular, colors.Faint),
+			TestID:       "project-" + p.ID,
+		}
 		section.Actions = ui.Menu{
 			TestID:  "project-menu-" + p.ID,
 			Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Project actions", TestID: "project-actions-" + p.ID},
@@ -176,14 +198,93 @@ func (a *app) sidebar(cx *core.Scope) core.Node {
 		sections = append(sections, section)
 	}
 	if len(sections) == 0 {
-		sections = append(sections, ui.SidebarSection{Title: "Projects", Note: ui.Text("Add a project to start.", 12, ui.Regular, colors.Faint)})
+		note := "Add a project to start."
+		switch {
+		case query != "":
+			note = "No threads match your search."
+		case len(projects) > 0:
+			note = "No threads yet."
+		}
+		sections = append(sections, ui.SidebarSection{Title: "Projects", Note: ui.Text(note, 12, ui.Regular, colors.Faint)})
 	}
-	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
-		core.View{Style: ui.FillRest, Children: []core.Node{
-			ui.Sidebar{Sections: sections, Selected: a.selected.Get, OnSelect: a.selectThread},
-		}},
-		a.sidebarFooter(cx),
-	}}
+	return sections
+}
+
+// threadRow is one thread's line in the sidebar: its state, title, the
+// last prompt and when it changed.
+func (a *app) threadRow(cx *core.Scope, t proto.Thread, colors ui.Colors) core.Node {
+	title := t.Title
+	if strings.TrimSpace(title) == "" {
+		title = "Untitled thread"
+	}
+	titleColor := colors.Text
+	if t.Archived {
+		titleColor = colors.Muted
+	}
+	head := []core.Node{}
+	switch {
+	case t.Status == proto.ThreadRunning:
+		head = append(head, ui.Spinner{Size: 11, Label: "Running"})
+	case t.Status == proto.ThreadFailed:
+		head = append(head, ui.Icon(lucide.CircleAlert, 12, colors.Danger))
+	case a.threadUnread(t):
+		head = append(head, core.View{TestID: "unread-" + t.ID,
+			Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3, Background: colors.Accent()}})
+	case t.Archived:
+		head = append(head, ui.Icon(lucide.Archive, 11, colors.Faint))
+	}
+	head = append(head,
+		core.Text{Content: title, MaxLines: 1, Style: core.Style{FontSize: 12.5, FontWeight: ui.Semibold, FlexGrow: 1, FlexShrink: 1},
+			StyleFunc: func() core.Style { return core.Style{Color: titleColor()} }},
+		core.Text{Content: relativeTime(t.UpdatedAt), MaxLines: 1, Style: core.Style{FontSize: 10.5, FlexShrink: 0},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+	)
+	rows := []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinWidth: core.Pt(0)}, Children: head}}
+	preview := oneLine(t.Summary, 80)
+	if preview == "" {
+		preview = t.Provider
+	}
+	line := []core.Node{}
+	if t.WorktreePath != "" {
+		line = append(line, ui.Icon(lucide.GitBranch, 10, colors.Faint))
+	}
+	if strings.TrimSpace(preview) != "" {
+		line = append(line, core.Text{Content: preview, MaxLines: 1, Style: core.Style{FontSize: 11, FlexGrow: 1, FlexShrink: 1},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
+	}
+	if len(line) > 0 {
+		rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinWidth: core.Pt(0)}, Children: line})
+	}
+	return core.View{Style: core.Style{Direction: core.Column, Gap: 1, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Padding: core.Symmetric(3, 0)},
+		Children: rows}
+}
+
+// threadMatches reports whether a thread's title, prompt or branch matches
+// the sidebar's search.
+func threadMatches(t proto.Thread, query string) bool {
+	haystack := strings.ToLower(strings.Join([]string{t.Title, t.Summary, t.Branch, t.Provider, t.Model}, " "))
+	return strings.Contains(haystack, query)
+}
+
+// relativeTime writes the compact age the sidebar shows.
+func relativeTime(at time.Time) string {
+	if at.IsZero() {
+		return ""
+	}
+	age := time.Since(at)
+	switch {
+	case age < time.Minute:
+		return "now"
+	case age < time.Hour:
+		return fmt.Sprintf("%dm", int(age.Minutes()))
+	case age < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(age.Hours()))
+	case age < 7*24*time.Hour:
+		return fmt.Sprintf("%dd", int(age.Hours()/24))
+	case at.Year() == time.Now().Year():
+		return at.Local().Format("Jan 2")
+	}
+	return at.Local().Format("Jan 2006")
 }
 
 func (a *app) archivedLabel() string {
@@ -469,7 +570,6 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
 			ui.Text("Own worktree", 12, ui.Regular, colors.Muted), ui.Spacer{},
 			ui.Button{Text: worktree, Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "toggle-worktree", OnPress: func() {
-				println("DEBUG toggle", a.newThreadWT.GetUntracked())
 				a.newThreadWT.Set(!a.newThreadWT.GetUntracked())
 			}},
 		}},
