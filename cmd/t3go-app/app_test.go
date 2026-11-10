@@ -707,19 +707,22 @@ func TestUIComposerAttachment(t *testing.T) {
 
 	app.DropFiles("id:composer-drop", uri)
 	app.WaitFor("text:note.txt", 10*time.Second)
-	app.Press("text:Send")
-	app.Settle()
 	var sent proto.Message
 	app.WaitUntil(10*time.Second, func() bool {
 		detail, err := srv.Service.Detail(ctx, thread.ID)
-		if err != nil {
-			return false
-		}
-		for _, m := range detail.Messages {
-			if m.Role == proto.RoleUser && len(m.Attachments) == 1 {
-				sent = m
-				return true
+		if err == nil {
+			for _, m := range detail.Messages {
+				if m.Role == proto.RoleUser && len(m.Attachments) == 1 {
+					sent = m
+					return true
+				}
 			}
+		}
+		// A press can land while the upload's final rebuild is running; try
+		// again while the draft is still there.
+		if len(app.Query("text:Send")) == 1 && app.Find("label:Message").Text != "" {
+			app.Press("text:Send")
+			app.Settle()
 		}
 		return false
 	})
@@ -832,4 +835,95 @@ func TestUIApprovalDialog(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("the second approval was not denied")
 	}
+}
+
+// TestUITranscriptScrolls keeps a long transcript inside the window and
+// scrolls it.
+func TestUITranscriptScrolls(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Demo", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Long thread", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	long := strings.Repeat("A line of output that must stay inside the transcript.\n\n", 80)
+	if _, err := srv.Store.AppendMessage(ctx, proto.Message{ID: "msg_long", ThreadID: thread.ID, Role: proto.RoleAssistant,
+		Kind: proto.KindText, Content: long, Status: "completed", CreatedAt: time.Now()}); err != nil {
+		t.Fatalf("message: %v", err)
+	}
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:transcript", 10*time.Second)
+
+	app.WaitUntil(10*time.Second, func() bool {
+		transcript := app.Find("id:transcript")
+		return len(transcript.Children) > 0 && transcript.Children[0].Content.Height > transcript.Children[0].Frame.Size.Height
+	})
+	transcript := app.Find("id:transcript")
+	if transcript.Frame.Size.Height >= 760 {
+		t.Fatalf("transcript grew past the window: %v", transcript.Frame)
+	}
+	if len(transcript.Children) == 0 {
+		t.Fatal("transcript has no scroll")
+	}
+	scroll := transcript.Children[0]
+	if scroll.Content.Height <= scroll.Frame.Size.Height {
+		t.Fatalf("content %v fits the viewport %v, nothing to scroll", scroll.Content, scroll.Frame)
+	}
+	app.Scroll("id:transcript", -500)
+	scroll = app.Find("id:transcript").Children[0]
+	if scroll.Offset.Y >= scroll.Content.Height-scroll.Frame.Size.Height {
+		t.Fatalf("the transcript did not scroll back: offset %v of %v", scroll.Offset.Y, scroll.Content.Height)
+	}
+}
+
+// TestUIDialogsFit keeps the model-heavy settings and new-thread dialogs
+// inside the window.
+func TestUIDialogsFit(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Demo", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	if _, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Threshold", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	}); err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:settings", 15*time.Second)
+
+	check := func(selector string) {
+		t.Helper()
+		dialog := app.Find(selector)
+		if bottom := dialog.Frame.Origin.Y + dialog.Frame.Size.Height; bottom > 760 {
+			t.Fatalf("%s overflows the window: %v", selector, dialog.Frame)
+		}
+	}
+	app.Press("id:settings")
+	app.WaitFor("id:settings-dialog", 5*time.Second)
+	app.WaitFor("id:settings-model", 5*time.Second)
+	check("id:settings-dialog")
+	app.Press("text:Close")
+	app.WaitForGone("id:settings-dialog", 5*time.Second)
+
+	app.Press("id:new-thread")
+	app.WaitFor("id:new-thread-dialog", 5*time.Second)
+	app.WaitFor("id:new-thread-model", 5*time.Second)
+	check("id:new-thread-dialog")
 }

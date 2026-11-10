@@ -88,7 +88,7 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 	}
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
 		core.View{Style: ui.FillRest, Children: []core.Node{
-			chat.Conversation{State: a.conv, JumpLabel: "Jump to latest", Children: []core.Node{
+			chat.Conversation{State: a.conv, JumpLabel: "Jump to latest", TestID: "transcript", Children: []core.Node{
 				core.Show{When: func() bool { return len(a.messages.Get()) == 0 }, Then: func(*core.Scope) core.Node {
 					return core.View{Style: core.Style{Padding: core.Symmetric(40, 0), Gap: 6, AlignItems: core.AlignCenter}, Children: []core.Node{
 						ui.Text("No messages yet", 14, ui.Semibold, colors.Muted),

@@ -75,10 +75,12 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 	} else {
 		layout = a.narrowView(cx)
 	}
-	return core.View{Style: core.Style{FlexGrow: 1, Direction: core.Column, Background: colors.Background()}, Children: []core.Node{
+	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0),
+		Overflow: core.Hidden, Direction: core.Column, Background: colors.Background()}, Children: []core.Node{
 		core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node { return a.errorBanner(cx) }},
 		core.Show{When: a.offline.Get, Then: func(*core.Scope) core.Node { return a.offlineBanner(cx) }},
-		core.View{Style: core.Style{FlexGrow: 1}, Children: []core.Node{layout, a.dialogs(cx)}},
+		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0),
+			Overflow: core.Hidden}, Children: []core.Node{layout, a.dialogs(cx)}},
 	}}
 }
 
@@ -388,17 +390,25 @@ func (a *app) newThreadDialog(cx *core.Scope) core.Node {
 				}
 			}})
 	}
-	var modelButtons []core.Node
+	var modelItems []core.Node
+	modelLabel := "Choose model"
 	for _, m := range a.models.Get() {
 		if m.Provider != provider {
 			continue
 		}
 		m := m
-		variant := ui.ButtonSecondary
 		if m.ID == a.newThreadModel.Get() {
-			variant = ui.ButtonPrimary
+			modelLabel = m.Name
 		}
-		modelButtons = append(modelButtons, ui.Button{Text: m.Name, Variant: variant, Size: ui.SizeSmall, OnPress: func() { a.newThreadModel.Set(m.ID) }})
+		modelItems = append(modelItems, ui.MenuItem{Text: m.Name, TestID: "new-thread-model-" + m.ID,
+			Checked:  func() bool { return a.newThreadModel.Get() == m.ID },
+			OnSelect: func() { a.newThreadModel.Set(m.ID) }})
+	}
+	var modelField core.Node = ui.Text("No models for this provider", 12, ui.Regular, colors.Faint)
+	if len(modelItems) > 0 {
+		modelField = ui.Menu{TestID: "new-thread-model",
+			Trigger:   ui.Button{Text: modelLabel, Variant: ui.ButtonSecondary, Size: ui.SizeSmall},
+			MaxHeight: 320, Children: modelItems}
 	}
 	permissions := []proto.PermissionMode{proto.PermissionSupervised, proto.PermissionAcceptEdits, proto.PermissionAuto, proto.PermissionFullAccess}
 	var permButtons []core.Node
@@ -438,7 +448,7 @@ func (a *app) newThreadDialog(cx *core.Scope) core.Node {
 		ui.Text("Provider", 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: providerButtons},
 		ui.Text("Model", 11, ui.Semibold, colors.Muted),
-		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: modelButtons},
+		modelField,
 		ui.Text("Permission", 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: permButtons},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
@@ -454,7 +464,9 @@ func (a *app) newThreadDialog(cx *core.Scope) core.Node {
 		return ui.Text(a.connErr.Get(), 12, ui.Regular, colors.Danger)
 	}})
 	return ui.Dialog{Open: a.showNewThread.Get, OnOpenChange: closeDialog(a.showNewThread), Title: "New thread",
-		Description: "The agent runs in this project's directory, or in a fresh worktree.", Children: fields, Footer: []core.Node{
+		Description: "The agent runs in this project's directory, or in a fresh worktree.", TestID: "new-thread-dialog",
+		Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pct(60)},
+			Children: []core.Node{core.View{Style: core.Style{Direction: core.Column, Gap: 12}, Children: fields}}}}, Footer: []core.Node{
 			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showNewThread.Set(false) }},
 			ui.Button{Text: "Create thread", Variant: ui.ButtonPrimary, TestID: "create-thread", OnPress: a.createThread},
 		}}
@@ -495,20 +507,25 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 				})
 			}})
 	}
-	var modelButtons []core.Node
+	var modelItems []core.Node
+	modelLabel := "Choose model"
 	for _, m := range a.models.Get() {
 		if m.Provider != provider {
 			continue
 		}
 		m := m
-		variant := ui.ButtonSecondary
 		if m.ID == draft.DefaultModel {
-			variant = ui.ButtonPrimary
+			modelLabel = m.Name
 		}
-		modelButtons = append(modelButtons, ui.Button{Text: m.Name, Variant: variant, Size: ui.SizeSmall,
-			TestID: "settings-model-" + m.ID, OnPress: func() {
-				update(func(s *proto.Settings) { s.DefaultModel = m.ID })
-			}})
+		modelItems = append(modelItems, ui.MenuItem{Text: m.Name, TestID: "settings-model-" + m.ID,
+			Checked:  func() bool { return a.settingsDraft.Get().DefaultModel == m.ID },
+			OnSelect: func() { update(func(s *proto.Settings) { s.DefaultModel = m.ID }) }})
+	}
+	var modelField core.Node = ui.Text("No models for this provider", 12, ui.Regular, colors.Faint)
+	if len(modelItems) > 0 {
+		modelField = ui.Menu{TestID: "settings-model",
+			Trigger:   ui.Button{Text: modelLabel, Variant: ui.ButtonSecondary, Size: ui.SizeSmall},
+			MaxHeight: 320, Children: modelItems}
 	}
 	perm := proto.PermissionMode(draft.DefaultPermission)
 	if !perm.Valid() {
@@ -533,10 +550,7 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 		ui.Text("Default provider", 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: providerButtons},
 	}
-	if len(modelButtons) > 0 {
-		fields = append(fields, ui.Text("Default model", 11, ui.Semibold, colors.Muted),
-			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: modelButtons})
-	}
+	fields = append(fields, ui.Text("Default model", 11, ui.Semibold, colors.Muted), modelField)
 	var themeButtons []core.Node
 	for _, theme := range []string{"system", "light", "dark"} {
 		theme := theme
@@ -563,8 +577,10 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 		if !open {
 			a.closeSettings()
 		}
-	}, Title: "Settings", Description: "Defaults for new threads in this environment.",
-		Children: fields, Footer: []core.Node{
+	}, Title: "Settings", Description: "Defaults for new threads in this environment.", TestID: "settings-dialog",
+		Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pct(70)},
+			Children: []core.Node{core.View{Style: core.Style{Direction: core.Column, Gap: 12}, Children: fields}}}},
+		Footer: []core.Node{
 			ui.Button{Text: "Disconnect", Variant: ui.ButtonGhost, TestID: "disconnect", OnPress: func() { a.closeSettings(); a.disconnect() }},
 			ui.Spacer{},
 			ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: a.closeSettings},
