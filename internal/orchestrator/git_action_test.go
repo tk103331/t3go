@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/tk/t3go/internal/proto"
 )
@@ -148,5 +149,91 @@ func TestServiceGitActionNeedsRepo(t *testing.T) {
 	}
 	if _, err := svc.GitAction(ctx, thread.ID, proto.GitActionInput{Action: proto.GitCommit}); err == nil {
 		t.Fatal("committed outside a repository")
+	}
+}
+
+func TestServiceRetryAndFork(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t, &fakeRunner{})
+	project, err := svc.CreateProject(ctx, "demo", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := svc.CreateThread(ctx, CreateThreadInput{ProjectID: project.ID, Title: "Retry",
+		Provider: "fake", Model: "fake-1", Permission: proto.PermissionFullAccess})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	if _, err := svc.Send(ctx, thread.ID, "Hello"); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := svc.Wait(waitCtx, thread.ID); err != nil {
+		t.Fatalf("wait: %v", err)
+	}
+	detail, err := svc.Detail(ctx, thread.ID)
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	var assistant proto.Message
+	for _, message := range detail.Messages {
+		if message.Role == proto.RoleAssistant && message.Kind == proto.KindText {
+			assistant = message
+		}
+	}
+	if assistant.ID == "" {
+		t.Fatalf("assistant = %#v", detail.Messages)
+	}
+
+	// Retry adds a run and an assistant reply, not another user message.
+	before := len(detail.Messages)
+	if _, err := svc.Retry(ctx, thread.ID, assistant.RunID); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if err := svc.Wait(waitCtx, thread.ID); err != nil {
+		t.Fatalf("wait retry: %v", err)
+	}
+	retried, err := svc.Detail(ctx, thread.ID)
+	if err != nil {
+		t.Fatalf("retried detail: %v", err)
+	}
+	users := 0
+	for _, message := range retried.Messages {
+		if message.Role == proto.RoleUser {
+			users++
+		}
+	}
+	if users != 1 || len(retried.Messages) <= before {
+		t.Fatalf("retry messages = %#v", retried.Messages)
+	}
+
+	// Forking before a message copies the earlier transcript and starts
+	// the edited prompt in the new thread.
+	fork, err := svc.Fork(ctx, thread.ID, assistant.ID, "Edited prompt")
+	if err != nil {
+		t.Fatalf("fork: %v", err)
+	}
+	if fork.ID == thread.ID {
+		t.Fatal("fork reused the source thread")
+	}
+	if err := svc.Wait(waitCtx, fork.ID); err != nil {
+		t.Fatalf("wait fork: %v", err)
+	}
+	forked, err := svc.Detail(ctx, fork.ID)
+	if err != nil {
+		t.Fatalf("fork detail: %v", err)
+	}
+	var edited, copied bool
+	for _, message := range forked.Messages {
+		if message.Role == proto.RoleUser && message.Content == "Edited prompt" {
+			edited = true
+		}
+		if message.Role == proto.RoleUser && message.Content == "Hello" {
+			copied = true
+		}
+	}
+	if !edited || !copied {
+		t.Fatalf("fork messages = %#v", forked.Messages)
 	}
 }

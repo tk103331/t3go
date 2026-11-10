@@ -423,6 +423,42 @@ func (c *Client) SwitchBranch(ctx context.Context, threadID, name string) ([]pro
 	return out.Branches, err
 }
 
+// WorkingDiff reads a checkout's changes against HEAD.
+func (c *Client) WorkingDiff(ctx context.Context, threadID string) (proto.WorkingDiff, error) {
+	var out proto.WorkingDiff
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/working-diff"
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out, err
+}
+
+// StageFiles adds paths to the index.
+func (c *Client) StageFiles(ctx context.Context, threadID string, paths []string) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/threads/"+url.PathEscape(threadID)+"/git/stage",
+		map[string]any{"paths": paths}, nil)
+}
+
+// DiscardFiles restores paths to HEAD, removing untracked files.
+func (c *Client) DiscardFiles(ctx context.Context, threadID string, paths []string) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/threads/"+url.PathEscape(threadID)+"/git/discard",
+		map[string]any{"paths": paths}, nil)
+}
+
+// Retry reruns a turn in the same thread.
+func (c *Client) Retry(ctx context.Context, threadID, runID string) (proto.Run, error) {
+	var out proto.Run
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/retry"
+	err := c.do(ctx, http.MethodPost, path, map[string]string{"runId": runID}, &out)
+	return out, err
+}
+
+// Fork copies a thread into a new one, optionally starting with content.
+func (c *Client) Fork(ctx context.Context, threadID, messageID, content string) (proto.Thread, error) {
+	var out proto.Thread
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/fork"
+	err := c.do(ctx, http.MethodPost, path, map[string]string{"messageId": messageID, "content": content}, &out)
+	return out, err
+}
+
 // GitAction commits, pushes, or opens a pull request in a thread's
 // checkout.
 func (c *Client) GitAction(ctx context.Context, threadID string, in proto.GitActionInput) (proto.GitActionResult, error) {

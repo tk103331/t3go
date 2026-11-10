@@ -453,13 +453,28 @@ func dayLabel(at time.Time) string {
 // messageFooter is a message's time and copy action.
 func (a *app) messageFooter(cx *core.Scope, m proto.Message) core.Node {
 	colors := ui.ColorsOf(cx)
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Padding: core.Edges{Left: 2}}, Children: []core.Node{
+	actions := []core.Node{
 		ui.Text(m.CreatedAt.Local().Format("3:04 PM"), 10.5, ui.Regular, colors.Faint),
 		core.Show{When: func() bool { return strings.TrimSpace(m.Content) != "" }, Then: func(*core.Scope) core.Node {
 			return ui.IconButton{Icon: lucide.Copy, Label: "Copy message", Size: 20, IconSize: 11,
 				Tint: colors.Faint, TestID: "copy-message-" + m.ID, OnPress: func() { a.cx.SetClipboard(m.Content) }}
 		}},
-	}}
+	}
+	if m.Role == proto.RoleUser {
+		actions = append(actions,
+			ui.IconButton{Icon: lucide.Pencil, Label: "Edit message", Size: 20, IconSize: 11, Tint: colors.Faint,
+				TestID: "edit-message-" + m.ID, OnPress: func() { a.openEditMessage(m) }},
+		)
+	}
+	if m.Role == proto.RoleAssistant && m.RunID != "" {
+		actions = append(actions, ui.IconButton{Icon: lucide.RotateCcw, Label: "Retry turn", Size: 20, IconSize: 11,
+			Tint: colors.Faint, TestID: "retry-message-" + m.ID, Disabled: a.running.Get,
+			OnPress: func() { a.retryRun(m.RunID) }})
+	}
+	actions = append(actions, ui.IconButton{Icon: lucide.GitBranch, Label: "Branch from here", Size: 20, IconSize: 11,
+		Tint: colors.Faint, TestID: "branch-message-" + m.ID, OnPress: func() { a.branchFromMessage(m) }})
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 3, Padding: core.Edges{Left: 2}},
+		Children: actions}
 }
 
 // runFooter reports a finished run's model, size and duration under its

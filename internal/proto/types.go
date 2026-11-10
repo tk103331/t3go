@@ -206,6 +206,21 @@ type GraphCommit struct {
 	Head    bool       `json:"head,omitempty"`
 }
 
+// DiffFile is one changed path in the working tree.
+type DiffFile struct {
+	Path      string `json:"path"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Staged    bool   `json:"staged,omitempty"`
+	Untracked bool   `json:"untracked,omitempty"`
+}
+
+// WorkingDiff is the checkout's changes against HEAD.
+type WorkingDiff struct {
+	Patch string     `json:"patch"`
+	Files []DiffFile `json:"files"`
+}
+
 // WorkspaceEntry is a directory or file in a thread's checkout.
 type WorkspaceEntry struct {
 	Name      string `json:"name"`

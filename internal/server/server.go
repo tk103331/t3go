@@ -210,8 +210,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/threads/{id}", s.auth(s.handleDeleteThread))
 	mux.HandleFunc("POST /api/v1/threads/{id}/messages", s.auth(s.handleSend))
 	mux.HandleFunc("POST /api/v1/threads/{id}/stop", s.auth(s.handleStop))
+	mux.HandleFunc("POST /api/v1/threads/{id}/retry", s.auth(s.handleRetry))
+	mux.HandleFunc("POST /api/v1/threads/{id}/fork", s.auth(s.handleFork))
 	mux.HandleFunc("GET /api/v1/threads/{id}/diff", s.auth(s.handleDiff))
 	mux.HandleFunc("POST /api/v1/threads/{id}/git", s.auth(s.handleGitAction))
+	mux.HandleFunc("GET /api/v1/threads/{id}/working-diff", s.auth(s.handleWorkingDiff))
+	mux.HandleFunc("POST /api/v1/threads/{id}/git/stage", s.auth(s.handleStageFiles))
+	mux.HandleFunc("POST /api/v1/threads/{id}/git/discard", s.auth(s.handleDiscardFiles))
 	mux.HandleFunc("GET /api/v1/threads/{id}/branches", s.auth(s.handleBranches))
 	mux.HandleFunc("GET /api/v1/threads/{id}/files", s.auth(s.handleThreadFiles))
 	mux.HandleFunc("GET /api/v1/threads/{id}/file", s.auth(s.handleThreadFile))
@@ -519,6 +524,36 @@ func (s *Server) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Terminals.CloseThread(id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleRetry(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		RunID string `json:"runId"`
+	}
+	_ = decodeJSON(r, &in)
+	run, err := s.Service.Retry(r.Context(), r.PathValue("id"), in.RunID)
+	if err != nil {
+		writeError(w, statusFor(err), "run", err.Error())
+		return
+	}
+	writeJSON(w, 200, run)
+}
+
+func (s *Server) handleFork(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		MessageID string `json:"messageId"`
+		Content   string `json:"content"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, 400, "invalid", err.Error())
+		return
+	}
+	thread, err := s.Service.Fork(r.Context(), r.PathValue("id"), in.MessageID, in.Content)
+	if err != nil {
+		writeError(w, statusFor(err), "thread", err.Error())
+		return
+	}
+	writeJSON(w, 200, thread)
 }
 
 func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -597,4 +598,73 @@ func graphRefs(ctx context.Context, dir, current string) map[string][]proto.Grap
 			Current: kind == "branch" && fields[2] == current})
 	}
 	return refs
+}
+
+// StagedPaths lists the paths whose changes are in the index.
+func StagedPaths(ctx context.Context, dir string) map[string]bool {
+	out, err := run(ctx, dir, "diff", "--cached", "--name-only")
+	if err != nil {
+		return nil
+	}
+	paths := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) != "" {
+			paths[line] = true
+		}
+	}
+	return paths
+}
+
+// DiscardPaths returns paths to HEAD and removes untracked files.
+func DiscardPaths(ctx context.Context, dir string, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	root, err := Root(ctx, dir)
+	if err != nil {
+		return err
+	}
+	trackedOut, _ := run(ctx, dir, append([]string{"ls-files", "--"}, paths...)...)
+	tracked := map[string]bool{}
+	for _, path := range strings.Split(trackedOut, "\n") {
+		if path != "" {
+			tracked[path] = true
+		}
+	}
+	var restore []string
+	for _, path := range paths {
+		if tracked[path] {
+			restore = append(restore, path)
+			continue
+		}
+		full := filepath.Join(root, filepath.FromSlash(path))
+		if rel, err := filepath.Rel(root, full); err != nil || strings.HasPrefix(rel, "..") {
+			continue
+		}
+		if info, err := os.Stat(full); err == nil && !info.IsDir() {
+			_ = os.Remove(full)
+		}
+	}
+	if len(restore) > 0 {
+		args := append([]string{"restore", "--source=HEAD", "--staged", "--worktree", "--"}, restore...)
+		if _, err := run(ctx, dir, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// UntrackedPaths lists files Git does not track yet.
+func UntrackedPaths(ctx context.Context, dir string) map[string]bool {
+	out, err := run(ctx, dir, "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return nil
+	}
+	paths := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) != "" {
+			paths[line] = true
+		}
+	}
+	return paths
 }

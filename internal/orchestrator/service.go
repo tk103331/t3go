@@ -581,3 +581,55 @@ func defaultModelFor(providers []proto.Provider, provider string) string {
 	}
 	return ""
 }
+
+// Fork copies a thread's messages into a new thread in the same project.
+// messageID is the boundary: with content, messages before it are copied
+// and content starts the fork's first turn; without content, the boundary
+// message is copied too. An empty messageID copies the whole transcript.
+func (s *Service) Fork(ctx context.Context, threadID, messageID, content string) (proto.Thread, error) {
+	source, err := s.Store.Thread(ctx, threadID)
+	if err != nil {
+		return proto.Thread{}, err
+	}
+	messages, err := s.Store.Messages(ctx, threadID, 4000)
+	if err != nil {
+		return proto.Thread{}, err
+	}
+	end := len(messages)
+	if messageID != "" {
+		found := -1
+		for i, message := range messages {
+			if message.ID == messageID {
+				found = i
+				break
+			}
+		}
+		if found < 0 {
+			return proto.Thread{}, store.ErrNotFound
+		}
+		end = found
+		if strings.TrimSpace(content) == "" {
+			end = found + 1
+		}
+	}
+	fork, err := s.CreateThread(ctx, CreateThreadInput{ProjectID: source.ProjectID, Title: source.Title,
+		Provider: source.Provider, Model: source.Model, Permission: source.Permission})
+	if err != nil {
+		return proto.Thread{}, err
+	}
+	for _, message := range messages[:end] {
+		copied := proto.Message{ID: id.New("msg"), ThreadID: fork.ID, Role: message.Role, Kind: message.Kind,
+			Content: message.Content, Title: message.Title, Detail: message.Detail, Status: "completed",
+			CreatedAt: message.CreatedAt}
+		if _, err := s.Store.AppendMessage(ctx, copied); err != nil {
+			return fork, err
+		}
+	}
+	if strings.TrimSpace(content) != "" {
+		if _, err := s.Send(ctx, fork.ID, content); err != nil {
+			return fork, err
+		}
+		return s.Store.Thread(ctx, fork.ID)
+	}
+	return fork, nil
+}

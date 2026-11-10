@@ -21,6 +21,30 @@ func (s *Service) Send(ctx context.Context, threadID, prompt string) (proto.Run,
 
 // SendWith starts a run for prompt and the attachments it names.
 func (s *Service) SendWith(ctx context.Context, threadID, prompt string, attachmentIDs []string) (proto.Run, error) {
+	return s.start(ctx, threadID, prompt, attachmentIDs, true)
+}
+
+// Retry reruns a turn's prompt in the same thread, adding only a new
+// assistant reply and run.
+func (s *Service) Retry(ctx context.Context, threadID, runID string) (proto.Run, error) {
+	runs, err := s.Store.Runs(ctx, threadID)
+	if err != nil {
+		return proto.Run{}, err
+	}
+	var prompt string
+	for i := len(runs) - 1; i >= 0; i-- {
+		if runID == "" || runs[i].ID == runID {
+			prompt = runs[i].Prompt
+			break
+		}
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return proto.Run{}, ErrEmpty
+	}
+	return s.start(ctx, threadID, prompt, nil, false)
+}
+
+func (s *Service) start(ctx context.Context, threadID, prompt string, attachmentIDs []string, recordUser bool) (proto.Run, error) {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return proto.Run{}, ErrEmpty
@@ -70,22 +94,26 @@ func (s *Service) SendWith(ctx context.Context, threadID, prompt string, attachm
 		s.mu.Unlock()
 		return proto.Run{}, err
 	}
-	if _, err := s.Store.AppendMessage(ctx, userMsg); err != nil {
-		s.mu.Unlock()
-		return proto.Run{}, err
+	if recordUser {
+		if _, err := s.Store.AppendMessage(ctx, userMsg); err != nil {
+			s.mu.Unlock()
+			return proto.Run{}, err
+		}
 	}
 	if _, err := s.Store.AppendMessage(ctx, assistant); err != nil {
 		s.mu.Unlock()
 		return proto.Run{}, err
 	}
-	if t.Title == "New thread" || t.Title == "" {
+	if recordUser && (t.Title == "New thread" || t.Title == "") {
 		t.Title = titleFromPrompt(prompt)
 	}
 	t.Status = proto.ThreadRunning
 	t.LastError = ""
-	t.Summary = prompt
-	if len([]rune(t.Summary)) > 200 {
-		t.Summary = string([]rune(t.Summary)[:199]) + "…"
+	if recordUser {
+		t.Summary = prompt
+		if len([]rune(t.Summary)) > 200 {
+			t.Summary = string([]rune(t.Summary)[:199]) + "…"
+		}
 	}
 	t.UpdatedAt = time.Now()
 	if err := s.Store.UpdateThread(ctx, t); err != nil {
@@ -99,7 +127,9 @@ func (s *Service) SendWith(ctx context.Context, threadID, prompt string, attachm
 
 	s.publish(ctx, proto.Event{Type: proto.EventRunStarted, ThreadID: t.ID, Data: run})
 	s.publish(ctx, proto.Event{Type: proto.EventThreadUpdated, ThreadID: t.ID, Data: t})
-	s.publish(ctx, proto.Event{Type: proto.EventMessage, ThreadID: t.ID, Data: userMsg})
+	if recordUser {
+		s.publish(ctx, proto.Event{Type: proto.EventMessage, ThreadID: t.ID, Data: userMsg})
+	}
 	s.publish(ctx, proto.Event{Type: proto.EventMessage, ThreadID: t.ID, Data: assistant})
 
 	go s.execute(runCtx, t, dir, runner, run, providerPrompt, assistant, done)

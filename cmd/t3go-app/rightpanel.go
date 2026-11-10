@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/oneo-me/nsgo/base"
+	basediff "github.com/oneo-me/nsgo/base/diff"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
@@ -352,21 +353,72 @@ func (a *app) rightDiff(cx *core.Scope) core.Node {
 	if a.selected.Get() == "" {
 		return a.rightNotice(cx, "Pick a thread to read its diff.")
 	}
-	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
+	files := a.workingFiles.Get()
+	split := a.diffSplit.Get()
+	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 3, Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
 		core.Text{Content: "Working tree", MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+		ui.IconButton{Icon: lucide.Columns2, Label: "Toggle split view", TestID: "diff-split",
+			Selected: func() bool { return split }, OnPress: func() { a.diffSplit.Set(!a.diffSplit.GetUntracked()) }},
 		ui.Button{Text: "Changes…", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.openDiff},
 		ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh diff", TestID: "right-diff-refresh", OnPress: func() {
 			if id := a.selected.GetUntracked(); id != "" {
-				a.loadDiff(id, "")
+				a.loadWorkingDiff(id)
 			}
 		}},
 	}}
+	var rows []core.Node
+	for _, file := range files {
+		file := file
+		detail := fmt.Sprintf("+%d −%d", file.Additions, file.Deletions)
+		if file.Staged {
+			detail += " · staged"
+		}
+		rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2,
+			Padding: core.Symmetric(2, 4), CornerRadius: 5}, Children: []core.Node{
+			base.Button{OnPress: func(core.PressEvent) { a.workingRef.ScrollToFile(file.Path) },
+				Label: file.Path, TestID: "diff-file-" + file.Path, Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
+					Gap: 5, FlexGrow: 1, MinWidth: core.Pt(0), Cursor: core.CursorDefault}, StyleFunc: func() core.Style {
+					return core.Style{Hover: &core.Style{Background: colors.Hover()}, Focus: ui.FocusRing(cx, -2)}
+				}, Children: []core.Node{
+					ui.Icon(lucide.FileText, 11, colors.Muted),
+					core.Text{Content: file.Path, MaxLines: 1, Style: core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace", FlexShrink: 1},
+						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+				}},
+			core.Text{Content: detail, MaxLines: 1, Style: core.Style{FontSize: 9.5, FlexShrink: 0},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+			ui.IconButton{Icon: lucide.Check, Label: "Stage " + file.Path, Size: 20, IconSize: 11,
+				TestID: "diff-stage-" + file.Path, Disabled: func() bool { return file.Staged },
+				OnPress: func() { a.stagePath(file.Path, true) }},
+			ui.IconButton{Icon: lucide.Undo2, Label: "Discard " + file.Path, Size: 20, IconSize: 11,
+				Tint: colors.Danger, TestID: "diff-discard-" + file.Path,
+				OnPress: func() { a.diffDiscard.Set(file.Path) }},
+		}})
+	}
+	list := core.View{Style: core.Style{Direction: core.Column, Gap: 1, Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Padding: core.Symmetric(2, 4)}, Children: []core.Node{
+			ui.Text(fmt.Sprintf("%d changed files", len(files)), 10.5, ui.Semibold, colors.Muted),
+			ui.Spacer{},
+			ui.Text("stage or discard a file", 9.5, ui.Regular, colors.Faint),
+		}},
+		core.Scroll{Style: core.Style{MaxHeight: core.Pt(150)}, Children: []core.Node{
+			core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: rows},
+		}},
+	}}
+	var body core.Node
+	if len(files) == 0 {
+		body = core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter}, Children: []core.Node{
+			ui.Text("Working tree clean.", 12, ui.Regular, colors.Faint),
+		}}
+	} else {
+		body = core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Overflow: core.Hidden, Background: colors.Inset(), CornerRadius: 8},
+			Children: []core.Node{a.diffNodeWith(a.workingDiff.Get(), a.workingRef, !split)}}
+	}
 	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(10)}, Children: []core.Node{
 		head,
 		a.rightError(cx),
-		core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Overflow: core.Hidden, Background: colors.Inset(), CornerRadius: 8},
-			Children: []core.Node{a.diffNode(cx, a.diffText.Get())}},
+		list,
+		body,
 	}}
 }
 
@@ -655,16 +707,68 @@ func (a *app) rightGraph(cx *core.Scope) core.Node {
 // diffNode renders a unified diff with colors and line numbers, and any
 // message that is not a patch as text.
 func (a *app) diffNode(cx *core.Scope, patch string) core.Node {
-	colors := ui.ColorsOf(cx)
+	trimmed := strings.TrimSpace(patch)
+	if !strings.HasPrefix(trimmed, "diff --git") && !strings.Contains(trimmed, "\n@@ ") {
+		colors := ui.ColorsOf(cx)
+		return core.Text{Content: patch, Selectable: core.SelectableOn,
+			Style:     core.Style{FontSize: 11.5, LineHeight: 16, FontFamily: "Menlo, monospace"},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }}
+	}
+	return a.diffNodeWith(patch, nil, true)
+}
+
+func (a *app) diffNodeWith(patch string, ref *basediff.Ref, unified bool) core.Node {
 	trimmed := strings.TrimSpace(patch)
 	if strings.HasPrefix(trimmed, "diff --git") || strings.Contains(trimmed, "\n@@ ") {
-		return uidiff.View{Patch: func() string { return patch }, Unified: true, Selectable: true, ContextLines: 3,
-			SoftWrap: true, FontSize: 11.5, LineHeight: 16, TestID: "code-diff",
+		return uidiff.View{Patch: func() string { return patch }, Unified: unified, Selectable: true, ContextLines: 3,
+			SoftWrap: true, FontSize: 11.5, LineHeight: 16, Ref: ref, TestID: "code-diff",
 			Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0)}}
 	}
-	return core.Text{Content: patch, Selectable: core.SelectableOn,
-		Style:     core.Style{FontSize: 11.5, LineHeight: 16, FontFamily: "Menlo, monospace"},
-		StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }}
+	return core.Group{}
+}
+
+// editMessageDialog edits a user message by branching before it.
+func (a *app) editMessageDialog(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	message := a.editingMessage.Get()
+	return ui.Dialog{Open: func() bool { return message.ID != "" }, OnOpenChange: func(open bool, _ base.Reason) {
+		if !open {
+			a.cancelEditMessage()
+		}
+	}, Title: "Edit message", Description: "The thread branches before this message, then sends the edited prompt.", TestID: "edit-message-dialog",
+		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
+			return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: []core.Node{
+				ui.Input{Input: base.Input{Multiline: true, Value: a.editDraft.Get, OnChange: a.editDraft.Set,
+					Label: "Message", Placeholder: "Edit the prompt"}},
+				core.Text{Content: "The new thread copies the transcript before this message.", Style: core.Style{FontSize: 11},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+			}}
+		})},
+		Footer: []core.Node{
+			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, TestID: "cancel-edit-message", OnPress: a.cancelEditMessage},
+			ui.Button{Text: "Save & send", Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "confirm-edit-message",
+				OnPress: a.confirmEditMessage},
+		}}
+}
+
+// discardDialog confirms restoring one changed file.
+func (a *app) discardDialog(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	path := a.diffDiscard.Get()
+	return ui.AlertDialog{Open: func() bool { return path != "" }, OnOpenChange: func(open bool, _ base.Reason) {
+		if !open {
+			a.diffDiscard.Set("")
+		}
+	}, Title: "Discard changes?", TestID: "discard-dialog",
+		Description: path + " will be restored to HEAD, or removed when it is untracked. This cannot be undone.",
+		Actions: []ui.AlertAction{
+			{Text: "Cancel", Variant: ui.ButtonGhost, TestID: "cancel-discard", OnPress: func() { a.diffDiscard.Set("") }},
+			{Text: "Discard", Variant: ui.ButtonPrimary, Color: func() core.Color { return colors.Danger() }, TestID: "confirm-discard",
+				OnPress: func() {
+					a.diffDiscard.Set("")
+					a.stagePath(path, false)
+				}},
+		}}
 }
 
 // fileKind names how a file previews: markdown, an image, or text.

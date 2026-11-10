@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/oneo-me/nsgo/base"
+	basediff "github.com/oneo-me/nsgo/base/diff"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/ui/chat"
 	"github.com/tk/t3go/internal/client"
@@ -71,6 +72,13 @@ type app struct {
 	showDiff        *core.Signal[bool]
 	showRuns        *core.Signal[bool]
 	diffText        *core.Signal[string]
+	workingDiff     *core.Signal[string]
+	workingFiles    *core.Signal[[]proto.DiffFile]
+	diffSplit       *core.Signal[bool]
+	workingRef      *basediff.Ref
+	diffDiscard     *core.Signal[string]
+	editingMessage  *core.Signal[proto.Message]
+	editDraft       *core.Signal[string]
 	gitMessage      *core.Signal[string]
 	gitBusy         *core.Signal[bool]
 	gitNote         *core.Signal[string]
@@ -180,11 +188,20 @@ func newApp(cx *core.Scope) *app {
 		showDiff:        core.NewSignal(cx, false),
 		showRuns:        core.NewSignal(cx, false),
 		diffText:        core.NewSignal(cx, ""),
-		gitMessage:      core.NewSignal(cx, ""),
-		gitBusy:         core.NewSignal(cx, false),
-		gitNote:         core.NewSignal(cx, ""),
-		gitPR:           core.NewSignal(cx, ""),
-		branches:        sliceSignal[proto.Branch](cx),
+		workingDiff:     core.NewSignal(cx, ""),
+		workingFiles:    sliceSignal[proto.DiffFile](cx),
+		diffSplit:       core.NewSignal(cx, false),
+		workingRef:      &basediff.Ref{},
+		diffDiscard:     core.NewSignal(cx, ""),
+		editingMessage: core.NewSignalFunc(cx, proto.Message{}, func(a, b proto.Message) bool {
+			return a.ID == b.ID
+		}),
+		editDraft:  core.NewSignal(cx, ""),
+		gitMessage: core.NewSignal(cx, ""),
+		gitBusy:    core.NewSignal(cx, false),
+		gitNote:    core.NewSignal(cx, ""),
+		gitPR:      core.NewSignal(cx, ""),
+		branches:   sliceSignal[proto.Branch](cx),
 		pendingDelete: core.NewSignalFunc(cx, itemTarget{}, func(a, b itemTarget) bool {
 			return a == b
 		}),
@@ -819,6 +836,8 @@ func (a *app) selectThread(id string) {
 	a.pullRequest.Set(proto.PullRequest{})
 	a.prDetail.Set("")
 	a.graph.Set(nil)
+	a.workingDiff.Set("")
+	a.workingFiles.Set(nil)
 	a.terminalSession.Set(proto.TerminalSession{})
 	a.terminals.Set(nil)
 	a.terminalErr.Set("")
@@ -1690,7 +1709,7 @@ func (a *app) openSurface(name string) {
 		a.loadFiles(a.filesPath.GetUntracked())
 	case "diff":
 		if id := a.selected.GetUntracked(); id != "" {
-			a.loadDiff(id, "")
+			a.loadWorkingDiff(id)
 		}
 	case "pr":
 		a.loadPullRequest(a.selected.GetUntracked())
@@ -1861,6 +1880,53 @@ func (a *app) loadPullRequest(id string) {
 	})
 }
 
+// loadWorkingDiff reads the checkout's changes against HEAD.
+func (a *app) loadWorkingDiff(threadID string) {
+	a.call(func(ctx context.Context, c *client.Client) error {
+		diff, err := c.WorkingDiff(ctx, threadID)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			if a.selected.GetUntracked() != threadID {
+				return
+			}
+			a.workingDiff.Set(diff.Patch)
+			a.workingFiles.Set(diff.Files)
+			a.rightErr.Set("")
+		})
+		return nil
+	}, func(err error) {
+		if err != nil {
+			a.rightErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// stagePath stages or discards one changed path.
+func (a *app) stagePath(path string, stage bool) {
+	id := a.selected.GetUntracked()
+	if id == "" {
+		return
+	}
+	a.call(func(ctx context.Context, c *client.Client) error {
+		var err error
+		if stage {
+			err = c.StageFiles(ctx, id, []string{path})
+		} else {
+			err = c.DiscardFiles(ctx, id, []string{path})
+		}
+		return err
+	}, func(err error) {
+		if err != nil {
+			a.rightErr.Set(friendlyError(err))
+			return
+		}
+		a.loadWorkingDiff(id)
+		a.loadDetail(id)
+	})
+}
+
 // loadBranches fills the Changes dialog's branch picker.
 func (a *app) loadBranches(threadID string) {
 	a.call(func(ctx context.Context, c *client.Client) error {
@@ -1905,6 +1971,74 @@ func (a *app) switchBranch(name string) {
 		if err != nil {
 			a.gitBusy.Set(false)
 			a.gitNote.Set(friendlyError(err))
+		}
+	})
+}
+
+// retryRun reruns one turn in place.
+func (a *app) retryRun(runID string) {
+	id := a.selected.GetUntracked()
+	if id == "" || a.running.GetUntracked() {
+		return
+	}
+	a.call(func(ctx context.Context, c *client.Client) error {
+		_, err := c.Retry(ctx, id, runID)
+		return err
+	}, func(err error) {
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
+			return
+		}
+		a.running.Set(true)
+	})
+}
+
+// branchFromMessage copies the transcript up to a message into a new
+// thread.
+func (a *app) branchFromMessage(m proto.Message) {
+	a.forkThread(m.ID, "")
+}
+
+// openEditMessage edits a user message by branching before it.
+func (a *app) openEditMessage(m proto.Message) {
+	a.editingMessage.Set(m)
+	a.editDraft.Set(m.Content)
+}
+
+func (a *app) cancelEditMessage() {
+	a.editingMessage.Set(proto.Message{})
+	a.editDraft.Set("")
+}
+
+func (a *app) confirmEditMessage() {
+	message := a.editingMessage.GetUntracked()
+	content := strings.TrimSpace(a.editDraft.GetUntracked())
+	if message.ID == "" || content == "" {
+		return
+	}
+	a.cancelEditMessage()
+	a.forkThread(message.ID, content)
+}
+
+// forkThread runs a fork on the server and selects the new thread.
+func (a *app) forkThread(messageID, content string) {
+	id := a.selected.GetUntracked()
+	if id == "" {
+		return
+	}
+	a.call(func(ctx context.Context, c *client.Client) error {
+		thread, err := c.Fork(ctx, id, messageID, content)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			a.upsertThread(thread)
+			a.selectThread(thread.ID)
+		})
+		return nil
+	}, func(err error) {
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
 		}
 	})
 }

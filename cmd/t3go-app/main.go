@@ -433,7 +433,7 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 
 func (a *app) dialogs(cx *core.Scope) core.Node {
 	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.runsDialog(cx),
-		a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx), a.approvalDialog(cx)}
+		a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx), a.approvalDialog(cx), a.discardDialog(cx), a.editMessageDialog(cx)}
 }
 
 // approvalDialog asks about the first tool call a supervised run is

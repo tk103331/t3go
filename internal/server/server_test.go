@@ -2084,3 +2084,46 @@ func TestTerminalSession(t *testing.T) {
 		t.Fatalf("close = %d", code)
 	}
 }
+
+func TestWorkingDiffStageAndDiscard(t *testing.T) {
+	e := newTestEnv(t)
+	repo := upstreamGitRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	untracked := filepath.Join(repo, "scratch.txt")
+	if err := os.WriteFile(untracked, []byte("scratch\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var project proto.Project
+	if code := e.request(t, http.MethodPost, "/api/v1/projects",
+		map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
+		t.Fatalf("project = %d", code)
+	}
+	thread := e.thread(t, project.ID)
+	path := "/api/v1/threads/" + thread.ID + "/working-diff"
+	var diff proto.WorkingDiff
+	if code := e.request(t, http.MethodGet, path, nil, e.token, &diff); code != http.StatusOK {
+		t.Fatalf("working diff = %d", code)
+	}
+	if !strings.Contains(diff.Patch, "+changed") || len(diff.Files) != 2 {
+		t.Fatalf("diff = %#v", diff)
+	}
+	stage := "/api/v1/threads/" + thread.ID + "/git/stage"
+	if code := e.request(t, http.MethodPost, stage, map[string]any{"paths": []string{"README.md"}}, e.token, nil); code != http.StatusOK {
+		t.Fatalf("stage = %d", code)
+	}
+	if !git.StagedPaths(context.Background(), repo)["README.md"] {
+		t.Fatal("README.md was not staged")
+	}
+	discard := "/api/v1/threads/" + thread.ID + "/git/discard"
+	if code := e.request(t, http.MethodPost, discard, map[string]any{"paths": []string{"scratch.txt"}}, e.token, nil); code != http.StatusOK {
+		t.Fatalf("discard = %d", code)
+	}
+	if _, err := os.Stat(untracked); !os.IsNotExist(err) {
+		t.Fatalf("untracked file still exists: %v", err)
+	}
+	if code := e.request(t, http.MethodPost, discard, map[string]any{"paths": []string{"../escape"}}, e.token, nil); code != http.StatusBadRequest {
+		t.Fatalf("escape = %d", code)
+	}
+}
