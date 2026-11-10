@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -202,36 +204,9 @@ func (a *app) renderMessage(cx *core.Scope, m proto.Message) core.Node {
 	}
 	switch m.Kind {
 	case proto.KindReasoning:
-		return core.View{Style: core.Style{Gap: 3, Padding: core.Edges{Left: 2}}, Children: []core.Node{
-			ui.Text("Thinking", 11, ui.Semibold, colors.Faint),
-			core.Text{Content: m.Content, Selectable: core.SelectableOn, Style: core.Style{FontSize: 12, LineHeight: 18},
-				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-		}}
+		return a.reasoningCard(cx, m)
 	case proto.KindTool:
-		var rows []core.Node
-		status := m.Status
-		head := m.Title
-		if head == "" {
-			head = "Tool"
-		}
-		rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-			ui.Text("•", 12, ui.Bold, colors.Accent),
-			ui.Text(head, 12, ui.Semibold, colors.Text),
-			core.Show{When: func() bool { return status != "" && status != "completed" }, Then: func(*core.Scope) core.Node {
-				return ui.Text(status, 11, ui.Regular, colors.Faint)
-			}},
-		}})
-		if m.Detail != "" {
-			rows = append(rows, core.Text{Content: m.Detail, MaxLines: 3, Style: core.Style{FontSize: 11.5, LineHeight: 16},
-				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
-		}
-		if body := truncate(m.Content, 4000); body != "" {
-			rows = append(rows, core.View{Style: core.Style{Background: colors.Inset(), CornerRadius: 6, Padding: core.All(8)}, Children: []core.Node{
-				core.Text{Content: body, Selectable: core.SelectableOn, Style: core.Style{FontSize: 11, LineHeight: 15, FontFamily: "Menlo, monospace"},
-					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-			}})
-		}
-		return core.View{Style: core.Style{Gap: 4, MinWidth: core.Pt(0)}, Children: rows}
+		return a.toolCard(cx, m)
 	case proto.KindNotice:
 		return core.Text{Content: m.Content, Selectable: core.SelectableOn, Style: core.Style{FontSize: 12, LineHeight: 17},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }}
@@ -255,6 +230,167 @@ func (a *app) renderMessage(cx *core.Scope, m proto.Message) core.Node {
 		return core.Group{body, ui.Text("Stopped.", 11.5, ui.Regular, colors.Faint)}
 	}
 	return body
+}
+
+// reasoningCard folds a thinking stream into a disclosure. It opens while
+// the model thinks and folds away when the answer starts; once the reader
+// opens or closes it, their choice wins.
+func (a *app) reasoningCard(cx *core.Scope, m proto.Message) core.Node {
+	colors := ui.ColorsOf(cx)
+	key := "reasoning:" + m.ID
+	running := m.Status == "running"
+	title := "Thought"
+	if running {
+		title = "Thinking"
+	}
+	trigger := []core.Node{ui.Icon(lucide.Brain, 12, colors.Faint), ui.Text(title, 11.5, ui.Semibold, colors.Muted)}
+	if running {
+		trigger = append(trigger, ui.Spinner{Size: 11, Label: "Thinking"})
+	} else {
+		trigger = append(trigger, core.Show{When: func() bool { return !a.isExpanded(key, running) }, Then: func(*core.Scope) core.Node {
+			preview := oneLine(m.Content, 90)
+			if preview == "" {
+				return core.View{}
+			}
+			return core.Text{Content: preview, MaxLines: 1, Style: core.Style{FontSize: 11.5},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }}
+		}})
+	}
+	return core.View{Style: core.Style{MinWidth: core.Pt(0), Padding: core.Edges{Left: 2}}, Children: []core.Node{
+		ui.Collapsible{Variant: ui.CollapsibleArrowLeft, Text: title, Trigger: trigger,
+			Open:         func() bool { return a.isExpanded(key, running) },
+			OnOpenChange: func(open bool) { a.setExpanded(key, open) },
+			TestID:       "reasoning-" + m.ID,
+			Content: core.Text{Content: m.Content, Selectable: core.SelectableOn, Style: core.Style{FontSize: 12, LineHeight: 18},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }}},
+	}}
+}
+
+// toolCard folds one tool call into a card: its name, a one-line summary
+// of the input, its outcome, and the input and output on demand.
+func (a *app) toolCard(cx *core.Scope, m proto.Message) core.Node {
+	colors := ui.ColorsOf(cx)
+	key := "tool:" + m.ID
+	head := m.Title
+	if head == "" {
+		head = "Tool"
+	}
+	failed := m.Status == "failed"
+	trigger := []core.Node{ui.Icon(toolIcon(head), 13, colors.Muted), ui.Text(head, 12, ui.Semibold, colors.Text)}
+	if summary := toolSummary(m.Detail); summary != "" {
+		trigger = append(trigger, core.Text{Content: summary, MaxLines: 1, Style: core.Style{FontSize: 11.5, FontFamily: "Menlo, monospace"},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
+	}
+	switch m.Status {
+	case "running":
+		trigger = append(trigger, ui.Spinner{Size: 12, Label: "Running " + head})
+	case "failed":
+		trigger = append(trigger, ui.Icon(lucide.CircleX, 13, colors.Danger))
+	case "completed":
+		trigger = append(trigger, ui.Icon(lucide.CircleCheck, 13, colors.Faint))
+	}
+	var blocks []core.Node
+	if detail := prettyDetail(m.Detail); detail != "" {
+		blocks = append(blocks, detailBlock(cx, "Input", detail))
+	}
+	if body := truncate(m.Content, 6000); strings.TrimSpace(body) != "" {
+		blocks = append(blocks, detailBlock(cx, "Output", body))
+	}
+	if len(blocks) == 0 {
+		blocks = append(blocks, ui.Text("No output", 11.5, ui.Regular, colors.Faint))
+	}
+	return core.View{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{
+		ui.Collapsible{Variant: ui.CollapsibleArrowLeft, Text: head, Trigger: trigger,
+			Open:         func() bool { return a.isExpanded(key, failed) },
+			OnOpenChange: func(open bool) { a.setExpanded(key, open) },
+			TestID:       "tool-" + m.ID,
+			Content:      core.View{Style: core.Style{Direction: core.Column, Gap: 6, MinWidth: core.Pt(0)}, Children: blocks}},
+	}}
+}
+
+// detailBlock is a labelled monospaced block of a tool card.
+func detailBlock(cx *core.Scope, label, text string) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.View{Style: core.Style{Direction: core.Column, Gap: 3, MinWidth: core.Pt(0)}, Children: []core.Node{
+		ui.Text(label, 10.5, ui.Semibold, colors.Faint),
+		core.View{Style: core.Style{Background: colors.Inset(), CornerRadius: 6, Padding: core.All(8), MinWidth: core.Pt(0)}, Children: []core.Node{
+			core.Text{Content: text, Selectable: core.SelectableOn, Style: core.Style{FontSize: 11, LineHeight: 15, FontFamily: "Menlo, monospace"},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+		}},
+	}}
+}
+
+// toolSummary writes a tool's input as the one line worth showing closed.
+func toolSummary(detail string) string {
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		return ""
+	}
+	var input map[string]any
+	if json.Unmarshal([]byte(detail), &input) == nil {
+		for _, key := range []string{"command", "cmd", "file_path", "path", "pattern", "query", "url", "description", "title", "prompt"} {
+			if value, ok := input[key].(string); ok && strings.TrimSpace(value) != "" {
+				return oneLine(value, 110)
+			}
+		}
+	}
+	return oneLine(detail, 110)
+}
+
+// prettyDetail indents JSON input, and passes anything else through.
+func prettyDetail(detail string) string {
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		return ""
+	}
+	var value any
+	if json.Unmarshal([]byte(detail), &value) == nil {
+		var indented bytes.Buffer
+		encoder := json.NewEncoder(&indented)
+		encoder.SetEscapeHTML(false)
+		encoder.SetIndent("", "  ")
+		if encoder.Encode(value) == nil {
+			return truncate(strings.TrimRight(indented.String(), "\n"), 6000)
+		}
+	}
+	return truncate(detail, 6000)
+}
+
+// oneLine collapses whitespace and clips text to limit runes.
+func oneLine(s string, limit int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	r := []rune(s)
+	if len(r) > limit {
+		return strings.TrimSpace(string(r[:limit-1])) + "…"
+	}
+	return s
+}
+
+// toolIcon picks a glyph for a tool by its name.
+func toolIcon(name string) func() *core.SVG {
+	name = strings.ToLower(name)
+	switch {
+	case hasAny(name, "bash", "shell", "exec", "terminal", "command", "run"):
+		return lucide.Terminal
+	case hasAny(name, "read", "write", "edit", "patch", "file", "notebook"):
+		return lucide.FileText
+	case hasAny(name, "grep", "search", "find", "glob", "list"):
+		return lucide.Search
+	case hasAny(name, "fetch", "http", "web", "browser", "url"):
+		return lucide.Globe
+	case hasAny(name, "task", "agent", "delegate", "subagent"):
+		return lucide.Bot
+	}
+	return lucide.Wrench
+}
+
+func hasAny(s string, parts ...string) bool {
+	for _, part := range parts {
+		if strings.Contains(s, part) {
+			return true
+		}
+	}
+	return false
 }
 
 func truncate(s string, limit int) string {

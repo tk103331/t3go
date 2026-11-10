@@ -8,6 +8,7 @@ import (
 	"github.com/oneo-me/nsgo"
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
+	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/tk/t3go/internal/proto"
 )
@@ -192,15 +193,18 @@ func (a *app) archivedLabel() string {
 }
 
 func (a *app) sidebarFooter(cx *core.Scope) core.Node {
-	colors := ui.ColorsOf(cx)
-	return core.View{Style: core.Style{Direction: core.Row, Width: core.Pct(100), Padding: core.Symmetric(6, 4), Gap: 4, Wrap: core.Wrap, AlignItems: core.AlignCenter}, Children: []core.Node{
-		ui.Button{Text: "+ Project", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "new-project", OnPress: a.openNewProject},
-		ui.Button{Text: "+ Thread", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "new-thread", OnPress: a.openNewThread},
+	return core.View{Style: core.Style{Direction: core.Row, Width: core.Pct(100), Padding: core.Symmetric(6, 4), Gap: 4, AlignItems: core.AlignCenter}, Children: []core.Node{
+		ui.IconButton{Icon: lucide.FolderPlus, Label: "New project", TestID: "new-project", OnPress: a.openNewProject},
+		ui.IconButton{Icon: lucide.MessageSquarePlus, Label: "New thread", TestID: "new-thread", OnPress: a.openNewThread},
 		ui.Spacer{},
-		ui.Button{Text: a.archivedLabel(), Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "toggle-archived", OnPress: a.toggleShowArchived},
-		ui.Button{Text: "Search", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "open-palette", OnPress: a.openPalette},
-		ui.Button{Text: "Settings", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "settings", OnPress: a.openSettings},
-		core.Text{Content: "·", Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+		ui.IconButton{IconFunc: func() *core.SVG {
+			if a.showArchived.Get() {
+				return lucide.ArchiveRestore()
+			}
+			return lucide.Archive()
+		}, LabelFunc: a.archivedLabel, TestID: "toggle-archived", OnPress: a.toggleShowArchived},
+		ui.IconButton{Icon: lucide.Search, Label: "Search", TestID: "open-palette", OnPress: a.openPalette},
+		ui.IconButton{Icon: lucide.Settings, Label: "Settings", TestID: "settings", OnPress: a.openSettings},
 	}}
 }
 
@@ -227,12 +231,12 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 			core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 11},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 		}},
-		ui.Button{Text: "Rename", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "rename-thread",
+		ui.IconButton{Icon: lucide.Pencil, Label: "Rename thread", TestID: "rename-thread",
 			OnPress: func() { a.askRenameThread(d.Thread) }},
-		ui.Button{Text: "Delete", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "delete-thread",
+		ui.IconButton{Icon: lucide.Trash, Label: "Delete thread", TestID: "delete-thread",
 			OnPress: func() { a.askDeleteThread(d.Thread) }},
-		ui.Button{Text: "History", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "history", OnPress: a.openRuns},
-		ui.Button{Text: "Diff", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "open-diff", OnPress: a.openDiff},
+		ui.IconButton{Icon: lucide.Clock3, Label: "Run history", TestID: "history", OnPress: a.openRuns},
+		ui.IconButton{Icon: lucide.GitCompare, Label: "Changes in this thread", TestID: "open-diff", OnPress: a.openDiff},
 	}}
 }
 
@@ -249,8 +253,8 @@ func (a *app) welcome(cx *core.Scope) core.Node {
 		ui.Text("T3Go", 20, ui.Bold, colors.Text),
 		ui.Text("Pick a thread, or start one in a project.", 13, ui.Regular, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Gap: 8, JustifyContent: core.JustifyCenter}, Children: []core.Node{
-			ui.Button{Text: "New project", Variant: ui.ButtonSecondary, TestID: "welcome-new-project", OnPress: a.openNewProject},
-			ui.Button{Text: "New thread", Variant: ui.ButtonPrimary, TestID: "welcome-new-thread", OnPress: a.openNewThread},
+			ui.Button{Text: "New project", Icon: lucide.FolderPlus, Variant: ui.ButtonSecondary, TestID: "welcome-new-project", OnPress: a.openNewProject},
+			ui.Button{Text: "New thread", Icon: lucide.MessageSquarePlus, Variant: ui.ButtonPrimary, TestID: "welcome-new-thread", OnPress: a.openNewThread},
 		}},
 	}}
 }
@@ -262,7 +266,7 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 	if a.selected.Get() != "" {
 		return core.View{Style: core.Style{FlexGrow: 1}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Padding: core.Symmetric(8, 8), Gap: 8}, Children: []core.Node{
-				ui.Button{Text: "Back", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.selected.Set("") }},
+				ui.IconButton{Icon: lucide.ChevronLeft, Label: "Back to threads", OnPress: func() { a.selected.Set("") }},
 				core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{a.contentHeader(cx)}},
 			}},
 			core.View{Style: ui.FillRest, Children: []core.Node{a.threadPane(cx)}},
@@ -271,8 +275,8 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{FlexGrow: 1, Direction: core.Column}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Padding: core.Symmetric(8, 12), Gap: 8}, Children: []core.Node{
 			ui.Text(a.envName(), 16, ui.Bold, colors.Text), ui.Spacer{},
-			ui.Button{Text: "Search", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "open-palette", OnPress: a.openPalette},
-			ui.Button{Text: "Settings", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "settings", OnPress: a.openSettings},
+			ui.IconButton{Icon: lucide.Search, Label: "Search", TestID: "open-palette", OnPress: a.openPalette},
+			ui.IconButton{Icon: lucide.Settings, Label: "Settings", TestID: "settings", OnPress: a.openSettings},
 		}},
 		core.View{Style: ui.FillRest, Children: []core.Node{a.sidebar(cx)}},
 	}}
@@ -318,10 +322,10 @@ func (a *app) approvalDialog(cx *core.Scope) core.Node {
 		Children:     children,
 		TestID:       "approval-dialog",
 		Footer: []core.Node{
-			ui.Button{Text: "Deny", Variant: ui.ButtonGhost, TestID: "approval-deny", OnPress: func() {
+			ui.Button{Text: "Deny", Icon: lucide.X, Variant: ui.ButtonGhost, TestID: "approval-deny", OnPress: func() {
 				a.resolveApproval(request.ID, false, "Denied by the person running T3Go.")
 			}},
-			ui.Button{Text: "Allow", Variant: ui.ButtonPrimary, TestID: "approval-allow", OnPress: func() {
+			ui.Button{Text: "Allow", Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "approval-allow", OnPress: func() {
 				a.resolveApproval(request.ID, true, "")
 			}},
 		},
@@ -354,14 +358,14 @@ func (a *app) newProjectDialog(cx *core.Scope) core.Node {
 				core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 					ui.Input{Input: base.Input{Value: a.newProjectPath.Get, OnChange: a.newProjectPath.Set, Placeholder: "/path/to/project", Label: "Project path"}},
 				}},
-				ui.Button{Text: "Browse…", Variant: ui.ButtonSecondary, OnPress: a.browseProject},
+				ui.Button{Text: "Browse…", Icon: lucide.FolderOpen, Variant: ui.ButtonSecondary, OnPress: a.browseProject},
 			}},
 			core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node {
 				return ui.Text(a.connErr.Get(), 12, ui.Regular, colors.Danger)
 			}},
 		}, Footer: []core.Node{
 			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showNewProject.Set(false) }},
-			ui.Button{Text: "Add project", Variant: ui.ButtonPrimary, OnPress: a.createProject},
+			ui.Button{Text: "Add project", Icon: lucide.FolderPlus, Variant: ui.ButtonPrimary, OnPress: a.createProject},
 		}}
 }
 
@@ -371,7 +375,7 @@ func (a *app) newThreadDialog(cx *core.Scope) core.Node {
 		Children: []core.Node{core.Dynamic(a.newThreadBody)},
 		Footer: []core.Node{
 			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showNewThread.Set(false) }},
-			ui.Button{Text: "Create thread", Variant: ui.ButtonPrimary, TestID: "create-thread", OnPress: a.createThread},
+			ui.Button{Text: "Create thread", Icon: lucide.MessageSquarePlus, Variant: ui.ButtonPrimary, TestID: "create-thread", OnPress: a.createThread},
 		}}
 }
 
@@ -494,7 +498,7 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 			ui.Button{Text: "Disconnect", Variant: ui.ButtonGhost, TestID: "disconnect", OnPress: func() { a.closeSettings(); a.disconnect() }},
 			ui.Spacer{},
 			ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: a.closeSettings},
-			ui.Button{Text: "Save", Variant: ui.ButtonPrimary, TestID: "settings-save", OnPress: func() {
+			ui.Button{Text: "Save", Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "settings-save", OnPress: func() {
 				a.closeSettings()
 				a.saveSettingsDraft()
 			}},
@@ -708,7 +712,7 @@ func (a *app) renameDialog(cx *core.Scope) core.Node {
 		},
 		Footer: []core.Node{
 			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: a.cancelRename},
-			ui.Button{Text: "Save", Variant: ui.ButtonPrimary, TestID: "confirm-rename", OnPress: a.confirmRename},
+			ui.Button{Text: "Save", Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "confirm-rename", OnPress: a.confirmRename},
 		},
 	}
 }

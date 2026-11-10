@@ -54,6 +54,7 @@ type app struct {
 	attachments *core.Signal[[]proto.Attachment]
 	dictating   *core.Signal[bool]
 	speech      *core.SpeechSession
+	expanded    *core.Signal[map[string]bool]
 	approvals   *core.Signal[[]proto.ApprovalRequest]
 
 	// dialogs
@@ -120,6 +121,7 @@ func newApp(cx *core.Scope) *app {
 		queued:      map[string][]queuedPrompt{},
 		attachments: sliceSignal[proto.Attachment](cx),
 		dictating:   core.NewSignal(cx, false),
+		expanded:    core.NewSignalFunc(cx, map[string]bool{}, func(map[string]bool, map[string]bool) bool { return false }),
 		approvals:   sliceSignal[proto.ApprovalRequest](cx),
 
 		showNewProject: core.NewSignal(cx, false),
@@ -826,6 +828,25 @@ func (a *app) attachFiles(files []core.File) {
 			})
 		}()
 	}
+}
+
+// isExpanded reports whether a transcript detail is open, falling back to
+// def until the reader opens or closes it.
+func (a *app) isExpanded(key string, def bool) bool {
+	if open, ok := a.expanded.Get()[key]; ok {
+		return open
+	}
+	return def
+}
+
+// setExpanded opens or closes a transcript detail.
+func (a *app) setExpanded(key string, open bool) {
+	next := make(map[string]bool, len(a.expanded.GetUntracked())+1)
+	for k, v := range a.expanded.GetUntracked() {
+		next[k] = v
+	}
+	next[key] = open
+	a.expanded.Set(next)
 }
 
 // toggleDictation starts listening, or stops the session that is.
