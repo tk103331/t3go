@@ -306,6 +306,26 @@ func (c *Client) Diff(ctx context.Context, threadID, runID string) (string, erro
 	return out.Diff, err
 }
 
+// EnsureTerminal starts or reuses the thread's shell.
+func (c *Client) EnsureTerminal(ctx context.Context, threadID string) (proto.TerminalSession, error) {
+	var out proto.TerminalSession
+	endpoint := "/api/v1/threads/" + url.PathEscape(threadID) + "/terminal"
+	err := c.do(ctx, http.MethodPost, endpoint, map[string]any{}, &out)
+	return out, err
+}
+
+// CloseTerminal ends one shell.
+func (c *Client) CloseTerminal(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/terminals/"+url.PathEscape(id), nil, nil)
+}
+
+// TerminalURL is where a terminal page attaches to its shell.
+func (c *Client) TerminalURL(id string) string {
+	base := strings.Replace(c.BaseURL, "https://", "wss://", 1)
+	base = strings.Replace(base, "http://", "ws://", 1)
+	return base + "/api/v1/terminals/" + url.PathEscape(id) + "/ws?token=" + url.QueryEscape(c.Token)
+}
+
 // Graph lists the repository's commits for the graph view.
 func (c *Client) Graph(ctx context.Context, threadID string) ([]proto.GraphCommit, error) {
 	var out struct {

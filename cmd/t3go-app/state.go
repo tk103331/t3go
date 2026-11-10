@@ -114,6 +114,10 @@ type app struct {
 	browserNext  *core.Signal[bool]
 	browserRef   *core.Ref
 
+	terminalSession *core.Signal[proto.TerminalSession]
+	terminalBusy    *core.Signal[bool]
+	terminalErr     *core.Signal[string]
+
 	conv *chat.ConversationState
 
 	mu           sync.Mutex
@@ -210,6 +214,9 @@ func newApp(cx *core.Scope) *app {
 		browserBack:      core.NewSignal(cx, false),
 		browserNext:      core.NewSignal(cx, false),
 		browserRef:       &core.Ref{},
+		terminalSession:  core.NewSignal(cx, proto.TerminalSession{}),
+		terminalBusy:     core.NewSignal(cx, false),
+		terminalErr:      core.NewSignal(cx, ""),
 	}
 	a.conv = chat.NewConversationState(cx)
 	a.bindKeys()
@@ -759,6 +766,8 @@ func (a *app) selectThread(id string) {
 	a.pullRequest.Set(proto.PullRequest{})
 	a.prDetail.Set("")
 	a.graph.Set(nil)
+	a.terminalSession.Set(proto.TerminalSession{})
+	a.terminalErr.Set("")
 	a.rightErr.Set("")
 	if surface := a.surface.GetUntracked(); surface != "" {
 		a.openSurface(surface)
@@ -1321,6 +1330,67 @@ func (a *app) setRightOpen(open bool) {
 	}
 }
 
+// openTerminal starts or reattaches the thread's shell.
+func (a *app) openTerminal() {
+	id := a.selected.GetUntracked()
+	if id == "" {
+		return
+	}
+	a.terminalBusy.Set(true)
+	a.terminalErr.Set("")
+	a.call(func(ctx context.Context, c *client.Client) error {
+		session, err := c.EnsureTerminal(ctx, id)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			a.cx.Batch(func() {
+				a.terminalSession.Set(session)
+				a.terminalBusy.Set(false)
+			})
+		})
+		return nil
+	}, func(err error) {
+		a.terminalBusy.Set(false)
+		if err != nil {
+			a.terminalErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// restartTerminal closes the shell and starts a fresh one.
+func (a *app) restartTerminal() {
+	id := a.selected.GetUntracked()
+	if id == "" {
+		return
+	}
+	old := a.terminalSession.GetUntracked()
+	a.terminalSession.Set(proto.TerminalSession{})
+	a.terminalBusy.Set(true)
+	a.terminalErr.Set("")
+	a.call(func(ctx context.Context, c *client.Client) error {
+		if old.ID != "" {
+			_ = c.CloseTerminal(ctx, old.ID)
+		}
+		session, err := c.EnsureTerminal(ctx, id)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			a.cx.Batch(func() {
+				a.terminalSession.Set(session)
+				a.terminalBusy.Set(false)
+			})
+		})
+		return nil
+	}, func(err error) {
+		a.terminalBusy.Set(false)
+		if err != nil {
+			a.terminalErr.Set(friendlyError(err))
+		}
+	})
+}
+
 // goBrowser opens a URL in the right panel's web view.
 func (a *app) goBrowser(raw string) {
 	raw = strings.TrimSpace(raw)
@@ -1356,6 +1426,8 @@ func (a *app) openSurface(name string) {
 		a.loadPullRequest(a.selected.GetUntracked())
 	case "graph":
 		a.loadGraph(a.selected.GetUntracked())
+	case "terminal":
+		a.openTerminal()
 	}
 }
 

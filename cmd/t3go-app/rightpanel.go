@@ -46,6 +46,8 @@ func (a *app) rightHeader(cx *core.Scope) core.Node {
 		title = "Git graph"
 	case "browser":
 		title = "Browser"
+	case "terminal":
+		title = "Terminal"
 	}
 	header := []core.Node{}
 	if surface != "" {
@@ -75,6 +77,8 @@ func (a *app) rightBody(cx *core.Scope) core.Node {
 		return a.rightGraph(cx)
 	case "browser":
 		return a.rightBrowser(cx)
+	case "terminal":
+		return a.rightTerminal(cx)
 	}
 	return a.surfacePicker(cx)
 }
@@ -86,7 +90,7 @@ func (a *app) surfacePicker(cx *core.Scope) core.Node {
 	hasThread := thread != ""
 	rows := []core.Node{
 		a.surfaceRow(cx, "browser", "Browser", lucide.Globe, "B", true),
-		a.surfaceRow(cx, "terminal", "Terminal", lucide.Terminal, "T", false),
+		a.surfaceRow(cx, "terminal", "Terminal", lucide.Terminal, "T", hasThread),
 		a.surfaceRow(cx, "files", "Files", lucide.Folder, "F", hasThread),
 		a.surfaceRow(cx, "diff", "Diff", lucide.GitCompare, "D", hasThread),
 		a.surfaceRow(cx, "graph", "Git graph", lucide.GitBranch, "G", hasThread),
@@ -353,6 +357,46 @@ func (a *app) rightError(cx *core.Scope) core.Node {
 		return core.Text{Content: a.rightErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 11.5, LineHeight: 16},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }}
 	}}
+}
+
+// rightTerminal shows the thread's interactive shell.
+func (a *app) rightTerminal(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	if a.selected.Get() == "" {
+		return a.rightNotice(cx, "Pick a thread to open its terminal.")
+	}
+	session := a.terminalSession.Get()
+	shell := filepath.Base(session.Shell)
+	if shell == "" || shell == "." {
+		shell = "shell"
+	}
+	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
+		Padding: core.Edges{Top: 6, Right: 10, Bottom: 6, Left: 10}}, Children: []core.Node{
+		ui.Icon(lucide.Terminal, 14, colors.Muted),
+		core.Text{Content: shell, MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+		core.Show{When: func() bool { return a.terminalBusy.Get() }, Then: func(*core.Scope) core.Node {
+			return ui.Spinner{Size: 12, Label: "Starting terminal"}
+		}},
+		ui.IconButton{Icon: lucide.RotateCcw, Label: "Restart terminal", TestID: "terminal-restart",
+			OnPress: a.restartTerminal},
+	}}
+	body := []core.Node{head}
+	if message := a.terminalErr.Get(); message != "" {
+		body = append(body, core.View{Style: core.Style{Padding: core.Symmetric(6, 10)}, Children: []core.Node{
+			core.Text{Content: message, MaxLines: 3, Style: core.Style{FontSize: 11.5},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }},
+		}})
+	}
+	if session.ID == "" {
+		body = append(body, core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+			Children: []core.Node{ui.Text("Starting shell…", 12, ui.Regular, colors.Faint)}})
+	} else {
+		body = append(body, core.WebView{TestID: "terminal-view", Style: ui.FillRest,
+			SourceFunc: func() core.WebSource { return core.WebHTML(a.terminalHTML(session.ID), "") }})
+	}
+	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Overflow: core.Hidden},
+		Children: body}
 }
 
 // rightBrowser shows a web page with its address bar.

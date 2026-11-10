@@ -1993,3 +1993,51 @@ func TestUpstreamRuntimeApproval(t *testing.T) {
 		t.Fatal("the approval was not resolved")
 	}
 }
+
+func TestTerminalSession(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	e := newTestEnv(t)
+	project := e.project(t)
+	thread := e.thread(t, project.ID)
+
+	var session proto.TerminalSession
+	path := "/api/v1/threads/" + thread.ID + "/terminal"
+	if code := e.request(t, http.MethodPost, path, map[string]any{}, e.token, &session); code != http.StatusOK {
+		t.Fatalf("terminal = %d", code)
+	}
+	if session.ID == "" || session.Cwd == "" || session.Shell == "" {
+		t.Fatalf("session = %#v", session)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/api/v1/terminals/" + session.ID + "/ws?token=" + e.token
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+	_ = wsjson.Write(ctx, conn, map[string]any{"type": "resize", "cols": 100, "rows": 30})
+	if err := wsjson.Write(ctx, conn, map[string]any{"type": "input", "data": "echo T3GO_TERM_OK\n"}); err != nil {
+		t.Fatalf("input: %v", err)
+	}
+	var output strings.Builder
+	deadline := time.Now().Add(15 * time.Second)
+	for !strings.Contains(output.String(), "T3GO_TERM_OK") && time.Now().Before(deadline) {
+		var frame struct {
+			Type string `json:"type"`
+			Data string `json:"data"`
+		}
+		if err := wsjson.Read(ctx, conn, &frame); err != nil {
+			t.Fatalf("read: %v, output %q", err, output.String())
+		}
+		if frame.Type == "output" {
+			output.WriteString(frame.Data)
+		}
+	}
+	if !strings.Contains(output.String(), "T3GO_TERM_OK") {
+		t.Fatalf("shell output = %q", output.String())
+	}
+	if code := e.request(t, http.MethodDelete, "/api/v1/terminals/"+session.ID, nil, e.token, nil); code != http.StatusOK {
+		t.Fatalf("close = %d", code)
+	}
+}

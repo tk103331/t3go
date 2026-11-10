@@ -1282,6 +1282,19 @@ func TestUIRightPanel(t *testing.T) {
 	})
 
 	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:surface-terminal") {
+			return true
+		}
+		if app.Exists("id:surface-back") {
+			app.Press("id:surface-back")
+			app.Settle()
+		}
+		return app.Exists("id:surface-terminal")
+	})
+	app.Press("id:surface-terminal")
+	app.WaitFor("id:terminal-view", 15*time.Second)
+
+	app.WaitUntil(10*time.Second, func() bool {
 		if app.Exists("id:surface-diff") {
 			return true
 		}

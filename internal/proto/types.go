@@ -175,6 +175,16 @@ type GitStatus struct {
 	DiffStat   string `json:"diffStat,omitempty"`
 }
 
+// TerminalSession is one shell in a thread's checkout.
+type TerminalSession struct {
+	ID       string `json:"id"`
+	ThreadID string `json:"threadId"`
+	Shell    string `json:"shell"`
+	Cwd      string `json:"cwd"`
+	Cols     int    `json:"cols"`
+	Rows     int    `json:"rows"`
+}
+
 // GraphRef is a branch, remote or tag label on a commit.
 type GraphRef struct {
 	Name    string `json:"name"`

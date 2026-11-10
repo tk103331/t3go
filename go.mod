@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/coder/websocket v1.8.15
+	github.com/creack/pty v1.1.24
 	github.com/oneo-me/nsgo v0.0.0-20261109153452-87e1fba091b9
 	modernc.org/sqlite v1.62.0
 )

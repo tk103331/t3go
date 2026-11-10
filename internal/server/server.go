@@ -34,16 +34,18 @@ import (
 	"github.com/tk/t3go/internal/proto"
 	"github.com/tk/t3go/internal/provider"
 	"github.com/tk/t3go/internal/store"
+	"github.com/tk/t3go/internal/terminal"
 	"github.com/tk/t3go/internal/upstream"
 )
 
 // Server is one running T3Go environment.
 type Server struct {
-	Config  config.Config
-	Store   *store.Store
-	Service *orchestrator.Service
-	Bus     *events.Bus
-	Log     *log.Logger
+	Config    config.Config
+	Store     *store.Store
+	Service   *orchestrator.Service
+	Bus       *events.Bus
+	Terminals *terminal.Manager
+	Log       *log.Logger
 
 	ID        string
 	StartedAt time.Time
@@ -71,7 +73,8 @@ func New(cfg config.Config, logger *log.Logger) (*Server, error) {
 	providers := provider.NewRegistry()
 	svc := orchestrator.New(st, providers, bus, cfg.Home, logger)
 	svc.ApprovalToken = cfg.Token
-	s := &Server{Config: cfg, Store: st, Service: svc, Bus: bus, Log: logger, ID: id.New("env"), StartedAt: time.Now(),
+	s := &Server{Config: cfg, Store: st, Service: svc, Bus: bus, Terminals: terminal.NewManager(),
+		Log: logger, ID: id.New("env"), StartedAt: time.Now(),
 		closing: make(chan struct{}), tickets: map[string]time.Time{}}
 	if runs, threads, err := svc.RecoverInterrupted(context.Background()); err != nil {
 		_ = st.Close()
@@ -151,6 +154,7 @@ func (s *Server) stopStreaming() {
 // Close stops the HTTP server, the live runs and the database.
 func (s *Server) Close() error {
 	s.stopStreaming()
+	s.Terminals.Shutdown()
 	s.mu.Lock()
 	h := s.http
 	s.mu.Unlock()
@@ -214,6 +218,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/threads/{id}/raw", s.auth(s.handleThreadRaw))
 	mux.HandleFunc("GET /api/v1/threads/{id}/pull-request", s.auth(s.handlePullRequest))
 	mux.HandleFunc("GET /api/v1/threads/{id}/graph", s.auth(s.handleThreadGraph))
+	mux.HandleFunc("POST /api/v1/threads/{id}/terminal", s.auth(s.handleEnsureTerminal))
+	mux.HandleFunc("DELETE /api/v1/terminals/{id}", s.auth(s.handleCloseTerminal))
+	mux.HandleFunc("GET /api/v1/terminals/{id}/ws", s.auth(s.handleTerminalWS))
 	mux.HandleFunc("POST /api/v1/threads/{id}/branches", s.auth(s.handleSwitchBranch))
 	mux.HandleFunc("GET /api/v1/providers", s.auth(s.handleProviders))
 	mux.HandleFunc("GET /api/v1/settings", s.auth(s.handleSettings))
@@ -503,10 +510,12 @@ func (s *Server) handleUpdateThread(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
-	if err := s.Service.DeleteThread(r.Context(), r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	if err := s.Service.DeleteThread(r.Context(), id); err != nil {
 		writeError(w, statusFor(err), "thread", err.Error())
 		return
 	}
+	s.Terminals.CloseThread(id)
 	w.WriteHeader(http.StatusNoContent)
 }
 
