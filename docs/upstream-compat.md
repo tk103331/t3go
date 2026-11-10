@@ -16,22 +16,28 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
 | `subscribeServerLifecycle` | `welcome` 事件 |
 | `orchestration.subscribeShell` | `snapshot` + `synchronized`，包含 T3Go 的项目和线程 shell 行；之后的项目/线程变化以 `project.updated` / `project.removed` / `thread.updated` / `thread.removed` 实时推送 |
 | `subscribeAuthAccess` | 空权限流 |
+| `orchestration.subscribeThread` | 线程快照：AppThread、文本消息与 `user_message`/`assistant_message` turn item，并按 200ms 的文本更新推送 `message.updated` / `turn-item.updated` 事件 |
+| `orchestration.getThreadProjection` | 同一投影的普通请求 |
+| `orchestration.dispatchCommand` | `message.dispatch` 映射到 T3Go 的发送，`thread.stop` 映射到停止 |
 
 以上形状用上游本仓库的 `@t3tools/contracts`（0.1.8）与 `effect@4.1.2` 的
-`RpcClient` 实际解码验证过，包括项目/线程 shell 和订阅后的实时项目更新。
+`RpcClient` 实际解码验证过：项目/线程 shell、订阅后的实时项目更新，以及带两条
+文本消息和 turn item 的线程快照。`message.updated` / `turn-item.updated` 事件
+形状也用上游 schema 校验过。
 
 ## 尚未实现（完整兼容所需）
 
 - 上游的认证/配对/DPoP 流程：目前 `/ws` 仍用 T3Go 的 bearer token（header 或
   `?token=`），官方客户端的配对链接和会话凭据还不能直接复用
 - `ServerConfig` 里的 provider 目录、模型和编辑器列表
-- `orchestration.subscribeThread` 与 transcript/turn item 投影
-- `orchestration.dispatchCommand`（发送、停止、排队等）
-- v2 的 run/工具/审批事件、diff、git、usage 等其余 RPC
+- 线程创建/归档/删除等其余 dispatch 命令
+- reasoning、工具调用、审批、run 状态在 turn item / v2 事件里的完整投影
+- 附件、diff、git、usage 等其余 RPC
 - 上游 `t3code://pair` 链接格式
 
-在完成线程投影和命令映射之前，官方客户端可以连上并看到项目和线程列表，但
-打开线程、发送消息仍不可用。这不影响 T3Go 自己的客户端。
+官方客户端现在可以连上、看到项目和线程列表、打开线程读到文本历史，并通过
+`message.dispatch` 发送消息。reasoning/工具调用、附件和完整 run 元数据仍会让
+细节缺失；T3Go 自己的客户端不受影响。
 
 ## 验证方式
 

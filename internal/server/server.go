@@ -617,6 +617,42 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 		if envelope.Control != "" && envelope.Control != "Request" {
 			continue
 		}
+		switch envelope.Tag {
+		case "orchestration.subscribeThread":
+			var input struct {
+				ThreadID string `json:"threadId"`
+			}
+			_ = json.Unmarshal(envelope.Payload, &input)
+			thread, messages, ok := s.upstreamThread(input.ThreadID)
+			if !ok {
+				_ = writer.write(upstream.UnknownFailure(envelope.ID, "unknown thread"))
+				continue
+			}
+			if err := writer.write(upstream.Chunk(envelope.ID, []any{upstream.ThreadSnapshot(thread, messages)})); err != nil {
+				return
+			}
+			go s.forwardThread(ctx, writer, envelope.ID, input.ThreadID)
+			continue
+		case "orchestration.getThreadProjection":
+			var input struct {
+				ThreadID string `json:"threadId"`
+			}
+			_ = json.Unmarshal(envelope.Payload, &input)
+			thread, messages, ok := s.upstreamThread(input.ThreadID)
+			if !ok {
+				_ = writer.write(upstream.UnknownFailure(envelope.ID, "unknown thread"))
+				continue
+			}
+			if err := writer.write(upstream.Exit(envelope.ID, upstream.ThreadProjection(thread, messages))); err != nil {
+				return
+			}
+			continue
+		case "orchestration.dispatchCommand":
+			if !s.upstreamDispatch(ctx, writer, envelope.ID, envelope.Payload) {
+				return
+			}
+			continue
+		}
 		frames, _, known := upstream.Handle(env, upstream.Request{Tag: envelope.Tag, ID: envelope.ID, Payload: envelope.Payload})
 		if !known {
 			frames = []map[string]any{upstream.UnknownFailure(envelope.ID, upstream.Unknown(envelope.Tag))}
@@ -629,6 +665,98 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 		if envelope.Tag == "orchestration.subscribeShell" && !shellForwarding {
 			shellForwarding = true
 			go s.forwardShell(ctx, writer, envelope.ID)
+		}
+	}
+}
+
+// upstreamThread reads one thread and its text transcript.
+func (s *Server) upstreamThread(threadID string) (upstream.Thread, []upstream.Message, bool) {
+	ctx := context.Background()
+	thread, err := s.Store.Thread(ctx, threadID)
+	if err != nil {
+		return upstream.Thread{}, nil, false
+	}
+	stored, err := s.Store.Messages(ctx, threadID, 4000)
+	if err != nil {
+		return upstream.Thread{}, nil, false
+	}
+	messages := make([]upstream.Message, 0, len(stored))
+	for _, m := range stored {
+		if m.Content == "" || (m.Role != "user" && m.Kind != "text") {
+			continue
+		}
+		messages = append(messages, upstream.Message{
+			ID: m.ID, ThreadID: m.ThreadID, RunID: m.RunID, Role: string(m.Role), Kind: string(m.Kind),
+			Content: m.Content, Status: m.Status, CreatedAt: m.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		})
+	}
+	return shellThread(thread), messages, true
+}
+
+// upstreamDispatch maps the T3 Code commands this layer understands.
+func (s *Server) upstreamDispatch(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, payload json.RawMessage) bool {
+	var command struct {
+		Type     string `json:"type"`
+		ThreadID string `json:"threadId"`
+		Text     string `json:"text"`
+	}
+	if err := json.Unmarshal(payload, &command); err != nil {
+		_ = writer.write(upstream.UnknownFailure(requestID, "invalid command"))
+		return true
+	}
+	switch command.Type {
+	case "message.dispatch":
+		if _, err := s.Service.SendWith(ctx, command.ThreadID, command.Text, nil); err != nil {
+			_ = writer.write(upstream.UnknownFailure(requestID, err.Error()))
+			return true
+		}
+		return writer.write(upstream.Exit(requestID, map[string]any{"sequence": 0})) == nil
+	case "thread.stop":
+		s.Service.Stop(command.ThreadID)
+		return writer.write(upstream.Exit(requestID, map[string]any{"sequence": 0})) == nil
+	default:
+		_ = writer.write(upstream.UnknownFailure(requestID, upstream.Unknown(command.Type)))
+		return true
+	}
+}
+
+// forwardThread sends text message changes to an upstream thread stream.
+func (s *Server) forwardThread(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, threadID string) {
+	live, unsubscribe := s.Bus.Subscribe()
+	defer unsubscribe()
+	ordinals := map[string]int{}
+	nextOrdinal := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-live:
+			if !ok {
+				return
+			}
+			if event.ThreadID != threadID || event.Type != proto.EventMessage {
+				continue
+			}
+			m, ok := decodeEvent[proto.Message](event.Data)
+			if !ok || m.Content == "" || (m.Role != "user" && m.Kind != "text") {
+				continue
+			}
+			ordinal, seen := ordinals[m.ID]
+			if !seen {
+				ordinal = nextOrdinal
+				ordinals[m.ID] = ordinal
+				nextOrdinal++
+			}
+			message := upstream.Message{ID: m.ID, ThreadID: m.ThreadID, RunID: m.RunID, Role: string(m.Role),
+				Kind: string(m.Kind), Content: m.Content, Status: m.Status,
+				CreatedAt: m.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z")}
+			sequence := event.Seq * 2
+			if err := writer.write(upstream.Chunk(requestID, []any{upstream.MessageUpdated(sequence, message, ordinal)})); err != nil {
+				return
+			}
+			if err := writer.write(upstream.Chunk(requestID, []any{upstream.TurnItemUpdated(sequence+1, message, ordinal)})); err != nil {
+				return
+			}
 		}
 	}
 }

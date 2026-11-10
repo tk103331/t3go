@@ -18,6 +18,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/tk/t3go/internal/config"
 	"github.com/tk/t3go/internal/proto"
+	"github.com/tk/t3go/internal/provider"
 )
 
 type testEnv struct {
@@ -563,5 +564,113 @@ func TestUpstreamDiscoveryAndProbe(t *testing.T) {
 	send(map[string]any{"_tag": "Ping"})
 	if frame := read(); frame["_tag"] != "Pong" {
 		t.Fatalf("ping = %#v", frame)
+	}
+}
+
+// upstreamRunner answers a turn at once, so an upstream dispatch test does
+// not need a provider CLI.
+type upstreamRunner struct{}
+
+func (upstreamRunner) ID() string   { return "upstream-fake" }
+func (upstreamRunner) Name() string { return "Upstream Fake" }
+
+func (upstreamRunner) Snapshot(context.Context) proto.Provider {
+	return proto.Provider{ID: "upstream-fake", Name: "Upstream Fake", Installed: true, Version: "1",
+		Models: []proto.Model{{ID: "upstream-fake-1", Name: "One", Provider: "upstream-fake", Default: true}}}
+}
+
+func (upstreamRunner) Run(ctx context.Context, turn provider.Turn, sink provider.Sink) error {
+	sink.Text("hello from the fake")
+	return nil
+}
+
+// TestUpstreamThreadAndDispatch opens a thread stream, sends a command and
+// sees the user and assistant messages arrive as v2 events.
+func TestUpstreamThreadAndDispatch(t *testing.T) {
+	e := newTestEnv(t)
+	e.server.Service.Providers.Register(upstreamRunner{})
+
+	var thread proto.Thread
+	body := map[string]any{"projectId": e.project(t).ID, "title": "Upstream thread",
+		"provider": "upstream-fake", "model": "upstream-fake-1", "permission": "full-access"}
+	if code := e.request(t, http.MethodPost, "/api/v1/threads", body, e.token, &thread); code != http.StatusCreated {
+		t.Fatalf("thread = %d", code)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2"
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+		"Authorization": []string{"Bearer " + e.token},
+	}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+
+	write := func(v any) {
+		t.Helper()
+		if err := wsjson.Write(ctx, conn, v); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	read := func() map[string]any {
+		t.Helper()
+		var frame map[string]any
+		if err := wsjson.Read(ctx, conn, &frame); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		return frame
+	}
+
+	write(map[string]any{"_tag": "Request", "id": 1, "tag": "orchestration.subscribeThread",
+		"payload": map[string]any{"threadId": thread.ID}, "headers": []any{}})
+	frame := read()
+	values, _ := frame["values"].([]any)
+	if frame["_tag"] != "Chunk" || len(values) != 1 {
+		t.Fatalf("thread snapshot = %#v", frame)
+	}
+	snapshot := values[0].(map[string]any)
+	projection := snapshot["projection"].(map[string]any)
+	appThread := projection["thread"].(map[string]any)
+	if snapshot["kind"] != "snapshot" || appThread["id"] != thread.ID {
+		t.Fatalf("snapshot = %#v", snapshot)
+	}
+
+	write(map[string]any{"_tag": "Request", "id": 2, "tag": "orchestration.dispatchCommand",
+		"payload": map[string]any{"type": "message.dispatch", "commandId": "cmd_1", "threadId": thread.ID,
+			"messageId": "msg_cmd", "text": "Run this", "createdBy": "user", "creationSource": "web", "attachments": []any{}},
+		"headers": []any{}})
+	var sawReceipt, sawUser, sawAssistant bool
+	observe := func(frame map[string]any) {
+		if frame["_tag"] == "Exit" {
+			sawReceipt = frame["requestId"].(float64) == 2 && frame["exit"].(map[string]any)["_tag"] == "Success"
+			return
+		}
+		items, _ := frame["values"].([]any)
+		if frame["_tag"] != "Chunk" || len(items) != 1 {
+			return
+		}
+		event := items[0].(map[string]any)
+		if event["kind"] != "event" {
+			return
+		}
+		domain := event["event"].(map[string]any)
+		if domain["type"] != "message.updated" {
+			return
+		}
+		payload := domain["payload"].(map[string]any)
+		switch payload["role"] {
+		case "user":
+			sawUser = sawUser || payload["text"] == "Run this"
+		case "assistant":
+			sawAssistant = sawAssistant || payload["text"] == "hello from the fake"
+		}
+	}
+	for !sawReceipt || !sawAssistant {
+		observe(read())
+	}
+	if !sawUser {
+		t.Fatalf("no user message event (assistant = %v)", sawAssistant)
 	}
 }
