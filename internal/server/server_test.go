@@ -548,6 +548,18 @@ func TestUpstreamDiscoveryAndProbe(t *testing.T) {
 		t.Fatalf("thread = %#v", thread)
 	}
 
+	// A new project reaches the open shell stream.
+	created := e.project(t)
+	frame = read()
+	values, _ := frame["values"].([]any)
+	if frame["_tag"] != "Chunk" || len(values) != 1 {
+		t.Fatalf("shell update = %#v", frame)
+	}
+	update := values[0].(map[string]any)
+	if update["kind"] != "project.updated" || update["project"].(map[string]any)["id"] != created.ID {
+		t.Fatalf("shell update = %#v", update)
+	}
+
 	send(map[string]any{"_tag": "Ping"})
 	if frame := read(); frame["_tag"] != "Pong" {
 		t.Fatalf("ping = %#v", frame)

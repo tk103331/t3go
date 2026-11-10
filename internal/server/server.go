@@ -590,7 +590,9 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 		case <-done:
 		}
 	}()
+	writer := &upstreamWriter{ctx: ctx, conn: conn}
 	env := s.upstreamEnvironment()
+	shellForwarding := false
 	for {
 		kind, data, err := conn.Read(ctx)
 		if err != nil {
@@ -609,7 +611,7 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if envelope.Control == "Ping" {
-			_ = writeUpstream(ctx, conn, map[string]any{"_tag": "Pong"})
+			_ = writer.write(map[string]any{"_tag": "Pong"})
 			continue
 		}
 		if envelope.Control != "" && envelope.Control != "Request" {
@@ -620,19 +622,15 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 			frames = []map[string]any{upstream.UnknownFailure(envelope.ID, upstream.Unknown(envelope.Tag))}
 		}
 		for _, frame := range frames {
-			if err := writeUpstream(ctx, conn, frame); err != nil {
+			if err := writer.write(frame); err != nil {
 				return
 			}
 		}
+		if envelope.Tag == "orchestration.subscribeShell" && !shellForwarding {
+			shellForwarding = true
+			go s.forwardShell(ctx, writer, envelope.ID)
+		}
 	}
-}
-
-func writeUpstream(ctx context.Context, conn *websocket.Conn, frame any) error {
-	data, err := json.Marshal(frame)
-	if err != nil {
-		return err
-	}
-	return conn.Write(ctx, websocket.MessageText, data)
 }
 
 // localURL is where a program on this machine reaches listen, with a

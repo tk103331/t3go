@@ -14,11 +14,11 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
 | `server.getConfig` | 最小 `ServerConfig`（环境、auth、cwd、空 provider/编辑器列表、默认设置） |
 | `subscribeServerConfig` | 第一帧 `{version:1,type:"snapshot",config}` |
 | `subscribeServerLifecycle` | `welcome` 事件 |
-| `orchestration.subscribeShell` | `snapshot` + `synchronized`，包含 T3Go 的项目和线程 shell 行 |
+| `orchestration.subscribeShell` | `snapshot` + `synchronized`，包含 T3Go 的项目和线程 shell 行；之后的项目/线程变化以 `project.updated` / `project.removed` / `thread.updated` / `thread.removed` 实时推送 |
 | `subscribeAuthAccess` | 空权限流 |
 
 以上形状用上游本仓库的 `@t3tools/contracts`（0.1.8）与 `effect@4.1.2` 的
-`RpcClient` 实际解码验证过，包括项目/线程 shell。
+`RpcClient` 实际解码验证过，包括项目/线程 shell 和订阅后的实时项目更新。
 
 ## 尚未实现（完整兼容所需）
 
@@ -36,7 +36,7 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
 ## 验证方式
 
 `internal/server/server_test.go` 的 `TestUpstreamDiscoveryAndProbe` 覆盖发现、
-probe、config 和 shell 帧。开发时另用上游 contracts 做了真实解码验证：
+probe、config、shell 快照和实时项目更新。开发时另用上游 contracts 做了真实解码验证：
 
 ```sh
 # 在临时目录安装 effect@4.1.2，复制上游 packages/contracts/src

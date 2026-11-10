@@ -120,20 +120,12 @@ func Config(env Environment) map[string]any {
 func ShellSnapshot(env Environment) map[string]any {
 	projects := make([]any, 0, len(env.Projects))
 	for _, p := range env.Projects {
-		projects = append(projects, map[string]any{
-			"id":                    p.ID,
-			"title":                 nonEmpty(p.Title, p.ID),
-			"workspaceRoot":         nonEmpty(p.WorkspaceRoot, "/"),
-			"defaultModelSelection": nil,
-			"scripts":               []any{},
-			"createdAt":             isoTimestamp(p.CreatedAt),
-			"updatedAt":             isoTimestamp(p.UpdatedAt),
-		})
+		projects = append(projects, ProjectRow(p))
 	}
 	threads := make([]any, 0, len(env.Threads))
 	archived := make([]any, 0)
 	for _, t := range env.Threads {
-		row := threadShell(t)
+		row := ThreadRow(t)
 		if t.Archived {
 			archived = append(archived, row)
 			continue
@@ -149,7 +141,21 @@ func ShellSnapshot(env Environment) map[string]any {
 	}
 }
 
-func threadShell(t Thread) map[string]any {
+// ProjectRow is one project in the upstream shell shape.
+func ProjectRow(p Project) map[string]any {
+	return map[string]any{
+		"id":                    p.ID,
+		"title":                 nonEmpty(p.Title, p.ID),
+		"workspaceRoot":         nonEmpty(p.WorkspaceRoot, "/"),
+		"defaultModelSelection": nil,
+		"scripts":               []any{},
+		"createdAt":             isoTimestamp(p.CreatedAt),
+		"updatedAt":             isoTimestamp(p.UpdatedAt),
+	}
+}
+
+// ThreadRow is one thread in the upstream shell shape.
+func ThreadRow(t Thread) map[string]any {
 	status := "idle"
 	switch t.Status {
 	case "running":
