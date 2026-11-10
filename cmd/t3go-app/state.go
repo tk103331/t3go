@@ -166,6 +166,13 @@ func newApp(cx *core.Scope) *app {
 	}
 	url, _ := a.store.GetItem("serverUrl")
 	token, _ := a.store.GetItem("token")
+	// A dev script can point a fresh profile at an environment.
+	if value := strings.TrimSpace(os.Getenv("T3GO_SERVER")); value != "" {
+		url = value
+	}
+	if value := strings.TrimSpace(os.Getenv("T3GO_TOKEN")); value != "" {
+		token = value
+	}
 	a.serverURL.Set(url)
 	a.token.Set(token)
 	if url != "" {

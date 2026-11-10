@@ -197,6 +197,38 @@ internal/config/     数据目录、token、监听地址
 更细的请求流和 run 生命周期见 [docs/architecture.md](docs/architecture.md)，上游
 T3 Code 协议目前覆盖到哪里见 [docs/upstream-compat.md](docs/upstream-compat.md)。
 
+## 本地调试
+
+一条命令启动本地环境、网页版和桌面端；桌面端会自动连上刚启动的服务：
+
+```sh
+./scripts/dev.sh
+```
+
+默认数据目录 `.dev/t3go`、监听 `127.0.0.1:4870`，服务日志在
+`/tmp/t3go-dev-server.log`。可用环境变量调整：
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `T3GO_DEV_HOME` | `.dev/t3go` | 调试环境的数据目录 |
+| `T3GO_DEV_LISTEN` | `127.0.0.1:4870` | 监听地址 |
+| `T3GO_DEV_WEB` | `1` | 构建并提供网页版 |
+| `T3GO_DEV_APP` | `1` | 启动桌面端；设为 0 时前台只跑服务 |
+
+也可以分终端手动跑：
+
+```sh
+# 终端 1：服务 + 网页版
+./scripts/build-web.sh
+go run ./cmd/t3go serve --home .dev/t3go --listen 127.0.0.1:4870 --web web
+
+# 终端 2：桌面端（粘贴 serve 打印的 t3go://pair 链接）
+go run ./cmd/t3go-app
+```
+
+桌面端也接受 `T3GO_SERVER` / `T3GO_TOKEN` 环境变量直接连接，适合脚本或
+IDE 调试配置。
+
 ## 开发与测试
 
 ```sh
