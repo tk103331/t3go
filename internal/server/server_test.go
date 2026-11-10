@@ -2127,3 +2127,46 @@ func TestWorkingDiffStageAndDiscard(t *testing.T) {
 		t.Fatalf("escape = %d", code)
 	}
 }
+
+func TestAgentCommands(t *testing.T) {
+	e := newTestEnv(t)
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".claude", "commands"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".claude", "commands", "review.md"),
+		[]byte("---\nname: review\ndescription: Review the change\n---\n\nLook closely.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, ".opencode", "skills", "audit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".opencode", "skills", "audit", "SKILL.md"),
+		[]byte("---\ndescription: Audit a change\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var project proto.Project
+	if code := e.request(t, http.MethodPost, "/api/v1/projects",
+		map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
+		t.Fatalf("project = %d", code)
+	}
+	thread := e.thread(t, project.ID)
+	var result struct {
+		Commands []proto.AgentCommand `json:"commands"`
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/commands", nil, e.token, &result); code != http.StatusOK {
+		t.Fatalf("commands = %d", code)
+	}
+	var review, audit bool
+	for _, command := range result.Commands {
+		if command.Name == "review" && command.Source == "claude" && command.Kind == "command" {
+			review = command.Description == "Review the change"
+		}
+		if command.Name == "audit" && command.Source == "opencode" && command.Kind == "skill" {
+			audit = command.Description == "Audit a change"
+		}
+	}
+	if !review || !audit {
+		t.Fatalf("commands = %#v", result.Commands)
+	}
+}

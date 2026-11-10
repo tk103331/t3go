@@ -223,6 +223,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/threads/{id}/raw", s.auth(s.handleThreadRaw))
 	mux.HandleFunc("GET /api/v1/threads/{id}/pull-request", s.auth(s.handlePullRequest))
 	mux.HandleFunc("GET /api/v1/threads/{id}/graph", s.auth(s.handleThreadGraph))
+	mux.HandleFunc("GET /api/v1/threads/{id}/commands", s.auth(s.handleAgentCommands))
 	mux.HandleFunc("POST /api/v1/threads/{id}/terminal", s.auth(s.handleEnsureTerminal))
 	mux.HandleFunc("POST /api/v1/threads/{id}/terminals", s.auth(s.handleCreateTerminal))
 	mux.HandleFunc("GET /api/v1/threads/{id}/terminals", s.auth(s.handleListTerminals))
@@ -500,6 +501,7 @@ func (s *Server) handleUpdateThread(w http.ResponseWriter, r *http.Request) {
 		Provider   *string               `json:"provider"`
 		Model      *string               `json:"model"`
 		Permission *proto.PermissionMode `json:"permission"`
+		Plan       *bool                 `json:"plan"`
 		Archived   *bool                 `json:"archived"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
@@ -507,7 +509,7 @@ func (s *Server) handleUpdateThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t, err := s.Service.UpdateThread(r.Context(), r.PathValue("id"), orchestrator.ThreadPatch{
-		Title: in.Title, Provider: in.Provider, Model: in.Model, Permission: in.Permission, Archived: in.Archived,
+		Title: in.Title, Provider: in.Provider, Model: in.Model, Permission: in.Permission, Plan: in.Plan, Archived: in.Archived,
 	})
 	if err != nil {
 		writeError(w, statusFor(err), "thread", err.Error())

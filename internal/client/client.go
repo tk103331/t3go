@@ -344,6 +344,16 @@ func (c *Client) TerminalURL(id string) string {
 	return base + "/api/v1/terminals/" + url.PathEscape(id) + "/ws?token=" + url.QueryEscape(c.Token)
 }
 
+// AgentCommands lists workspace skills and custom commands.
+func (c *Client) AgentCommands(ctx context.Context, threadID string) ([]proto.AgentCommand, error) {
+	var out struct {
+		Commands []proto.AgentCommand `json:"commands"`
+	}
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/commands"
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out.Commands, err
+}
+
 // Graph lists the repository's commits for the graph view.
 func (c *Client) Graph(ctx context.Context, threadID string) ([]proto.GraphCommit, error) {
 	var out struct {

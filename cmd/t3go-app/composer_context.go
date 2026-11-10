@@ -24,7 +24,9 @@ func (a *app) composerSuggestions(cx *core.Scope) core.Node {
 	draft := a.draft.Get()
 	if query, ok := slashQuery(draft); ok {
 		var rows []core.Node
+		appCommands := map[string]bool{}
 		for _, command := range a.slashCommands() {
+			appCommands[command.Name] = true
 			if !strings.Contains(strings.ToLower(command.Name), strings.ToLower(query)) {
 				continue
 			}
@@ -35,10 +37,24 @@ func (a *app) composerSuggestions(cx *core.Scope) core.Node {
 					command.Run()
 				}))
 		}
+		for _, command := range a.agentCommands.Get() {
+			command := command
+			if appCommands[command.Name] || !strings.Contains(strings.ToLower(command.Name), strings.ToLower(query)) {
+				continue
+			}
+			detail := command.Source
+			if command.Kind != "" {
+				detail = command.Kind + " · " + command.Source
+			}
+			rows = append(rows, a.suggestionRow(cx, lucide.Sparkles, "/"+command.Name, detail,
+				"agent-command-"+command.Source+"-"+command.Name, func() {
+					a.setDraft("/" + command.Name + " ")
+				}))
+		}
 		if len(rows) == 0 {
 			return core.View{}
 		}
-		return a.suggestionCard(cx, "Commands", rows)
+		return a.suggestionCard(cx, "Skills & commands", rows)
 	}
 	start, query, ok := activeMention(draft)
 	if !ok {

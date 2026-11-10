@@ -132,8 +132,11 @@ CREATE INDEX IF NOT EXISTS events_thread ON events(thread_id, seq);
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
 	}
-	// Databases from before attachments have the column added here.
+	// Databases from before attachments or plan mode have the column added here.
 	if err := s.ensureColumn(ctx, "messages", "attachments", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "threads", "plan", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	return nil
@@ -258,7 +261,7 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 }
 
 func threadColumns() string {
-	return `id,project_id,title,provider,model,permission,branch,worktree_path,status,provider_session,summary,archived,created_at,updated_at,last_error`
+	return `id,project_id,title,provider,model,permission,plan,branch,worktree_path,status,provider_session,summary,archived,created_at,updated_at,last_error`
 }
 
 type scanner interface{ Scan(...any) error }
@@ -266,21 +269,22 @@ type scanner interface{ Scan(...any) error }
 func scanThread(row scanner) (proto.Thread, error) {
 	var t proto.Thread
 	var created, updated string
-	var archived int
-	err := row.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Provider, &t.Model, &t.Permission, &t.Branch, &t.WorktreePath,
+	var archived, plan int
+	err := row.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Provider, &t.Model, &t.Permission, &plan, &t.Branch, &t.WorktreePath,
 		&t.Status, &t.ProviderSession, &t.Summary, &archived, &created, &updated, &t.LastError)
 	if err != nil {
 		return t, err
 	}
 	t.Archived = archived != 0
+	t.Plan = plan != 0
 	t.CreatedAt, t.UpdatedAt = parseTime(created), parseTime(updated)
 	return t, nil
 }
 
 // CreateThread inserts a thread.
 func (s *Store) CreateThread(ctx context.Context, t proto.Thread) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO threads(`+threadColumns()+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		t.ID, t.ProjectID, t.Title, t.Provider, t.Model, t.Permission, t.Branch, t.WorktreePath, t.Status, t.ProviderSession,
+	_, err := s.db.ExecContext(ctx, `INSERT INTO threads(`+threadColumns()+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		t.ID, t.ProjectID, t.Title, t.Provider, t.Model, t.Permission, boolInt(t.Plan), t.Branch, t.WorktreePath, t.Status, t.ProviderSession,
 		t.Summary, boolInt(t.Archived), t.CreatedAt.UTC().Format(time.RFC3339Nano), t.UpdatedAt.UTC().Format(time.RFC3339Nano), t.LastError)
 	if err != nil {
 		return fmt.Errorf("store: create thread: %w", err)
@@ -328,9 +332,9 @@ func (s *Store) Thread(ctx context.Context, id string) (proto.Thread, error) {
 
 // UpdateThread writes a thread's mutable fields.
 func (s *Store) UpdateThread(ctx context.Context, t proto.Thread) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE threads SET title=?,provider=?,model=?,permission=?,branch=?,worktree_path=?,status=?,
+	res, err := s.db.ExecContext(ctx, `UPDATE threads SET title=?,provider=?,model=?,permission=?,plan=?,branch=?,worktree_path=?,status=?,
 		provider_session=?,summary=?,archived=?,updated_at=?,last_error=? WHERE id=?`,
-		t.Title, t.Provider, t.Model, t.Permission, t.Branch, t.WorktreePath, t.Status, t.ProviderSession, t.Summary,
+		t.Title, t.Provider, t.Model, t.Permission, boolInt(t.Plan), t.Branch, t.WorktreePath, t.Status, t.ProviderSession, t.Summary,
 		boolInt(t.Archived), t.UpdatedAt.UTC().Format(time.RFC3339Nano), t.LastError, t.ID)
 	if err != nil {
 		return fmt.Errorf("store: update thread: %w", err)

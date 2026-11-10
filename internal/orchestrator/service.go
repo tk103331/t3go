@@ -381,6 +381,9 @@ func (s *Service) UpdateThread(ctx context.Context, threadID string, patch Threa
 	if patch.Permission != nil && patch.Permission.Valid() {
 		t.Permission = *patch.Permission
 	}
+	if patch.Plan != nil {
+		t.Plan = *patch.Plan
+	}
 	if patch.Archived != nil {
 		t.Archived = *patch.Archived
 	}
@@ -398,6 +401,7 @@ type ThreadPatch struct {
 	Provider   *string
 	Model      *string
 	Permission *proto.PermissionMode
+	Plan       *bool
 	Archived   *bool
 }
 

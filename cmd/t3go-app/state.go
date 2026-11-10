@@ -112,6 +112,10 @@ type app struct {
 	fileIndexThread *core.Signal[string]
 	fileIndexBusy   *core.Signal[bool]
 
+	agentCommands       *core.Signal[[]proto.AgentCommand]
+	agentCommandsThread *core.Signal[string]
+	agentCommandsBusy   *core.Signal[bool]
+
 	rightOpen    *core.Signal[bool]
 	rightWidth   *core.Signal[core.Points]
 	rightDrag    core.Points
@@ -221,39 +225,42 @@ func newApp(cx *core.Scope) *app {
 		newThreadProj:   core.NewSignal(cx, ""),
 		newThreadBranch: core.NewSignal(cx, ""),
 
-		sidebarOpen:      core.NewSignal(cx, true),
-		sidebarWidth:     core.NewSignal(cx, core.Points(260)),
-		sidebarQuery:     core.NewSignal(cx, ""),
-		sidebarCollapsed: core.NewSignalFunc(cx, map[string]bool{}, func(map[string]bool, map[string]bool) bool { return false }),
-		seen:             core.NewSignalFunc(cx, map[string]time.Time{}, func(map[string]time.Time, map[string]time.Time) bool { return false }),
-		drafts:           core.NewSignalFunc(cx, map[string]string{}, func(map[string]string, map[string]string) bool { return false }),
-		pinned:           core.NewSignalFunc(cx, map[string]bool{}, func(map[string]bool, map[string]bool) bool { return false }),
-		rightOpen:        core.NewSignal(cx, false),
-		rightWidth:       core.NewSignal(cx, core.Points(360)),
-		tabs:             sliceSignal[string](cx),
-		surface:          core.NewSignal(cx, ""),
-		filesPath:        core.NewSignal(cx, ""),
-		filesEntries:     sliceSignal[proto.WorkspaceEntry](cx),
-		fileSelected:     core.NewSignal(cx, ""),
-		file:             core.NewSignal(cx, proto.WorkspaceFile{}),
-		rightErr:         core.NewSignal(cx, ""),
-		rightBusy:        core.NewSignal(cx, false),
-		pullRequest:      core.NewSignal(cx, proto.PullRequest{}),
-		prDetail:         core.NewSignal(cx, ""),
-		graph:            sliceSignal[proto.GraphCommit](cx),
-		browserURL:       core.NewSignal(cx, ""),
-		browserInput:     core.NewSignal(cx, ""),
-		browserNote:      core.NewSignal(cx, ""),
-		browserBack:      core.NewSignal(cx, false),
-		browserNext:      core.NewSignal(cx, false),
-		browserRef:       &core.Ref{},
-		fileIndex:        sliceSignal[proto.WorkspaceEntry](cx),
-		fileIndexThread:  core.NewSignal(cx, ""),
-		fileIndexBusy:    core.NewSignal(cx, false),
-		terminalSession:  core.NewSignal(cx, proto.TerminalSession{}),
-		terminals:        sliceSignal[proto.TerminalSession](cx),
-		terminalBusy:     core.NewSignal(cx, false),
-		terminalErr:      core.NewSignal(cx, ""),
+		sidebarOpen:         core.NewSignal(cx, true),
+		sidebarWidth:        core.NewSignal(cx, core.Points(260)),
+		sidebarQuery:        core.NewSignal(cx, ""),
+		sidebarCollapsed:    core.NewSignalFunc(cx, map[string]bool{}, func(map[string]bool, map[string]bool) bool { return false }),
+		seen:                core.NewSignalFunc(cx, map[string]time.Time{}, func(map[string]time.Time, map[string]time.Time) bool { return false }),
+		drafts:              core.NewSignalFunc(cx, map[string]string{}, func(map[string]string, map[string]string) bool { return false }),
+		pinned:              core.NewSignalFunc(cx, map[string]bool{}, func(map[string]bool, map[string]bool) bool { return false }),
+		rightOpen:           core.NewSignal(cx, false),
+		rightWidth:          core.NewSignal(cx, core.Points(360)),
+		tabs:                sliceSignal[string](cx),
+		surface:             core.NewSignal(cx, ""),
+		filesPath:           core.NewSignal(cx, ""),
+		filesEntries:        sliceSignal[proto.WorkspaceEntry](cx),
+		fileSelected:        core.NewSignal(cx, ""),
+		file:                core.NewSignal(cx, proto.WorkspaceFile{}),
+		rightErr:            core.NewSignal(cx, ""),
+		rightBusy:           core.NewSignal(cx, false),
+		pullRequest:         core.NewSignal(cx, proto.PullRequest{}),
+		prDetail:            core.NewSignal(cx, ""),
+		graph:               sliceSignal[proto.GraphCommit](cx),
+		browserURL:          core.NewSignal(cx, ""),
+		browserInput:        core.NewSignal(cx, ""),
+		browserNote:         core.NewSignal(cx, ""),
+		browserBack:         core.NewSignal(cx, false),
+		browserNext:         core.NewSignal(cx, false),
+		browserRef:          &core.Ref{},
+		fileIndex:           sliceSignal[proto.WorkspaceEntry](cx),
+		fileIndexThread:     core.NewSignal(cx, ""),
+		fileIndexBusy:       core.NewSignal(cx, false),
+		agentCommands:       sliceSignal[proto.AgentCommand](cx),
+		agentCommandsThread: core.NewSignal(cx, ""),
+		agentCommandsBusy:   core.NewSignal(cx, false),
+		terminalSession:     core.NewSignal(cx, proto.TerminalSession{}),
+		terminals:           sliceSignal[proto.TerminalSession](cx),
+		terminalBusy:        core.NewSignal(cx, false),
+		terminalErr:         core.NewSignal(cx, ""),
 	}
 	a.conv = chat.NewConversationState(cx)
 	a.bindKeys()
@@ -815,6 +822,8 @@ func (a *app) selectThread(id string) {
 		a.attachments.Set(append([]proto.Attachment(nil), a.attachmentDrafts.GetUntracked()[id]...))
 		a.fileIndex.Set(nil)
 		a.fileIndexThread.Set("")
+		a.agentCommands.Set(nil)
+		a.agentCommandsThread.Set("")
 	}
 	a.draft.Set(a.drafts.GetUntracked()[id])
 	for _, t := range a.threads.GetUntracked() {
@@ -1280,6 +1289,9 @@ func (a *app) setDraft(text string) {
 	if strings.Contains(text, "@") {
 		a.ensureFileIndex()
 	}
+	if strings.HasPrefix(strings.TrimSpace(text), "/") {
+		a.ensureAgentCommands()
+	}
 	// The sidebar's draft marker can wait for a pause; updating it on
 	// every key would rebuild the list under the composer.
 	if a.draftSave != nil {
@@ -1405,6 +1417,32 @@ func (a *app) pasteAttachments(event core.PasteEvent) {
 	if len(event.URIs) > 0 {
 		a.attachPaths(event.URIs)
 	}
+}
+
+// ensureAgentCommands loads workspace skills and custom commands once.
+func (a *app) ensureAgentCommands() {
+	id := a.selected.GetUntracked()
+	if id == "" || a.agentCommandsThread.GetUntracked() == id || a.agentCommandsBusy.GetUntracked() {
+		return
+	}
+	c := a.client()
+	if c == nil {
+		return
+	}
+	a.agentCommandsBusy.Set(true)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		commands, err := c.AgentCommands(ctx, id)
+		a.cx.Post(func() {
+			a.agentCommandsBusy.Set(false)
+			if err != nil || a.selected.GetUntracked() != id {
+				return
+			}
+			a.agentCommands.Set(commands)
+			a.agentCommandsThread.Set(id)
+		})
+	}()
 }
 
 // ensureFileIndex loads the checkout's files for @ mentions once.
@@ -1988,6 +2026,11 @@ func (a *app) switchBranch(name string) {
 // the model belongs to another one.
 func (a *app) setThreadModel(model proto.Model) {
 	a.updateThreadSettings(map[string]any{"model": model.ID, "provider": model.Provider})
+}
+
+// setThreadPlan turns the open thread's plan-first mode on or off.
+func (a *app) setThreadPlan(plan bool) {
+	a.updateThreadSettings(map[string]any{"plan": plan})
 }
 
 // setThreadPermission changes the open thread's permission mode.

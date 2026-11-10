@@ -51,6 +51,7 @@ type Thread struct {
 	Provider        string         `json:"provider"`
 	Model           string         `json:"model"`
 	Permission      PermissionMode `json:"permission"`
+	Plan            bool           `json:"plan,omitempty"`
 	Branch          string         `json:"branch,omitempty"`
 	WorktreePath    string         `json:"worktreePath,omitempty"`
 	Status          ThreadStatus   `json:"status"`
@@ -219,6 +220,15 @@ type DiffFile struct {
 type WorkingDiff struct {
 	Patch string     `json:"patch"`
 	Files []DiffFile `json:"files"`
+}
+
+// AgentCommand is a workspace skill or custom command an agent CLI can run.
+type AgentCommand struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Kind        string `json:"kind"`
+	Source      string `json:"source"`
+	Path        string `json:"path,omitempty"`
 }
 
 // WorkspaceEntry is a directory or file in a thread's checkout.

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/oneo-me/nsgo/base"
+	"github.com/oneo-me/nsgo/base/textview"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
@@ -167,12 +168,36 @@ func (a *app) composerControls(cx *core.Scope) core.Node {
 			Checked:  func() bool { return a.detail.Get().Thread.Permission == permission },
 			OnSelect: func() { a.setThreadPermission(permission) }})
 	}
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
+	planVariant := ui.ButtonGhost
+	if thread.Plan {
+		planVariant = ui.ButtonPrimary
+	}
+	contextLabel := ""
+	if used, limit := contextUsage(thread.Model, a.detail.Get().Runs); used > 0 {
+		remaining := limit - used
+		if remaining < 0 {
+			remaining = 0
+		}
+		contextLabel = humanTokens(remaining) + " left"
+	}
+	children := []core.Node{
 		model,
 		ui.Menu{TestID: "composer-permission", MaxHeight: 240,
 			Trigger:  ui.Button{Text: string(thread.Permission), Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Permission"},
 			Children: permItems},
-	}}
+		ui.Button{Text: "Plan", Variant: planVariant, Size: ui.SizeSmall, TestID: "composer-plan",
+			OnPress: func() { a.setThreadPlan(!thread.Plan) }},
+	}
+	if contextLabel != "" {
+		children = append(children, core.Text{Content: contextLabel, MaxLines: 1, Style: core.Style{FontSize: 10},
+			StyleFunc: func() core.Style {
+				if used, limit := contextUsage(thread.Model, a.detail.Get().Runs); used*10 >= limit*9 {
+					return core.Style{Color: colors.Danger()}
+				}
+				return core.Style{Color: colors.Faint()}
+			}})
+	}
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: children}
 }
 
 func shortModel(name string) string {
@@ -184,6 +209,31 @@ func shortModel(name string) string {
 		return string(r[:17]) + "…"
 	}
 	return name
+}
+
+// contextUsage estimates the last turn's context use and the model's
+// context window.
+func contextUsage(model string, runs []proto.Run) (used, limit int64) {
+	limit = 200_000
+	name := strings.ToLower(model)
+	switch {
+	case strings.Contains(name, "gemini"):
+		limit = 1_000_000
+	case strings.Contains(name, "gpt-5"), strings.Contains(name, "codex"):
+		limit = 400_000
+	}
+	for i := len(runs) - 1; i >= 0; i-- {
+		if runs[i].Usage == nil {
+			continue
+		}
+		usage := runs[i].Usage
+		used = usage.TotalTokens
+		if used == 0 {
+			used = usage.InputTokens + usage.OutputTokens
+		}
+		break
+	}
+	return used, limit
 }
 
 // attachmentChips are the files the next message carries.
@@ -314,7 +364,8 @@ func (a *app) renderMessage(cx *core.Scope, m proto.Message) core.Node {
 		}
 		return core.View{}
 	}
-	body := ui.TextView{MarkdownFunc: func() string { return a.markdownPreview(m.Content, "") }, Selectable: true, OpenLinks: true}
+	body := ui.TextView{MarkdownFunc: func() string { return a.markdownPreview(m.Content, "") }, Selectable: true, OpenLinks: true,
+		CodeBlockActions: []textview.CodeAction{{ID: textview.CopyAction, Label: "Copy code"}}}
 	footer := a.messageFooter(cx, m)
 	if m.Status == "cancelled" {
 		return core.View{Style: core.Style{Direction: core.Column, Gap: 3, MinWidth: core.Pt(0)}, Children: []core.Node{

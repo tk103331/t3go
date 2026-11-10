@@ -58,6 +58,9 @@ func (o *OpenCode) Run(ctx context.Context, turn Turn, sink Sink) error {
 	if turn.Model != "" {
 		args = append(args, "--model", turn.Model)
 	}
+	if turn.Plan {
+		args = append(args, "--agent", "plan")
+	}
 	if turn.Permission == proto.PermissionAuto || turn.Permission == proto.PermissionFullAccess {
 		args = append(args, "--auto")
 	}

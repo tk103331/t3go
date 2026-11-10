@@ -202,7 +202,7 @@ func (s *Service) execute(ctx context.Context, thread proto.Thread, dir string, 
 	sink := &runSink{svc: s, thread: thread, run: &run, text: assistant, ctx: ctx, tools: map[string]*proto.Message{}}
 	err := runner.Run(ctx, provider.Turn{
 		ThreadID: thread.ID, RunID: run.ID, CWD: dir, Prompt: prompt, Model: thread.Model,
-		Permission: thread.Permission, SessionID: thread.ProviderSession,
+		Permission: thread.Permission, Plan: thread.Plan, SessionID: thread.ProviderSession,
 		ApprovalURL: s.ApprovalURL, ApprovalToken: s.ApprovalToken,
 	}, sink)
 	sink.finish(err)

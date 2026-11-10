@@ -29,6 +29,11 @@ func TestClaudeArgsForApprovals(t *testing.T) {
 	if strings.Contains(full, "--permission-prompts") || strings.Contains(full, "--mcp-config") {
 		t.Fatalf("full access args = %q", full)
 	}
+
+	plan := strings.Join(claudeArgs(Turn{Permission: proto.PermissionFullAccess, Plan: true}, ""), " ")
+	if !strings.Contains(plan, "--permission-mode plan") || strings.Contains(plan, "--permission-prompts") {
+		t.Fatalf("plan args = %q", plan)
+	}
 }
 
 func TestWriteApprovalConfig(t *testing.T) {

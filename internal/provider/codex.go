@@ -42,6 +42,9 @@ func (c *Codex) Run(ctx context.Context, turn Turn, sink Sink) error {
 	if turn.Model != "" {
 		args = append(args, "-m", turn.Model)
 	}
+	if turn.Plan {
+		args = append(args, "-s", "read-only")
+	}
 	switch turn.Permission {
 	case proto.PermissionFullAccess:
 		args = append(args, "--dangerously-bypass-approvals-and-sandbox")

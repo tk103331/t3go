@@ -18,6 +18,7 @@ type Turn struct {
 	Prompt     string
 	Model      string
 	Permission proto.PermissionMode
+	Plan       bool
 	SessionID  string
 	// ApprovalURL and ApprovalToken let a supervised Claude turn ask this
 	// environment's person about a tool, through the mcp helper.

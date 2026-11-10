@@ -53,9 +53,13 @@ func claudePermission(m proto.PermissionMode) string {
 // claudeArgs builds the print-mode command. mcpConfig holds the approval
 // server when the turn can ask; without one supervised tools are denied.
 func claudeArgs(turn Turn, mcpConfig string) []string {
+	mode := claudePermission(turn.Permission)
+	if turn.Plan {
+		mode = "plan"
+	}
 	args := []string{"--print", "--verbose", "--output-format", "stream-json", "--include-partial-messages",
-		"--permission-mode", claudePermission(turn.Permission)}
-	if turn.Permission == proto.PermissionSupervised {
+		"--permission-mode", mode}
+	if turn.Permission == proto.PermissionSupervised && !turn.Plan {
 		if mcpConfig != "" {
 			args = append(args, "--mcp-config", mcpConfig, "--permission-prompts", "host",
 				"--permission-prompt-tool", "mcp__t3go__approve")

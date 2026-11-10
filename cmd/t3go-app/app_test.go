@@ -1105,6 +1105,8 @@ func TestUITranscriptChrome(t *testing.T) {
 		{ID: "msg_user", ThreadID: thread.ID, Role: proto.RoleUser, Kind: proto.KindText, Content: "Say hi", CreatedAt: start},
 		{ID: "msg_reply", ThreadID: thread.ID, RunID: "run_chrome", Role: proto.RoleAssistant, Kind: proto.KindText,
 			Content: "Hi there", Status: "completed", CreatedAt: end},
+		{ID: "msg_code", ThreadID: thread.ID, Role: proto.RoleAssistant, Kind: proto.KindText,
+			Content: "```go\nfmt.Println(\"hi\")\n```", Status: "completed", CreatedAt: end.Add(time.Second)},
 	} {
 		if _, err := srv.Store.AppendMessage(ctx, m); err != nil {
 			t.Fatalf("message: %v", err)
@@ -1127,6 +1129,19 @@ func TestUITranscriptChrome(t *testing.T) {
 	app.Press("id:cancel-edit-message")
 	app.WaitForGone("id:edit-message-dialog", 5*time.Second)
 	app.WaitFor("id:composer-permission", 5*time.Second)
+	app.WaitFor("text:198.5k left", 5*time.Second)
+	app.WaitFor("text:Copy code", 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		thread, err := srv.Store.Thread(ctx, thread.ID)
+		if err == nil && thread.Plan {
+			return true
+		}
+		if app.Exists("id:composer-plan") {
+			app.Press("id:composer-plan")
+			app.Settle()
+		}
+		return false
+	})
 	app.Press("id:composer-permission")
 	app.WaitFor("id:composer-perm-auto", 5*time.Second)
 	app.Press("id:composer-perm-auto")
@@ -1393,7 +1408,15 @@ func TestUIRightPanel(t *testing.T) {
 func TestUIComposerMentionsAndCommands(t *testing.T) {
 	srv, ts, cfg := startEnv(t)
 	ctx := context.Background()
-	project, err := srv.Service.CreateProject(ctx, "Repo", gitRepo(t))
+	repo := gitRepo(t)
+	if err := os.MkdirAll(filepath.Join(repo, ".claude", "commands"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".claude", "commands", "review.md"),
+		[]byte("---\nname: review\ndescription: Review the change\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project, err := srv.Service.CreateProject(ctx, "Repo", repo)
 	if err != nil {
 		t.Fatalf("project: %v", err)
 	}
@@ -1427,6 +1450,21 @@ func TestUIComposerMentionsAndCommands(t *testing.T) {
 	app.WaitFor("id:mention-chip-README.md", 5*time.Second)
 	app.Press("id:mention-chip-README.md")
 	app.WaitUntil(5*time.Second, func() bool { return !strings.Contains(app.Find("label:Message").Text, "README.md") })
+
+	app.Clear("label:Message")
+	app.WaitUntil(15*time.Second, func() bool {
+		if app.Exists("id:agent-command-claude-review") {
+			return true
+		}
+		if !strings.Contains(app.Find("label:Message").Text, "/rev") {
+			app.Clear("label:Message")
+			app.Type("label:Message", "/rev")
+			app.Settle()
+		}
+		return app.Exists("id:agent-command-claude-review")
+	})
+	app.Press("id:agent-command-claude-review")
+	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "/review " })
 
 	app.Clear("label:Message")
 	app.WaitUntil(15*time.Second, func() bool {
