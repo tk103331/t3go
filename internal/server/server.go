@@ -712,27 +712,27 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 				ThreadID string `json:"threadId"`
 			}
 			_ = json.Unmarshal(envelope.Payload, &input)
-			thread, messages, ok := s.upstreamThread(input.ThreadID)
+			thread, messages, runs, ok := s.upstreamThread(input.ThreadID)
 			if !ok {
 				_ = writer.write(upstream.UnknownFailure(envelope.ID, "unknown thread"))
 				continue
 			}
-			if err := writer.write(upstream.Chunk(envelope.ID, []any{upstream.ThreadSnapshot(thread, messages)})); err != nil {
+			if err := writer.write(upstream.Chunk(envelope.ID, []any{upstream.ThreadSnapshot(thread, messages, runs)})); err != nil {
 				return
 			}
-			go s.forwardThread(ctx, writer, envelope.ID, input.ThreadID, messages)
+			go s.forwardThread(ctx, writer, envelope.ID, input.ThreadID, messages, runs)
 			continue
 		case "orchestration.getThreadProjection":
 			var input struct {
 				ThreadID string `json:"threadId"`
 			}
 			_ = json.Unmarshal(envelope.Payload, &input)
-			thread, messages, ok := s.upstreamThread(input.ThreadID)
+			thread, messages, runs, ok := s.upstreamThread(input.ThreadID)
 			if !ok {
 				_ = writer.write(upstream.UnknownFailure(envelope.ID, "unknown thread"))
 				continue
 			}
-			if err := writer.write(upstream.Exit(envelope.ID, upstream.ThreadProjection(thread, messages))); err != nil {
+			if err := writer.write(upstream.Exit(envelope.ID, upstream.ThreadProjection(thread, messages, runs))); err != nil {
 				return
 			}
 			continue
@@ -764,15 +764,23 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 }
 
 // upstreamThread reads one thread and its text transcript.
-func (s *Server) upstreamThread(threadID string) (upstream.Thread, []upstream.Message, bool) {
+func (s *Server) upstreamThread(threadID string) (upstream.Thread, []upstream.Message, []upstream.Run, bool) {
 	ctx := context.Background()
 	thread, err := s.Store.Thread(ctx, threadID)
 	if err != nil {
-		return upstream.Thread{}, nil, false
+		return upstream.Thread{}, nil, nil, false
 	}
 	stored, err := s.Store.Messages(ctx, threadID, 4000)
 	if err != nil {
-		return upstream.Thread{}, nil, false
+		return upstream.Thread{}, nil, nil, false
+	}
+	userMessages := map[string]string{}
+	for _, m := range stored {
+		if m.Role == proto.RoleUser && m.RunID != "" {
+			if _, ok := userMessages[m.RunID]; !ok {
+				userMessages[m.RunID] = m.ID
+			}
+		}
 	}
 	messages := make([]upstream.Message, 0, len(stored))
 	for _, m := range stored {
@@ -785,7 +793,19 @@ func (s *Server) upstreamThread(threadID string) (upstream.Thread, []upstream.Me
 			CreatedAt: m.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
-	return shellThread(thread), messages, true
+	protoRuns, _ := s.Store.Runs(ctx, threadID)
+	runs := make([]upstream.Run, 0, len(protoRuns))
+	for _, r := range protoRuns {
+		ended := ""
+		if r.EndedAt != nil {
+			ended = r.EndedAt.UTC().Format("2006-01-02T15:04:05.000Z")
+		}
+		runs = append(runs, upstream.Run{
+			ID: r.ID, ThreadID: r.ThreadID, UserMessageID: userMessages[r.ID], Provider: r.Provider, Model: r.Model,
+			Status: string(r.Status), StartedAt: r.StartedAt.UTC().Format("2006-01-02T15:04:05.000Z"), EndedAt: ended,
+		})
+	}
+	return shellThread(thread), messages, runs, true
 }
 
 // upstreamLaunch creates a thread for a T3 Code client and optionally sends
@@ -841,14 +861,14 @@ func (s *Server) upstreamLaunch(ctx context.Context, writer *upstreamWriter, req
 	if strings.TrimSpace(input.InitialMessage.Text) != "" {
 		_, _ = s.Service.SendWith(ctx, thread.ID, input.InitialMessage.Text, nil)
 	}
-	shell, messages, ok := s.upstreamThread(thread.ID)
+	shell, messages, runs, ok := s.upstreamThread(thread.ID)
 	if !ok {
 		_ = writer.write(upstream.UnknownFailure(requestID, "the thread vanished"))
 		return true
 	}
 	return writer.write(upstream.Exit(requestID, map[string]any{
 		"threadId":   thread.ID,
-		"projection": upstream.ThreadProjection(shell, messages),
+		"projection": upstream.ThreadProjection(shell, messages, runs),
 		"resumed":    resumed,
 		"sequence":   0,
 	})) == nil
@@ -908,9 +928,14 @@ func (s *Server) upstreamDispatch(ctx context.Context, writer *upstreamWriter, r
 }
 
 // forwardThread sends text message changes to an upstream thread stream.
-func (s *Server) forwardThread(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, threadID string, existing []upstream.Message) {
+func (s *Server) forwardThread(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, threadID string, existing []upstream.Message, runs []upstream.Run) {
 	live, unsubscribe := s.Bus.Subscribe()
 	defer unsubscribe()
+	runOrdinals := map[string]int{}
+	for i, run := range runs {
+		runOrdinals[run.ID] = i + 1
+	}
+	nextRunOrdinal := len(runs) + 1
 	ordinals := map[string]int{}
 	nextOrdinal := 0
 	for _, m := range existing {
@@ -928,7 +953,36 @@ func (s *Server) forwardThread(ctx context.Context, writer *upstreamWriter, requ
 			if !ok {
 				return
 			}
-			if event.ThreadID != threadID || event.Type != proto.EventMessage {
+			if event.ThreadID != threadID {
+				continue
+			}
+			if event.Type == proto.EventRunStarted || event.Type == proto.EventRunFinished {
+				run, ok := decodeEvent[proto.Run](event.Data)
+				if !ok {
+					continue
+				}
+				ordinal, seen := runOrdinals[run.ID]
+				if !seen {
+					ordinal = nextRunOrdinal
+					runOrdinals[run.ID] = ordinal
+					nextRunOrdinal++
+				}
+				ended := ""
+				if run.EndedAt != nil {
+					ended = run.EndedAt.UTC().Format("2006-01-02T15:04:05.000Z")
+				}
+				up := upstream.Run{
+					ID: run.ID, ThreadID: run.ThreadID, Provider: run.Provider, Model: run.Model,
+					Status: string(run.Status), StartedAt: run.StartedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+					EndedAt: ended, UserMessageID: s.userMessageForRun(threadID, run.ID),
+				}
+				frame := upstream.RunUpdated(event.Seq*2, up, ordinal, event.Type == proto.EventRunStarted)
+				if err := writer.write(upstream.Chunk(requestID, []any{frame})); err != nil {
+					return
+				}
+				continue
+			}
+			if event.Type != proto.EventMessage {
 				continue
 			}
 			m, ok := decodeEvent[proto.Message](event.Data)
@@ -958,6 +1012,19 @@ func (s *Server) forwardThread(ctx context.Context, writer *upstreamWriter, requ
 			}
 		}
 	}
+}
+
+func (s *Server) userMessageForRun(threadID, runID string) string {
+	messages, err := s.Store.Messages(context.Background(), threadID, 4000)
+	if err != nil {
+		return ""
+	}
+	for _, m := range messages {
+		if m.Role == proto.RoleUser && m.RunID == runID {
+			return m.ID
+		}
+	}
+	return ""
 }
 
 // localURL is where a program on this machine reaches listen, with a

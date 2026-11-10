@@ -650,7 +650,7 @@ func TestUpstreamThreadAndDispatch(t *testing.T) {
 		"payload": map[string]any{"type": "message.dispatch", "commandId": "cmd_1", "threadId": thread.ID,
 			"messageId": "msg_cmd", "text": "Run this", "createdBy": "user", "creationSource": "web", "attachments": []any{}},
 		"headers": []any{}})
-	var sawReceipt, sawUser, sawAssistant bool
+	var sawReceipt, sawUser, sawAssistant, sawRun bool
 	observe := func(frame map[string]any) {
 		if frame["_tag"] == "Exit" {
 			sawReceipt = frame["requestId"].(float64) == 2 && frame["exit"].(map[string]any)["_tag"] == "Success"
@@ -665,6 +665,11 @@ func TestUpstreamThreadAndDispatch(t *testing.T) {
 			return
 		}
 		domain := event["event"].(map[string]any)
+		if domain["type"] == "run.created" {
+			payload := domain["payload"].(map[string]any)
+			sawRun = payload["userMessageId"] != "" && payload["status"] == "running"
+			return
+		}
 		if domain["type"] != "message.updated" {
 			return
 		}
@@ -676,7 +681,7 @@ func TestUpstreamThreadAndDispatch(t *testing.T) {
 			sawAssistant = sawAssistant || payload["text"] == "hello from the fake"
 		}
 	}
-	for !sawReceipt || !sawAssistant {
+	for !sawReceipt || !sawAssistant || !sawRun {
 		observe(read())
 	}
 	if !sawUser {

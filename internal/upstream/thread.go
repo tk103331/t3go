@@ -16,6 +16,49 @@ type Message struct {
 	CreatedAt string
 }
 
+// Run is one agent turn as the upstream run projection carries it.
+type Run struct {
+	ID            string
+	ThreadID      string
+	UserMessageID string
+	Provider      string
+	Model         string
+	Status        string
+	StartedAt     string
+	EndedAt       string
+}
+
+// RunRow is one upstream run.
+func RunRow(r Run, ordinal int) map[string]any {
+	status := "completed"
+	switch r.Status {
+	case "running":
+		status = "running"
+	case "failed":
+		status = "failed"
+	case "cancelled":
+		status = "cancelled"
+	}
+	row := map[string]any{
+		"id":                 r.ID,
+		"threadId":           r.ThreadID,
+		"ordinal":            ordinal,
+		"providerInstanceId": r.Provider,
+		"modelSelection":     map[string]any{"instanceId": r.Provider, "model": r.Model},
+		"providerThreadId":   nil,
+		"userMessageId":      nonEmpty(r.UserMessageID, "msg_"+r.ID),
+		"rootNodeId":         nil,
+		"activeAttemptId":    nil,
+		"status":             status,
+		"requestedAt":        nonEmpty(r.StartedAt, isoTimestamp(TimeNow())),
+		"startedAt":          nullable(r.StartedAt),
+		"completedAt":        nullable(r.EndedAt),
+		"checkpointId":       nil,
+		"contextHandoffId":   nil,
+	}
+	return row
+}
+
 // AppThread is the upstream thread object a detail stream carries.
 func AppThread(t Thread) map[string]any {
 	return map[string]any{
@@ -144,7 +187,7 @@ func TurnItem(m Message, ordinal int) map[string]any {
 }
 
 // ThreadProjection is the upstream thread detail snapshot.
-func ThreadProjection(t Thread, messages []Message) map[string]any {
+func ThreadProjection(t Thread, messages []Message, runs []Run) map[string]any {
 	rows := make([]any, 0, len(messages))
 	items := make([]any, 0, len(messages))
 	visible := make([]any, 0, len(messages))
@@ -169,7 +212,7 @@ func ThreadProjection(t Thread, messages []Message) map[string]any {
 	}
 	return map[string]any{
 		"thread":           AppThread(t),
-		"runs":             []any{},
+		"runs":             runRows(runs),
 		"attempts":         []any{},
 		"nodes":            []any{},
 		"subagents":        []any{},
@@ -190,10 +233,10 @@ func ThreadProjection(t Thread, messages []Message) map[string]any {
 }
 
 // ThreadSnapshot is the first item of subscribeThread.
-func ThreadSnapshot(t Thread, messages []Message) map[string]any {
+func ThreadSnapshot(t Thread, messages []Message, runs []Run) map[string]any {
 	return map[string]any{
 		"kind": "snapshot", "snapshotSequence": 0,
-		"projection": ThreadProjection(t, messages),
+		"projection": ThreadProjection(t, messages, runs),
 	}
 }
 
@@ -213,6 +256,22 @@ func MessageUpdated(sequence int64, m Message, ordinal int) map[string]any {
 	return map[string]any{"kind": "event", "sequence": sequence, "event": event}
 }
 
+// RunUpdated is a thread stream event for a changed run.
+func RunUpdated(sequence int64, r Run, ordinal int, created bool) map[string]any {
+	kind := "run.updated"
+	if created {
+		kind = "run.created"
+	}
+	event := map[string]any{
+		"id":         eventID(sequence),
+		"threadId":   r.ThreadID,
+		"occurredAt": nonEmpty(r.StartedAt, isoTimestamp(TimeNow())),
+		"type":       kind,
+		"payload":    RunRow(r, ordinal),
+	}
+	return map[string]any{"kind": "event", "sequence": sequence, "event": event}
+}
+
 // TurnItemUpdated is a thread stream event for a changed turn item.
 func TurnItemUpdated(sequence int64, m Message, ordinal int) map[string]any {
 	created := m.CreatedAt
@@ -227,6 +286,14 @@ func TurnItemUpdated(sequence int64, m Message, ordinal int) map[string]any {
 		"payload":    TurnItem(m, ordinal),
 	}
 	return map[string]any{"kind": "event", "sequence": sequence + 1, "event": event}
+}
+
+func runRows(runs []Run) []any {
+	rows := make([]any, 0, len(runs))
+	for i, r := range runs {
+		rows = append(rows, RunRow(r, i+1))
+	}
+	return rows
 }
 
 func eventID(sequence int64) string {
