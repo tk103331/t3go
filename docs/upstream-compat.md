@@ -32,11 +32,12 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
 | `vcs.refreshBranch` / `subscribeVcsBranch` | 当前分支名 |
 | `orchestration.searchThreads` | 跨线程搜索文本消息，返回 thread/project、消息 id、片段和匹配度 |
 | `orchestration.searchThread` | 线程内查找，返回匹配总数、当前匹配和 entry id |
+| `server.getUsageSummary` | 按天/provider/model 聚合 T3Go 的 run 用量与费用 |
 
 以上形状用上游本仓库的 `@t3tools/contracts`（0.1.8）与 `effect@4.1.2` 的
 `RpcClient` 实际解码验证过：项目/线程 shell、订阅后的实时项目更新，以及带两条
 文本消息和 turn item 的线程快照。`message.updated` / `turn-item.updated` / `run.created` 事件、diff、上传 URL、
-ChatAttachment、asset URL、VCS 状态和搜索结果形状也用上游 schema 校验过。
+ChatAttachment、asset URL、VCS 状态、搜索和 usage 形状也用上游 schema 校验过。
 
 ## 尚未实现（完整兼容所需）
 
@@ -45,7 +46,7 @@ ChatAttachment、asset URL、VCS 状态和搜索结果形状也用上游 schema 
 - `t3code://pair` 链接本身：`t3go serve`/`t3go pair --json` 会给出
   `http://host/#token=...` 形式的直连地址，官方客户端可直接作为 pairing URL
 - run attempt/node、审批、用量等更深层的 v2 投影
-- git 提交/分支切换等写操作、PR、usage 等其余 RPC
+- git 提交/分支切换等写操作、PR 等其余 RPC
 - VCS 状态的文件监听（目前订阅只发 snapshot，刷新由客户端触发）
 - 图片尺寸与内联预览之外的 asset 类型（workspace-file 等）
 - 上游 `t3code://pair` 链接格式

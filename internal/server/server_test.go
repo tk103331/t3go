@@ -1260,3 +1260,53 @@ func TestUpstreamSearch(t *testing.T) {
 		t.Fatalf("searchThread = %#v", value)
 	}
 }
+
+// TestUpstreamUsage aggregates a run's usage into the summary.
+func TestUpstreamUsage(t *testing.T) {
+	e := newTestEnv(t)
+	project := e.project(t)
+	var thread proto.Thread
+	body := map[string]any{"projectId": project.ID, "title": "Usage", "provider": "claude",
+		"model": "test-model", "permission": "full-access"}
+	if code := e.request(t, http.MethodPost, "/api/v1/threads", body, e.token, &thread); code != http.StatusCreated {
+		t.Fatalf("thread = %d", code)
+	}
+	started := time.Now().UTC()
+	if err := e.server.Store.CreateRun(context.Background(), proto.Run{
+		ID: "run_usage", ThreadID: thread.ID, Status: proto.RunCompleted, Provider: "claude", Model: "test-model",
+		Permission: proto.PermissionFullAccess, StartedAt: started,
+		Usage: &proto.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15, CostUSD: 0.01},
+	}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2"
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+		"Authorization": []string{"Bearer " + e.token},
+	}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+	day := started.Format("2006-01-02")
+	if err := wsjson.Write(ctx, conn, map[string]any{"_tag": "Request", "id": 1, "tag": "server.getUsageSummary",
+		"headers": []any{}, "payload": map[string]any{"sinceDay": day, "untilDay": day, "timeZone": "UTC"}}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	var frame map[string]any
+	if err := wsjson.Read(ctx, conn, &frame); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	value, _ := frame["exit"].(map[string]any)["value"].(map[string]any)
+	buckets, _ := value["buckets"].([]any)
+	if frame["_tag"] != "Exit" || len(buckets) != 1 {
+		t.Fatalf("usage = %#v", frame)
+	}
+	bucket := buckets[0].(map[string]any)
+	totals := bucket["totals"].(map[string]any)
+	if totals["uncachedInputTokens"].(float64) != 10 || totals["outputTokens"].(float64) != 5 || bucket["costUsd"].(float64) != 0.01 {
+		t.Fatalf("bucket = %#v", bucket)
+	}
+}

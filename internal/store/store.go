@@ -422,6 +422,21 @@ func (s *Store) Runs(ctx context.Context, threadID string) ([]proto.Run, error) 
 		return nil, err
 	}
 	defer rows.Close()
+	return scanRuns(rows)
+}
+
+// RunsSince lists every environment's runs started at or after since.
+func (s *Store) RunsSince(ctx context.Context, since time.Time) ([]proto.Run, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,thread_id,status,provider,model,permission,prompt,started_at,ended_at,error,checkpoint,usage
+		FROM runs WHERE started_at>=? ORDER BY started_at, id`, since.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRuns(rows)
+}
+
+func scanRuns(rows *sql.Rows) ([]proto.Run, error) {
 	var out []proto.Run
 	for rows.Next() {
 		var r proto.Run

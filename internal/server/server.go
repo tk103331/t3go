@@ -757,6 +757,11 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			continue
+		case "server.getUsageSummary":
+			if !s.upstreamUsage(ctx, writer, envelope.ID, envelope.Payload) {
+				return
+			}
+			continue
 		case "orchestration.searchThreads":
 			if !s.upstreamSearchThreads(ctx, writer, envelope.ID, envelope.Payload) {
 				return
@@ -878,6 +883,49 @@ func (s *Server) upstreamThread(threadID string) (upstream.Thread, []upstream.Me
 		})
 	}
 	return shellThread(thread), messages, runs, true
+}
+
+// upstreamUsage aggregates T3Go's runs into the usage summary.
+func (s *Server) upstreamUsage(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, payload json.RawMessage) bool {
+	var input struct {
+		SinceDay string `json:"sinceDay"`
+		UntilDay string `json:"untilDay"`
+		TimeZone string `json:"timeZone"`
+	}
+	_ = json.Unmarshal(payload, &input)
+	since, err := time.Parse("2006-01-02", input.SinceDay)
+	if err != nil {
+		_ = writer.write(upstream.UnknownFailure(requestID, "invalid sinceDay"))
+		return true
+	}
+	until, err := time.Parse("2006-01-02", input.UntilDay)
+	if err != nil {
+		_ = writer.write(upstream.UnknownFailure(requestID, "invalid untilDay"))
+		return true
+	}
+	until = until.Add(24 * time.Hour)
+	runs, err := s.Store.RunsSince(ctx, since)
+	if err != nil {
+		_ = writer.write(upstream.UnknownFailure(requestID, err.Error()))
+		return true
+	}
+	usageRuns := make([]upstream.UsageRun, 0, len(runs))
+	for _, run := range runs {
+		if run.StartedAt.Before(since) || !run.StartedAt.Before(until) {
+			continue
+		}
+		u := upstream.UsageRun{Provider: run.Provider, Model: run.Model, StartedAt: run.StartedAt}
+		if run.Usage != nil {
+			u.HasUsage = true
+			u.Input = run.Usage.InputTokens
+			u.Output = run.Usage.OutputTokens
+			u.Total = run.Usage.TotalTokens
+			u.CostUSD = run.Usage.CostUSD
+		}
+		usageRuns = append(usageRuns, u)
+	}
+	return writer.write(upstream.Exit(requestID,
+		upstream.UsageSummary(s.upstreamEnvironment(), input.SinceDay, input.UntilDay, input.TimeZone, usageRuns))) == nil
 }
 
 // upstreamSearchThreads searches text messages across the environment.
