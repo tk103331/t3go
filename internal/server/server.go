@@ -741,6 +741,11 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			continue
+		case "orchestration.getTurnDiff", "orchestration.getFullThreadDiff":
+			if !s.upstreamDiff(ctx, writer, envelope.ID, envelope.Tag, envelope.Payload) {
+				return
+			}
+			continue
 		case "orchestration.launchThread":
 			if !s.upstreamLaunch(ctx, writer, envelope.ID, envelope.Payload) {
 				return
@@ -806,6 +811,53 @@ func (s *Server) upstreamThread(threadID string) (upstream.Thread, []upstream.Me
 		})
 	}
 	return shellThread(thread), messages, runs, true
+}
+
+// upstreamDiff answers the turn and whole-thread diff requests from T3Go's
+// run checkpoints. Checkpoints are taken before a turn, so the range always
+// reaches the current working tree.
+func (s *Server) upstreamDiff(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, tag string, payload json.RawMessage) bool {
+	var input struct {
+		ThreadID      string `json:"threadId"`
+		FromTurnCount int    `json:"fromTurnCount"`
+		ToTurnCount   int    `json:"toTurnCount"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		_ = writer.write(upstream.UnknownFailure(requestID, "invalid diff request"))
+		return true
+	}
+	from := input.FromTurnCount
+	if tag == "orchestration.getFullThreadDiff" {
+		from = 0
+	}
+	if from < 0 || input.ToTurnCount < from {
+		_ = writer.write(upstream.TypedFailure(requestID, diffErrorTag(tag), "invalid turn range"))
+		return true
+	}
+	if input.ToTurnCount == from {
+		return writer.write(upstream.Exit(requestID, upstream.Diff(input.ThreadID, from, input.ToTurnCount, ""))) == nil
+	}
+	runID := ""
+	if tag == "orchestration.getTurnDiff" {
+		if runs, err := s.Store.Runs(ctx, input.ThreadID); err == nil {
+			if from < len(runs) {
+				runID = runs[from].ID
+			}
+		}
+	}
+	diff, err := s.Service.Diff(ctx, input.ThreadID, runID)
+	if err != nil {
+		_ = writer.write(upstream.TypedFailure(requestID, diffErrorTag(tag), err.Error()))
+		return true
+	}
+	return writer.write(upstream.Exit(requestID, upstream.Diff(input.ThreadID, from, input.ToTurnCount, diff))) == nil
+}
+
+func diffErrorTag(tag string) string {
+	if tag == "orchestration.getFullThreadDiff" {
+		return "OrchestrationGetFullThreadDiffError"
+	}
+	return "OrchestrationGetTurnDiffError"
 }
 
 // upstreamLaunch creates a thread for a T3 Code client and optionally sends

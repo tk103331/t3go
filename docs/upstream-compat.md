@@ -24,11 +24,12 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
 | `orchestration.getThreadProjection` | 同一投影的普通请求 |
 | `orchestration.launchThread` | 用客户端的 threadId、项目、模型和 runtime mode 创建线程，可带首条消息；`workspaceStrategy` 的 `root`、`worktree`、`existing_worktree` 都映射到 T3Go |
 | `orchestration.dispatchCommand` | `message.dispatch`、`thread.stop`、`thread.archive`/`unarchive`、`thread.delete` |
+| `orchestration.getTurnDiff` / `getFullThreadDiff` | 从 run checkpoint 到当前工作区的 diff，带 turn 范围 |
 
 以上形状用上游本仓库的 `@t3tools/contracts`（0.1.8）与 `effect@4.1.2` 的
 `RpcClient` 实际解码验证过：项目/线程 shell、订阅后的实时项目更新，以及带两条
-文本消息和 turn item 的线程快照。`message.updated` / `turn-item.updated` / `run.created` 事件形状也用上游 schema
-校验过。
+文本消息和 turn item 的线程快照。`message.updated` / `turn-item.updated` / `run.created` 事件和 diff 结果形状也用
+上游 schema 校验过。
 
 ## 尚未实现（完整兼容所需）
 
@@ -36,8 +37,8 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
   证明和云 relay 流程尚未实现
 - `t3code://pair` 链接本身：`t3go serve`/`t3go pair --json` 会给出
   `http://host/#token=...` 形式的直连地址，官方客户端可直接作为 pairing URL
-- run attempt/node、审批、用量、diff 等更深层的 v2 投影
-- 附件、diff、git、usage、搜索等其余 RPC
+- run attempt/node、审批、用量等更深层的 v2 投影
+- 附件、git 状态、usage、搜索等其余 RPC
 - 上游 `t3code://pair` 链接格式
 
 官方客户端现在可以用 bearer 直连配对（把 `t3go serve` 打印的 `t3` 地址作为

@@ -19,6 +19,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/tk/t3go/internal/config"
+	"github.com/tk/t3go/internal/git"
 	"github.com/tk/t3go/internal/proto"
 	"github.com/tk/t3go/internal/provider"
 )
@@ -922,5 +923,68 @@ func TestUpstreamLaunchWorktree(t *testing.T) {
 	}
 	if _, err := os.Stat(thread.WorktreePath); err != nil {
 		t.Fatalf("worktree: %v", err)
+	}
+}
+
+// TestUpstreamDiffs answers turn and whole-thread diffs from run
+// checkpoints.
+func TestUpstreamDiffs(t *testing.T) {
+	e := newTestEnv(t)
+	repo := upstreamGitRepo(t)
+	var project proto.Project
+	if code := e.request(t, http.MethodPost, "/api/v1/projects", map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
+		t.Fatalf("project = %d", code)
+	}
+	var thread proto.Thread
+	body := map[string]any{"projectId": project.ID, "title": "Diff thread", "provider": "claude",
+		"model": "test-model", "permission": "full-access"}
+	if code := e.request(t, http.MethodPost, "/api/v1/threads", body, e.token, &thread); code != http.StatusCreated {
+		t.Fatalf("thread = %d", code)
+	}
+	ctx := context.Background()
+	ref, err := git.Checkpoint(ctx, repo, thread.ID, "run_diff")
+	if err != nil {
+		t.Fatalf("checkpoint: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("changed by upstream\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	if err := e.server.Store.CreateRun(ctx, proto.Run{ID: "run_diff", ThreadID: thread.ID, Status: proto.RunCompleted,
+		Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess, Prompt: "change",
+		StartedAt: started, Checkpoint: ref}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	wsCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2"
+	conn, _, err := websocket.Dial(wsCtx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+		"Authorization": []string{"Bearer " + e.token},
+	}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+
+	call := func(id int, tag string, payload map[string]any) map[string]any {
+		t.Helper()
+		if err := wsjson.Write(wsCtx, conn, map[string]any{"_tag": "Request", "id": id, "tag": tag,
+			"payload": payload, "headers": []any{}}); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		var frame map[string]any
+		if err := wsjson.Read(wsCtx, conn, &frame); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		return frame
+	}
+
+	for id, tag := range map[int]string{1: "orchestration.getFullThreadDiff", 2: "orchestration.getTurnDiff"} {
+		frame := call(id, tag, map[string]any{"threadId": thread.ID, "fromTurnCount": 0, "toTurnCount": 1})
+		value, _ := frame["exit"].(map[string]any)["value"].(map[string]any)
+		if frame["_tag"] != "Exit" || value["threadId"] != thread.ID || !strings.Contains(value["diff"].(string), "changed by upstream") {
+			t.Fatalf("%s = %#v", tag, frame)
+		}
 	}
 }

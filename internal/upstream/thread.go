@@ -1,6 +1,9 @@
 package upstream
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Message is one transcript row the compatibility layer projects.
 type Message struct {
@@ -254,6 +257,26 @@ func MessageUpdated(sequence int64, m Message, ordinal int) map[string]any {
 		"payload":    MessageRow(m),
 	}
 	return map[string]any{"kind": "event", "sequence": sequence, "event": event}
+}
+
+// Diff is the upstream turn-diff result.
+func Diff(threadID string, fromTurnCount, toTurnCount int, diff string) map[string]any {
+	return map[string]any{
+		"fromTurnCount": fromTurnCount,
+		"toTurnCount":   toTurnCount,
+		"threadId":      threadID,
+		"diff":          diff,
+	}
+}
+
+// TypedFailure answers a request with one of the method's tagged errors.
+func TypedFailure(id json.RawMessage, tag, message string) map[string]any {
+	return map[string]any{"_tag": "Exit", "requestId": id, "exit": map[string]any{
+		"_tag": "Failure",
+		"cause": []any{map[string]any{"_tag": "Fail", "error": map[string]any{
+			"_tag": tag, "message": message,
+		}}},
+	}}
 }
 
 // RunUpdated is a thread stream event for a changed run.
