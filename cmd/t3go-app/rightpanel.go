@@ -17,11 +17,27 @@ import (
 	"github.com/tk/t3go/internal/proto"
 )
 
+// rightRail is the resize handle and the surfaces panel beside it.
+func (a *app) rightRail(cx *core.Scope) core.Node {
+	return core.View{Style: core.Style{Direction: core.Row, FlexShrink: 0}, Children: []core.Node{
+		base.ResizeHandle{Axis: base.Horizontal, Edge: base.HandleLeading, Label: "Resize right panel", TestID: "right-resize",
+			Value: func() core.AccessibilityValue {
+				return core.AccessibilityValue{Now: float32(a.rightWidth.GetUntracked()), Min: 300, Max: 680}
+			},
+			OnDragStart:   func() { a.rightDrag = a.rightWidth.GetUntracked() },
+			OnDragMove:    func(d core.Points) { a.setRightWidth(a.rightDrag - d) },
+			OnDragEnd:     func(d core.Points) { a.setRightWidth(a.rightDrag - d) },
+			OnDoublePress: func() { a.setRightWidth(360) },
+			StyleFunc:     ui.HandleLine(cx), ThumbStyle: ui.HandleThumb(cx), ThumbStyleFunc: ui.HandleThumbColor(cx)},
+		core.Dynamic(a.rightPanel),
+	}}
+}
+
 // rightPanel is the app's surfaces rail: a picker, then the file browser,
 // diff or pull request it opens.
 func (a *app) rightPanel(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	return core.View{TestID: "right-panel", Style: core.Style{Width: core.Pt(360), FlexShrink: 0, Direction: core.Column,
+	return core.View{TestID: "right-panel", Style: core.Style{Width: core.Pt(a.rightWidth.Get()), FlexShrink: 0, Direction: core.Column,
 		MinHeight: core.Pt(0), Background: colors.Surface(), Borders: core.Edges{Left: 1}, BorderColor: colors.Border()},
 		Children: []core.Node{
 			core.Dynamic(a.rightHeader),
@@ -30,38 +46,107 @@ func (a *app) rightPanel(cx *core.Scope) core.Node {
 		}}
 }
 
-// rightHeader names the open surface and goes back to the picker.
+// rightHeader shows the open surface tabs, the picker and the close
+// button.
 func (a *app) rightHeader(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
+	tabs := a.tabs.Get()
 	surface := a.surface.Get()
-	title := "Surfaces"
-	switch surface {
-	case "files":
-		title = "Files"
-	case "diff":
-		title = "Diff"
-	case "pr":
-		title = "Pull request"
-	case "graph":
-		title = "Git graph"
-	case "browser":
-		title = "Browser"
-	case "terminal":
-		title = "Terminal"
+	var tabNodes []core.Node
+	for _, name := range tabs {
+		tabNodes = append(tabNodes, a.surfaceTab(cx, name, name == surface))
 	}
-	header := []core.Node{}
-	if surface != "" {
-		header = append(header, ui.IconButton{Icon: lucide.ChevronLeft, Label: "All surfaces", TestID: "surface-back",
-			OnPress: func() { a.openSurface("") }})
+	var content core.Node
+	if len(tabNodes) == 0 {
+		content = core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexGrow: 1, FlexShrink: 1, Padding: core.Edges{Left: 4}},
+			Children: []core.Node{core.Text{Content: "Surfaces", MaxLines: 1, Style: core.Style{FontSize: 13, FontWeight: ui.Semibold},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }}}}
+	} else {
+		content = core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 3,
+			FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: tabNodes}
 	}
-	header = append(header,
-		core.Text{Content: title, MaxLines: 1, Style: core.Style{FontSize: 13, FontWeight: ui.Semibold, FlexGrow: 1, FlexShrink: 1},
-			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2,
+		Padding: core.Edges{Top: 6, Right: 6, Bottom: 6, Left: 6}}, Children: []core.Node{
+		content,
+		ui.IconButton{Icon: lucide.Plus, Label: "Add surface", TestID: "surface-add", OnPress: func() { a.openSurface("") }},
 		ui.IconButton{Icon: lucide.X, Label: "Close right panel", TestID: "close-right-panel",
 			OnPress: func() { a.setRightOpen(false) }},
-	)
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
-		Padding: core.Edges{Top: 8, Right: 8, Bottom: 8, Left: 8}}, Children: header}
+	}}
+}
+
+// surfaceTab is one open surface's tab.
+func (a *app) surfaceTab(cx *core.Scope, name string, selected bool) core.Node {
+	colors := ui.ColorsOf(cx)
+	label := surfaceTitle(name)
+	tab := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 1, FlexShrink: 0,
+		Padding: core.Edges{Left: 7, Right: 1, Top: 2, Bottom: 2}, CornerRadius: 6, BorderWidth: 1,
+		BorderColor: colors.Border()}, StyleFunc: func() core.Style {
+		style := core.Style{}
+		if selected {
+			style.Background = colors.Inset()
+			style.BorderColor = colors.FieldBorder()
+		}
+		return style
+	}, Children: []core.Node{
+		base.Button{OnPress: func(core.PressEvent) { a.openSurface(name) }, Label: label, TestID: "surface-tab-" + name,
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Cursor: core.CursorDefault},
+			StyleFunc: func() core.Style {
+				return core.Style{Hover: &core.Style{Background: colors.Hover()}, Focus: ui.FocusRing(cx, -2)}
+			}, Children: []core.Node{
+				ui.Icon(surfaceIcon(name), 12, func() core.Color {
+					if selected {
+						return colors.Text()
+					}
+					return colors.Muted()
+				}),
+				core.Text{Content: label, MaxLines: 1, Style: core.Style{FontSize: 10.5},
+					StyleFunc: func() core.Style {
+						if selected {
+							return core.Style{Color: colors.Text()}
+						}
+						return core.Style{Color: colors.Muted()}
+					}},
+			}},
+		ui.IconButton{Icon: lucide.X, Label: "Close " + label, Size: 16, IconSize: 9, Tint: colors.Faint,
+			TestID: "surface-tab-close-" + name, OnPress: func() { a.closeSurface(name) }},
+	}}
+	return tab
+}
+
+func surfaceTitle(name string) string {
+	switch name {
+	case "files":
+		return "Files"
+	case "diff":
+		return "Diff"
+	case "graph":
+		return "Git graph"
+	case "pr":
+		return "Pull request"
+	case "browser":
+		return "Browser"
+	case "terminal":
+		return "Terminal"
+	}
+	return name
+}
+
+func surfaceIcon(name string) func() *core.SVG {
+	switch name {
+	case "files":
+		return lucide.Folder
+	case "diff":
+		return lucide.GitCompare
+	case "graph":
+		return lucide.GitBranch
+	case "pr":
+		return lucide.GitPullRequest
+	case "browser":
+		return lucide.Globe
+	case "terminal":
+		return lucide.Terminal
+	}
+	return lucide.PanelRight
 }
 
 // rightBody renders the open surface.

@@ -85,7 +85,7 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 			MinHeight: core.Pt(0), Overflow: core.Hidden}, Children: []core.Node{
 			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0),
 				Overflow: core.Hidden}, Children: []core.Node{layout}},
-			core.Show{When: a.rightOpen.Get, Then: func(cx *core.Scope) core.Node { return a.rightPanel(cx) }},
+			core.Show{When: a.rightOpen.Get, Then: func(cx *core.Scope) core.Node { return a.rightRail(cx) }},
 		}}
 	}
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0),

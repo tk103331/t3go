@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/nsgotest"
 	"github.com/tk/t3go/internal/config"
 	"github.com/tk/t3go/internal/git"
@@ -1162,8 +1163,16 @@ func TestUISidebarDraftsAndPins(t *testing.T) {
 		app.Settle()
 		return app.Find("label:Message").Text == "half written"
 	})
-	app.Press("id:thread-" + second.ID)
-	app.WaitFor("text:Draft: half written", 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("text:Draft: half written") {
+			return true
+		}
+		if app.Exists("id:thread-" + second.ID) {
+			app.Press("id:thread-" + second.ID)
+			app.Settle()
+		}
+		return app.Exists("text:Draft: half written")
+	})
 	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "" })
 	app.Press("id:thread-" + first.ID)
 	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "half written" })
@@ -1250,26 +1259,49 @@ func TestUIRightPanel(t *testing.T) {
 		return app.Exists("id:right-panel")
 	})
 	app.WaitFor("id:surface-files", 5*time.Second)
+	beforeWidth := app.Find("id:right-panel").Frame.Size.Width
+	app.Drag("id:right-resize", core.Point{X: -80})
+	app.Settle()
+	if afterWidth := app.Find("id:right-panel").Frame.Size.Width; afterWidth <= beforeWidth {
+		t.Fatalf("right panel did not resize: %v to %v", beforeWidth, afterWidth)
+	}
+	openPicker := func(target string) {
+		app.WaitUntil(10*time.Second, func() bool {
+			if app.Exists("id:" + target) {
+				return true
+			}
+			if app.Exists("id:surface-add") {
+				app.Press("id:surface-add")
+				app.Settle()
+			}
+			return app.Exists("id:" + target)
+		})
+	}
+	pressUntil := func(press, target string) {
+		app.WaitUntil(10*time.Second, func() bool {
+			if app.Exists(target) {
+				return true
+			}
+			if app.Exists(press) {
+				app.Press(press)
+				app.Settle()
+			}
+			return app.Exists(target)
+		})
+	}
 
 	app.Press("id:surface-files")
+	app.WaitFor("id:surface-tab-files", 5*time.Second)
 	app.WaitFor("id:file-src", 5*time.Second)
-	app.Press("id:file-src")
-	app.WaitFor("id:file-src/app.go", 5*time.Second)
-	app.Press("id:file-src/app.go")
-	app.WaitFor("text:package main", 5*time.Second)
-	app.Press("id:file-back")
-	app.WaitFor("id:file-src/app.go", 5*time.Second)
-	app.Press("id:files-up")
-	app.WaitFor("id:file-README.md", 5*time.Second)
-	app.Press("id:file-README.md")
-	app.WaitFor("text:Preview title", 5*time.Second)
-	app.Press("id:file-back")
-	app.WaitFor("id:file-pic.png", 5*time.Second)
-	app.Press("id:file-pic.png")
-	app.WaitFor("id:file-image", 5*time.Second)
+	pressUntil("id:file-src", "id:file-src/app.go")
+	pressUntil("id:file-src/app.go", "text:package main")
+	pressUntil("id:file-back", "id:file-src/app.go")
+	pressUntil("id:files-up", "id:file-README.md")
+	pressUntil("id:file-README.md", "text:Preview title")
+	pressUntil("id:file-back", "id:file-pic.png")
+	pressUntil("id:file-pic.png", "id:file-image")
 
-	app.Press("id:surface-back")
-	app.WaitFor("id:surface-browser", 5*time.Second)
+	openPicker("surface-browser")
 	app.Press("id:surface-browser")
 	app.WaitFor("label:Address", 5*time.Second)
 	app.Type("label:Address", "localhost:1")
@@ -1289,16 +1321,7 @@ func TestUIRightPanel(t *testing.T) {
 		return app.Exists("id:browser-view")
 	})
 
-	app.WaitUntil(10*time.Second, func() bool {
-		if app.Exists("id:surface-terminal") {
-			return true
-		}
-		if app.Exists("id:surface-back") {
-			app.Press("id:surface-back")
-			app.Settle()
-		}
-		return app.Exists("id:surface-terminal")
-	})
+	openPicker("surface-terminal")
 	app.Press("id:surface-terminal")
 	app.WaitFor("id:terminal-view", 15*time.Second)
 	app.WaitFor("id:terminal-tab-0", 5*time.Second)
@@ -1306,42 +1329,17 @@ func TestUIRightPanel(t *testing.T) {
 	app.WaitFor("id:terminal-tab-1", 10*time.Second)
 	app.WaitFor("id:terminal-view", 10*time.Second)
 
-	app.WaitUntil(10*time.Second, func() bool {
-		if app.Exists("id:surface-diff") {
-			return true
-		}
-		if app.Exists("id:surface-back") {
-			app.Press("id:surface-back")
-			app.Settle()
-		}
-		return app.Exists("id:surface-diff")
-	})
+	openPicker("surface-diff")
 	app.Press("id:surface-diff")
 	app.WaitFor("id:right-diff-refresh", 5*time.Second)
+	app.WaitFor("id:surface-tab-diff", 5*time.Second)
+	app.WaitFor("id:surface-tab-files", 5*time.Second)
 	app.WaitFor("id:code-diff", 5*time.Second)
-	app.WaitUntil(10*time.Second, func() bool {
-		if app.Exists("id:surface-graph") {
-			return true
-		}
-		if app.Exists("id:surface-back") {
-			app.Press("id:surface-back")
-			app.Settle()
-		}
-		return app.Exists("id:surface-graph")
-	})
+	openPicker("surface-graph")
 	app.Press("id:surface-graph")
 	app.WaitFor("id:git-graph", 5*time.Second)
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:initial")) > 0 })
-	app.WaitUntil(10*time.Second, func() bool {
-		if app.Exists("id:surface-pr") {
-			return true
-		}
-		if app.Exists("id:surface-back") {
-			app.Press("id:surface-back")
-			app.Settle()
-		}
-		return app.Exists("id:surface-pr")
-	})
+	openPicker("surface-pr")
 	app.Press("id:surface-pr")
 	app.WaitFor("id:right-pr-refresh", 5*time.Second)
 

@@ -104,6 +104,9 @@ type app struct {
 	fileIndexBusy   *core.Signal[bool]
 
 	rightOpen    *core.Signal[bool]
+	rightWidth   *core.Signal[core.Points]
+	rightDrag    core.Points
+	tabs         *core.Signal[[]string]
 	surface      *core.Signal[string]
 	filesPath    *core.Signal[string]
 	filesEntries *core.Signal[[]proto.WorkspaceEntry]
@@ -207,6 +210,8 @@ func newApp(cx *core.Scope) *app {
 		drafts:           core.NewSignalFunc(cx, map[string]string{}, func(map[string]string, map[string]string) bool { return false }),
 		pinned:           core.NewSignalFunc(cx, map[string]bool{}, func(map[string]bool, map[string]bool) bool { return false }),
 		rightOpen:        core.NewSignal(cx, false),
+		rightWidth:       core.NewSignal(cx, core.Points(360)),
+		tabs:             sliceSignal[string](cx),
 		surface:          core.NewSignal(cx, ""),
 		filesPath:        core.NewSignal(cx, ""),
 		filesEntries:     sliceSignal[proto.WorkspaceEntry](cx),
@@ -239,6 +244,11 @@ func newApp(cx *core.Scope) *app {
 	}
 	if raw, ok := a.store.GetItem("rightOpen"); ok {
 		a.rightOpen.Set(raw != "false")
+	}
+	if raw, ok := a.store.GetItem("rightWidth"); ok {
+		if w, err := strconv.ParseFloat(raw, 64); err == nil && w > 0 {
+			a.rightWidth.Set(core.Points(w))
+		}
 	}
 	if raw, ok := a.store.GetItem("attachmentDrafts"); ok {
 		var drafts map[string][]proto.Attachment
@@ -1655,6 +1665,19 @@ func (a *app) goBrowser(raw string) {
 // openSurface switches the right panel to a surface, or to the picker
 // when name is empty.
 func (a *app) openSurface(name string) {
+	if name != "" {
+		tabs := a.tabs.GetUntracked()
+		found := false
+		for _, tab := range tabs {
+			if tab == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			a.tabs.Set(append(tabs, name))
+		}
+	}
 	a.surface.Set(name)
 	a.rightErr.Set("")
 	switch name {
@@ -1671,6 +1694,50 @@ func (a *app) openSurface(name string) {
 	case "terminal":
 		a.openTerminal()
 	}
+}
+
+// closeSurface closes a tab and moves to the one beside it.
+func (a *app) closeSurface(name string) {
+	tabs := a.tabs.GetUntracked()
+	next := make([]string, 0, len(tabs))
+	index := -1
+	for i, tab := range tabs {
+		if tab == name {
+			index = i
+			continue
+		}
+		next = append(next, tab)
+	}
+	a.tabs.Set(next)
+	if a.surface.GetUntracked() != name {
+		return
+	}
+	if index >= 0 && index < len(next) {
+		a.openSurface(next[index])
+	} else if len(next) > 0 {
+		a.openSurface(next[len(next)-1])
+	} else {
+		a.surface.Set("")
+	}
+}
+
+// setRightWidth resizes and remembers the surfaces panel.
+func (a *app) setRightWidth(width core.Points) {
+	minWidth, maxWidth := core.Points(300), core.Points(680)
+	if available := a.cx.Env().Window().Width - 520; available < maxWidth {
+		maxWidth = available
+	}
+	if maxWidth < minWidth {
+		maxWidth = minWidth
+	}
+	if width < minWidth {
+		width = minWidth
+	}
+	if width > maxWidth {
+		width = maxWidth
+	}
+	a.rightWidth.Set(width)
+	_ = a.store.SetItem("rightWidth", strconv.FormatFloat(float64(width), 'f', 1, 64))
 }
 
 // loadFiles lists a directory of the selected thread's checkout.
