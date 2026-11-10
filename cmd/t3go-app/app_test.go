@@ -1260,6 +1260,27 @@ func TestUIRightPanel(t *testing.T) {
 	app.Press("id:file-pic.png")
 	app.WaitFor("id:file-image", 5*time.Second)
 
+	app.Press("id:surface-back")
+	app.WaitFor("id:surface-browser", 5*time.Second)
+	app.Press("id:surface-browser")
+	app.WaitFor("label:Address", 5*time.Second)
+	app.Type("label:Address", "localhost:1")
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:browser-view") {
+			return true
+		}
+		if app.Find("label:Address").Text != "localhost:1" {
+			app.Clear("label:Address")
+			app.Type("label:Address", "localhost:1")
+			app.Settle()
+		}
+		if app.Exists("id:browser-go") {
+			app.Press("id:browser-go")
+			app.Settle()
+		}
+		return app.Exists("id:browser-view")
+	})
+
 	app.WaitUntil(10*time.Second, func() bool {
 		if app.Exists("id:surface-diff") {
 			return true

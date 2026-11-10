@@ -107,6 +107,12 @@ type app struct {
 	pullRequest  *core.Signal[proto.PullRequest]
 	prDetail     *core.Signal[string]
 	graph        *core.Signal[[]proto.GraphCommit]
+	browserURL   *core.Signal[string]
+	browserInput *core.Signal[string]
+	browserNote  *core.Signal[string]
+	browserBack  *core.Signal[bool]
+	browserNext  *core.Signal[bool]
+	browserRef   *core.Ref
 
 	conv *chat.ConversationState
 
@@ -198,6 +204,12 @@ func newApp(cx *core.Scope) *app {
 		pullRequest:      core.NewSignal(cx, proto.PullRequest{}),
 		prDetail:         core.NewSignal(cx, ""),
 		graph:            sliceSignal[proto.GraphCommit](cx),
+		browserURL:       core.NewSignal(cx, ""),
+		browserInput:     core.NewSignal(cx, ""),
+		browserNote:      core.NewSignal(cx, ""),
+		browserBack:      core.NewSignal(cx, false),
+		browserNext:      core.NewSignal(cx, false),
+		browserRef:       &core.Ref{},
 	}
 	a.conv = chat.NewConversationState(cx)
 	a.bindKeys()
@@ -1307,6 +1319,25 @@ func (a *app) setRightOpen(open bool) {
 	if open {
 		a.openSurface(a.surface.GetUntracked())
 	}
+}
+
+// goBrowser opens a URL in the right panel's web view.
+func (a *app) goBrowser(raw string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		a.browserNote.Set("Enter an http or https address.")
+		return
+	}
+	a.browserNote.Set("")
+	a.browserInput.Set(u.String())
+	a.browserURL.Set(u.String())
 }
 
 // openSurface switches the right panel to a surface, or to the picker

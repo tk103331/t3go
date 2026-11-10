@@ -44,6 +44,8 @@ func (a *app) rightHeader(cx *core.Scope) core.Node {
 		title = "Pull request"
 	case "graph":
 		title = "Git graph"
+	case "browser":
+		title = "Browser"
 	}
 	header := []core.Node{}
 	if surface != "" {
@@ -71,6 +73,8 @@ func (a *app) rightBody(cx *core.Scope) core.Node {
 		return a.rightPullRequest(cx)
 	case "graph":
 		return a.rightGraph(cx)
+	case "browser":
+		return a.rightBrowser(cx)
 	}
 	return a.surfacePicker(cx)
 }
@@ -81,7 +85,7 @@ func (a *app) surfacePicker(cx *core.Scope) core.Node {
 	thread := a.selected.Get()
 	hasThread := thread != ""
 	rows := []core.Node{
-		a.surfaceRow(cx, "browser", "Browser", lucide.Globe, "B", false),
+		a.surfaceRow(cx, "browser", "Browser", lucide.Globe, "B", true),
 		a.surfaceRow(cx, "terminal", "Terminal", lucide.Terminal, "T", false),
 		a.surfaceRow(cx, "files", "Files", lucide.Folder, "F", hasThread),
 		a.surfaceRow(cx, "diff", "Diff", lucide.GitCompare, "D", hasThread),
@@ -348,6 +352,71 @@ func (a *app) rightError(cx *core.Scope) core.Node {
 	return core.Show{When: func() bool { return a.rightErr.Get() != "" }, Then: func(*core.Scope) core.Node {
 		return core.Text{Content: a.rightErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 11.5, LineHeight: 16},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }}
+	}}
+}
+
+// rightBrowser shows a web page with its address bar.
+func (a *app) rightBrowser(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
+		a.browserToolbar(cx),
+		core.Show{When: func() bool { return a.browserURL.Get() == "" }, Then: func(*core.Scope) core.Node {
+			return a.browserStart(cx)
+		}},
+		core.Show{When: func() bool { return a.browserURL.Get() != "" }, Then: func(cx *core.Scope) core.Node {
+			return core.WebView{Ref: a.browserRef, TestID: "browser-view", Style: ui.FillRest,
+				SourceFunc: func() core.WebSource { return core.WebSrc(a.browserURL.Get()) },
+				OnNavigationStateChange: func(nav core.WebNavigation) {
+					a.browserInput.Set(nav.URL)
+					a.browserBack.Set(nav.CanGoBack)
+					a.browserNext.Set(nav.CanGoForward)
+				},
+				OnError: func(err error) { a.browserNote.Set(err.Error()) }}
+		}},
+		core.Show{When: func() bool { return a.browserNote.Get() != "" }, Then: func(*core.Scope) core.Node {
+			return core.View{Style: core.Style{Padding: core.Symmetric(6, 10)}, Children: []core.Node{
+				core.Text{Content: a.browserNote.Get(), MaxLines: 2, Style: core.Style{FontSize: 11.5},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }},
+			}}
+		}},
+	}}
+}
+
+// browserToolbar is the address bar under the panel's title.
+func (a *app) browserToolbar(cx *core.Scope) core.Node {
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2,
+		Padding: core.Edges{Top: 6, Right: 10, Bottom: 6, Left: 10}}, Children: []core.Node{
+		ui.IconButton{Icon: lucide.ChevronLeft, Label: "Back", TestID: "browser-back", Size: 24, IconSize: 13,
+			Disabled: func() bool { return !a.browserBack.Get() }, OnPress: func() { a.browserRef.GoBack() }},
+		ui.IconButton{Icon: lucide.ChevronRight, Label: "Forward", TestID: "browser-forward", Size: 24, IconSize: 13,
+			Disabled: func() bool { return !a.browserNext.Get() }, OnPress: func() { a.browserRef.GoForward() }},
+		ui.IconButton{Icon: lucide.RefreshCw, Label: "Reload", TestID: "browser-reload", Size: 24, IconSize: 13,
+			OnPress: func() { a.browserRef.Reload() }},
+		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+			ui.Input{Input: base.Input{Value: a.browserInput.Get, OnChange: a.browserInput.Set,
+				Placeholder: "https://example.com", Label: "Address"}},
+		}},
+		ui.IconButton{Icon: lucide.ArrowRight, Label: "Go", TestID: "browser-go", Size: 24, IconSize: 13,
+			OnPress: func() { a.goBrowser(a.browserInput.GetUntracked()) }},
+	}}
+}
+
+// browserStart is the empty browser surface.
+func (a *app) browserStart(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	links := []string{"https://go.dev", "http://localhost:3000", "http://localhost:5173"}
+	var quick []core.Node
+	for _, link := range links {
+		link := link
+		quick = append(quick, ui.Button{Text: link, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			OnPress: func() { a.goBrowser(link) }})
+	}
+	return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+		Padding: core.All(20), Gap: 8}, Children: []core.Node{
+		ui.Icon(lucide.Globe, 28, colors.Faint),
+		ui.Text("Open a page", 13, ui.Semibold, colors.Text),
+		ui.Text("Type an address above, or open a local dev server.", 11.5, ui.Regular, colors.Faint),
+		core.View{Style: core.Style{Direction: core.Column, Gap: 2, AlignItems: core.AlignCenter, Padding: core.Edges{Top: 6}}, Children: quick},
 	}}
 }
 
