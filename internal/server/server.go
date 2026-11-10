@@ -28,6 +28,7 @@ import (
 
 	"github.com/tk/t3go/internal/config"
 	"github.com/tk/t3go/internal/events"
+	"github.com/tk/t3go/internal/git"
 	"github.com/tk/t3go/internal/id"
 	"github.com/tk/t3go/internal/orchestrator"
 	"github.com/tk/t3go/internal/proto"
@@ -756,6 +757,16 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			continue
+		case "vcs.refreshStatus", "subscribeVcsStatus":
+			if !s.upstreamVcsStatus(ctx, writer, envelope.ID, envelope.Tag, envelope.Payload) {
+				return
+			}
+			continue
+		case "vcs.refreshBranch", "subscribeVcsBranch":
+			if !s.upstreamVcsBranch(ctx, writer, envelope.ID, envelope.Tag, envelope.Payload) {
+				return
+			}
+			continue
 		case "attachments.createUploadUrl":
 			var input struct {
 				Name      string `json:"name"`
@@ -857,6 +868,83 @@ func (s *Server) upstreamThread(threadID string) (upstream.Thread, []upstream.Me
 		})
 	}
 	return shellThread(thread), messages, runs, true
+}
+
+// upstreamVcsStatus answers git status calls for a project or worktree.
+func (s *Server) upstreamVcsStatus(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, tag string, payload json.RawMessage) bool {
+	var input struct {
+		Cwd string `json:"cwd"`
+	}
+	_ = json.Unmarshal(payload, &input)
+	if !s.allowedDir(input.Cwd) {
+		_ = writer.write(upstream.UnknownFailure(requestID, "unknown working directory"))
+		return true
+	}
+	local, upstreamBranch, ahead, behind := s.vcsStatus(ctx, input.Cwd)
+	if tag == "vcs.refreshStatus" {
+		return writer.write(upstream.Exit(requestID, upstream.StatusResult(local, upstreamBranch, ahead, behind))) == nil
+	}
+	event := upstream.StatusSnapshot(local, upstreamBranch, ahead, behind)
+	return writer.write(upstream.Chunk(requestID, []any{event})) == nil
+}
+
+func (s *Server) upstreamVcsBranch(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, tag string, payload json.RawMessage) bool {
+	var input struct {
+		Cwd string `json:"cwd"`
+	}
+	_ = json.Unmarshal(payload, &input)
+	if !s.allowedDir(input.Cwd) {
+		_ = writer.write(upstream.UnknownFailure(requestID, "unknown working directory"))
+		return true
+	}
+	status := git.Status(ctx, input.Cwd)
+	result := map[string]any{"refName": nil}
+	if status.Branch != "" {
+		result["refName"] = status.Branch
+	}
+	if tag == "vcs.refreshBranch" {
+		return writer.write(upstream.Exit(requestID, result)) == nil
+	}
+	return writer.write(upstream.Chunk(requestID, []any{result})) == nil
+}
+
+func (s *Server) vcsStatus(ctx context.Context, cwd string) (map[string]any, bool, int, int) {
+	status := git.Status(ctx, cwd)
+	if !status.Repo {
+		return upstream.StatusLocal(false, "", "", false, false, nil, 0, 0), false, 0, 0
+	}
+	files, insertions, deletions, upstreamBranch := git.WorkingTree(ctx, cwd)
+	rows := make([]upstream.GitFile, 0, len(files))
+	for _, f := range files {
+		rows = append(rows, upstream.GitFile{Path: f.Path, Insertions: f.Insertions, Deletions: f.Deletions})
+	}
+	isDefault := status.Branch == "main" || status.Branch == "master"
+	local := upstream.StatusLocal(true, status.Root, status.Branch, git.HasRemote(ctx, cwd), isDefault, rows, insertions, deletions)
+	return local, upstreamBranch, status.Ahead, status.Behind
+}
+
+// allowedDir limits status reads to known project checkouts and worktrees.
+func (s *Server) allowedDir(cwd string) bool {
+	clean := filepath.Clean(cwd)
+	if clean == "" || clean == "." {
+		return false
+	}
+	ctx := context.Background()
+	if projects, err := s.Store.Projects(ctx); err == nil {
+		for _, p := range projects {
+			if filepath.Clean(p.Path) == clean {
+				return true
+			}
+		}
+	}
+	if threads, err := s.Store.Threads(ctx, "", true); err == nil {
+		for _, t := range threads {
+			if t.WorktreePath != "" && filepath.Clean(t.WorktreePath) == clean {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // upstreamDiff answers the turn and whole-thread diff requests from T3Go's

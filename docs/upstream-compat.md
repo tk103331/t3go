@@ -28,11 +28,13 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
 | `attachments.createUploadUrl` / `attachments.delete` | 预建附件并返回带 token 的上传 URL；文件用 POST 写入 |
 | `assets.persistChatAttachments` | 把粘贴图片的 data URL 存成附件 |
 | `assets.createUrl` | 给附件签发可预览/下载的 URL |
+| `vcs.refreshStatus` / `subscribeVcsStatus` | 项目或 worktree 的分支、ahead/behind、工作区文件增删行；订阅先发 snapshot（不持续 watch 文件） |
+| `vcs.refreshBranch` / `subscribeVcsBranch` | 当前分支名 |
 
 以上形状用上游本仓库的 `@t3tools/contracts`（0.1.8）与 `effect@4.1.2` 的
 `RpcClient` 实际解码验证过：项目/线程 shell、订阅后的实时项目更新，以及带两条
 文本消息和 turn item 的线程快照。`message.updated` / `turn-item.updated` / `run.created` 事件、diff、上传 URL、
-ChatAttachment 和 asset URL 形状也用上游 schema 校验过。
+ChatAttachment、asset URL 和 VCS 状态形状也用上游 schema 校验过。
 
 ## 尚未实现（完整兼容所需）
 
@@ -41,7 +43,8 @@ ChatAttachment 和 asset URL 形状也用上游 schema 校验过。
 - `t3code://pair` 链接本身：`t3go serve`/`t3go pair --json` 会给出
   `http://host/#token=...` 形式的直连地址，官方客户端可直接作为 pairing URL
 - run attempt/node、审批、用量等更深层的 v2 投影
-- git 状态、usage、搜索等其余 RPC
+- git 提交/分支切换等写操作、PR、usage、搜索等其余 RPC
+- VCS 状态的文件监听（目前订阅只发 snapshot，刷新由客户端触发）
 - 图片尺寸与内联预览之外的 asset 类型（workspace-file 等）
 - 上游 `t3code://pair` 链接格式
 

@@ -391,3 +391,42 @@ func IsProjected(m Message) bool {
 	}
 	return false
 }
+
+// GitFile is one changed path in a status.
+type GitFile struct {
+	Path                  string
+	Insertions, Deletions int
+}
+
+// StatusLocal is the VcsStatusLocalResult shape.
+func StatusLocal(isRepo bool, root, ref string, hasPrimaryRemote, isDefaultRef bool, files []GitFile, insertions, deletions int) map[string]any {
+	working := make([]any, 0, len(files))
+	for _, f := range files {
+		working = append(working, map[string]any{"path": f.Path, "insertions": f.Insertions, "deletions": f.Deletions})
+	}
+	local := map[string]any{
+		"isRepo": isRepo, "hasPrimaryRemote": hasPrimaryRemote, "isDefaultRef": isDefaultRef,
+		"refName": nullable(ref), "hasWorkingTreeChanges": len(files) > 0,
+		"workingTree": map[string]any{"rootPath": nonEmpty(root, "/"), "files": working,
+			"insertions": insertions, "deletions": deletions},
+	}
+	return local
+}
+
+// StatusResult is the VcsStatusResult shape.
+func StatusResult(local map[string]any, hasUpstream bool, ahead, behind int) map[string]any {
+	local["hasUpstream"] = hasUpstream
+	local["aheadCount"] = ahead
+	local["behindCount"] = behind
+	local["pr"] = nil
+	return local
+}
+
+// StatusSnapshot is the first VcsStatusStreamEvent.
+func StatusSnapshot(local map[string]any, hasUpstream bool, ahead, behind int) map[string]any {
+	return map[string]any{
+		"_tag":   "snapshot",
+		"local":  local,
+		"remote": map[string]any{"hasUpstream": hasUpstream, "aheadCount": ahead, "behindCount": behind, "pr": nil},
+	}
+}

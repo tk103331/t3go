@@ -182,3 +182,45 @@ func RemoveWorktree(ctx context.Context, dir, path string) error {
 	_, err := run(ctx, dir, "worktree", "remove", "--force", path)
 	return err
 }
+
+// FileChange is one path's tracked line changes.
+type FileChange struct {
+	Path       string
+	Insertions int
+	Deletions  int
+}
+
+// WorkingTree lists the tracked changes from HEAD and the totals, plus
+// whether the branch has an upstream.
+func WorkingTree(ctx context.Context, dir string) (files []FileChange, insertions, deletions int, upstream bool) {
+	if out, err := run(ctx, dir, "diff", "--numstat", "HEAD"); err == nil {
+		for _, line := range strings.Split(out, "\n") {
+			fields := strings.Split(line, "\t")
+			if len(fields) < 3 {
+				continue
+			}
+			ins, _ := strconv.Atoi(fields[0])
+			del, _ := strconv.Atoi(fields[1])
+			files = append(files, FileChange{Path: fields[2], Insertions: ins, Deletions: del})
+			insertions += ins
+			deletions += del
+		}
+	}
+	if out, err := run(ctx, dir, "ls-files", "--others", "--exclude-standard"); err == nil {
+		for _, line := range strings.Split(out, "\n") {
+			if strings.TrimSpace(line) != "" {
+				files = append(files, FileChange{Path: line})
+			}
+		}
+	}
+	if _, err := run(ctx, dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"); err == nil {
+		upstream = true
+	}
+	return files, insertions, deletions, upstream
+}
+
+// HasRemote reports whether the checkout has any remote.
+func HasRemote(ctx context.Context, dir string) bool {
+	out, err := run(ctx, dir, "remote")
+	return err == nil && strings.TrimSpace(out) != ""
+}

@@ -1143,3 +1143,60 @@ func TestUpstreamPastedImage(t *testing.T) {
 		t.Fatalf("asset = %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
 	}
 }
+
+// TestUpstreamVcsStatus reports a checkout's working tree and branch.
+func TestUpstreamVcsStatus(t *testing.T) {
+	e := newTestEnv(t)
+	repo := upstreamGitRepo(t)
+	var project proto.Project
+	if code := e.request(t, http.MethodPost, "/api/v1/projects", map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
+		t.Fatalf("project = %d", code)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("changed\nline\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2"
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+		"Authorization": []string{"Bearer " + e.token},
+	}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+	call := func(id int, tag string, payload map[string]any) map[string]any {
+		t.Helper()
+		if err := wsjson.Write(ctx, conn, map[string]any{"_tag": "Request", "id": id, "tag": tag,
+			"payload": payload, "headers": []any{}}); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		var frame map[string]any
+		if err := wsjson.Read(ctx, conn, &frame); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		return frame
+	}
+
+	frame := call(1, "vcs.refreshStatus", map[string]any{"cwd": repo})
+	value, _ := frame["exit"].(map[string]any)["value"].(map[string]any)
+	if frame["_tag"] != "Exit" || value["isRepo"] != true || value["refName"] != "main" {
+		t.Fatalf("status = %#v", frame)
+	}
+	workingTree, _ := value["workingTree"].(map[string]any)
+	files, _ := workingTree["files"].([]any)
+	if len(files) != 1 || workingTree["insertions"].(float64) == 0 {
+		t.Fatalf("working tree = %#v", workingTree)
+	}
+
+	frame = call(2, "subscribeVcsStatus", map[string]any{"cwd": repo})
+	items, _ := frame["values"].([]any)
+	if frame["_tag"] != "Chunk" || len(items) != 1 {
+		t.Fatalf("status stream = %#v", frame)
+	}
+	event := items[0].(map[string]any)
+	if event["_tag"] != "snapshot" || event["local"].(map[string]any)["isRepo"] != true {
+		t.Fatalf("status event = %#v", event)
+	}
+}
