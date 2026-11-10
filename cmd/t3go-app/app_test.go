@@ -209,8 +209,19 @@ func TestUICreateThreadInWorktree(t *testing.T) {
 	app.WaitFor("text:Repo", 15*time.Second)
 	app.Press("id:new-thread")
 	app.WaitFor("id:create-thread", 5*time.Second)
-	app.Press("text:Off") // Own worktree: on
-	app.WaitFor("label:Branch (optional)", 5*time.Second)
+	app.Press("id:toggle-worktree") // Own worktree: on
+	app.WaitUntil(8*time.Second, func() bool {
+		if app.Exists("label:Branch (optional)") {
+			return true
+		}
+		// A press can land while the dialog settles. While it still reads
+		// Off, press again; once On, wait for the body to follow.
+		if app.Exists(`text:"Off"`) {
+			app.Press("id:toggle-worktree")
+			app.Settle()
+		}
+		return false
+	})
 	app.Type("label:Thread title", "Worktree thread")
 	app.Type("label:Branch (optional)", "t3go/ui-test")
 	app.Press("id:create-thread")
@@ -919,6 +930,13 @@ func TestUIDialogsFit(t *testing.T) {
 	app.WaitFor("id:settings-dialog", 5*time.Second)
 	app.WaitFor("id:settings-model", 5*time.Second)
 	check("id:settings-dialog")
+	// A button inside the dialog must not rebuild the dialog itself.
+	save := app.Find("id:settings-save")
+	app.Press("id:settings-perm-auto")
+	app.Settle()
+	if after := app.Find("id:settings-save"); after.ID != save.ID {
+		t.Fatal("pressing a setting rebuilt the dialog")
+	}
 	app.Press("text:Close")
 	app.WaitForGone("id:settings-dialog", 5*time.Second)
 
@@ -926,4 +944,10 @@ func TestUIDialogsFit(t *testing.T) {
 	app.WaitFor("id:new-thread-dialog", 5*time.Second)
 	app.WaitFor("id:new-thread-model", 5*time.Second)
 	check("id:new-thread-dialog")
+	create := app.Find("id:create-thread")
+	app.Press(`text:"supervised"`)
+	app.Settle()
+	if after := app.Find("id:create-thread"); after.ID != create.ID {
+		t.Fatal("pressing a new-thread option rebuilt the dialog")
+	}
 }

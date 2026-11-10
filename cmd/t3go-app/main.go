@@ -366,6 +366,18 @@ func (a *app) newProjectDialog(cx *core.Scope) core.Node {
 }
 
 func (a *app) newThreadDialog(cx *core.Scope) core.Node {
+	return ui.Dialog{Open: a.showNewThread.Get, OnOpenChange: closeDialog(a.showNewThread), Title: "New thread",
+		Description: "The agent runs in this project's directory, or in a fresh worktree.", TestID: "new-thread-dialog",
+		Children: []core.Node{core.Dynamic(a.newThreadBody)},
+		Footer: []core.Node{
+			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showNewThread.Set(false) }},
+			ui.Button{Text: "Create thread", Variant: ui.ButtonPrimary, TestID: "create-thread", OnPress: a.createThread},
+		}}
+}
+
+// newThreadBody reads the dialog's signals in its own scope, so changing a
+// provider or model does not rebuild the dialog itself.
+func (a *app) newThreadBody(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	provider := a.newThreadProv.Get()
 	var providerButtons []core.Node
@@ -449,12 +461,15 @@ func (a *app) newThreadDialog(cx *core.Scope) core.Node {
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: providerButtons},
 		ui.Text("Model", 11, ui.Semibold, colors.Muted),
 		modelField,
-		ui.Text("Permission", 11, ui.Semibold, colors.Muted),
-		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: permButtons},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
 			ui.Text("Own worktree", 12, ui.Regular, colors.Muted), ui.Spacer{},
-			ui.Button{Text: worktree, Variant: ui.ButtonSecondary, Size: ui.SizeSmall, OnPress: func() { a.newThreadWT.Set(!a.newThreadWT.Get()) }},
+			ui.Button{Text: worktree, Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "toggle-worktree", OnPress: func() {
+				println("DEBUG toggle", a.newThreadWT.GetUntracked())
+				a.newThreadWT.Set(!a.newThreadWT.GetUntracked())
+			}},
 		}},
+		ui.Text("Permission", 11, ui.Semibold, colors.Muted),
+		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: permButtons},
 	)
 	if a.newThreadWT.Get() {
 		fields = append(fields, ui.Input{Input: base.Input{Value: a.newThreadBranch.Get, OnChange: a.newThreadBranch.Set,
@@ -463,16 +478,32 @@ func (a *app) newThreadDialog(cx *core.Scope) core.Node {
 	fields = append(fields, core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node {
 		return ui.Text(a.connErr.Get(), 12, ui.Regular, colors.Danger)
 	}})
-	return ui.Dialog{Open: a.showNewThread.Get, OnOpenChange: closeDialog(a.showNewThread), Title: "New thread",
-		Description: "The agent runs in this project's directory, or in a fresh worktree.", TestID: "new-thread-dialog",
-		Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pct(60)},
-			Children: []core.Node{core.View{Style: core.Style{Direction: core.Column, Gap: 12}, Children: fields}}}}, Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showNewThread.Set(false) }},
-			ui.Button{Text: "Create thread", Variant: ui.ButtonPrimary, TestID: "create-thread", OnPress: a.createThread},
-		}}
+	return core.Scroll{Style: core.Style{MaxHeight: core.Pct(60)},
+		Children: []core.Node{core.View{Style: core.Style{Direction: core.Column, Gap: 12,
+			Padding: core.Edges{Right: 16}}, Children: fields}}}
 }
 
 func (a *app) settingsDialog(cx *core.Scope) core.Node {
+	return ui.Dialog{Open: a.showSettings.Get, OnOpenChange: func(open bool, _ base.Reason) {
+		if !open {
+			a.closeSettings()
+		}
+	}, Title: "Settings", Description: "Defaults for new threads in this environment.", TestID: "settings-dialog",
+		Children: []core.Node{core.Dynamic(a.settingsBody)},
+		Footer: []core.Node{
+			ui.Button{Text: "Disconnect", Variant: ui.ButtonGhost, TestID: "disconnect", OnPress: func() { a.closeSettings(); a.disconnect() }},
+			ui.Spacer{},
+			ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: a.closeSettings},
+			ui.Button{Text: "Save", Variant: ui.ButtonPrimary, TestID: "settings-save", OnPress: func() {
+				a.closeSettings()
+				a.saveSettingsDraft()
+			}},
+		}}
+}
+
+// settingsBody reads the draft in its own scope, so a button press updates
+// the body without rebuilding the dialog.
+func (a *app) settingsBody(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	draft := a.settingsDraft.Get()
 	update := func(fn func(*proto.Settings)) {
@@ -544,13 +575,6 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 				update(func(s *proto.Settings) { s.DefaultPermission = string(p) })
 			}})
 	}
-	fields := []core.Node{
-		ui.Input{Input: base.Input{Value: a.settingsTitle.Get, OnChange: a.settingsTitle.Set,
-			Placeholder: "Environment name", Label: "Environment name"}},
-		ui.Text("Default provider", 11, ui.Semibold, colors.Muted),
-		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: providerButtons},
-	}
-	fields = append(fields, ui.Text("Default model", 11, ui.Semibold, colors.Muted), modelField)
 	var themeButtons []core.Node
 	for _, theme := range []string{"system", "light", "dark"} {
 		theme := theme
@@ -563,7 +587,13 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 				update(func(s *proto.Settings) { s.Theme = theme })
 			}})
 	}
-	fields = append(fields,
+	fields := []core.Node{
+		ui.Input{Input: base.Input{Value: a.settingsTitle.Get, OnChange: a.settingsTitle.Set,
+			Placeholder: "Environment name", Label: "Environment name"}},
+		ui.Text("Default provider", 11, ui.Semibold, colors.Muted),
+		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: providerButtons},
+		ui.Text("Default model", 11, ui.Semibold, colors.Muted),
+		modelField,
 		ui.Text("Default permission", 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: permButtons},
 		ui.Text("Theme", 11, ui.Semibold, colors.Muted),
@@ -572,23 +602,10 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 			core.Text{Content: "Server", Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 			core.Text{Content: a.serverURL.Get(), MaxLines: 1, Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 		}},
-	)
-	return ui.Dialog{Open: a.showSettings.Get, OnOpenChange: func(open bool, _ base.Reason) {
-		if !open {
-			a.closeSettings()
-		}
-	}, Title: "Settings", Description: "Defaults for new threads in this environment.", TestID: "settings-dialog",
-		Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pct(70)},
-			Children: []core.Node{core.View{Style: core.Style{Direction: core.Column, Gap: 12}, Children: fields}}}},
-		Footer: []core.Node{
-			ui.Button{Text: "Disconnect", Variant: ui.ButtonGhost, TestID: "disconnect", OnPress: func() { a.closeSettings(); a.disconnect() }},
-			ui.Spacer{},
-			ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: a.closeSettings},
-			ui.Button{Text: "Save", Variant: ui.ButtonPrimary, TestID: "settings-save", OnPress: func() {
-				a.closeSettings()
-				a.saveSettingsDraft()
-			}},
-		}}
+	}
+	return core.Scroll{Style: core.Style{MaxHeight: core.Pct(70)},
+		Children: []core.Node{core.View{Style: core.Style{Direction: core.Column, Gap: 12,
+			Padding: core.Edges{Right: 16}}, Children: fields}}}
 }
 
 func (a *app) diffDialog(cx *core.Scope) core.Node {
