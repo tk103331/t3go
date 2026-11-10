@@ -71,7 +71,7 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 		},
 	)
 	composer := chat.Composer{
-		Draft: a.draft.Get, OnDraftChange: a.draft.Set,
+		Draft: a.draft.Get, OnDraftChange: a.setDraft,
 		Label: "Message", Placeholder: "Ask the agent…", SendLabel: "Send", StopLabel: "Stop",
 		Running: a.running.Get, OnSend: a.send, OnStop: a.stop,
 		Attachments:    func(cx *core.Scope) core.Node { return a.attachmentChips(cx) },

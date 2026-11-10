@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -140,26 +141,43 @@ func (a *app) sidebarSections(cx *core.Scope) []ui.SidebarSection {
 	projects := a.projects.Get()
 	allThreads := a.threads.Get()
 	showArchived := a.showArchived.Get()
+	pinned := a.pinned.Get()
 	query := strings.ToLower(strings.TrimSpace(a.sidebarQuery.Get()))
 	var sections []ui.SidebarSection
 	for _, p := range projects {
 		p := p
-		var items []ui.SidebarItem
+		var threads []proto.Thread
 		for _, t := range allThreads {
 			if t.ProjectID != p.ID || (t.Archived && !showArchived) {
 				continue
 			}
-			t := t
 			if query != "" && !threadMatches(t, query) {
 				continue
 			}
+			threads = append(threads, t)
+		}
+		sort.SliceStable(threads, func(i, j int) bool {
+			iPinned, jPinned := pinned[threads[i].ID], pinned[threads[j].ID]
+			if iPinned != jPinned {
+				return iPinned
+			}
+			return threads[i].UpdatedAt.After(threads[j].UpdatedAt)
+		})
+		var items []ui.SidebarItem
+		for _, t := range threads {
+			t := t
 			archiveText := "Archive thread"
 			if t.Archived {
 				archiveText = "Unarchive thread"
 			}
+			pinText := "Pin thread"
+			if a.threadPinned(t.ID) {
+				pinText = "Unpin thread"
+			}
 			items = append(items, ui.SidebarItem{ID: t.ID, Text: t.Title, TestID: "thread-" + t.ID,
 				Content: a.threadRow(cx, t, colors),
 				Menu: []core.Node{
+					ui.MenuItem{Text: pinText, TestID: "pin-thread-" + t.ID, OnSelect: func() { a.togglePin(t) }},
 					ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread-" + t.ID, OnSelect: func() { a.askRenameThread(t) }},
 					ui.MenuItem{Text: archiveText, TestID: "archive-thread-" + t.ID, OnSelect: func() { a.setArchived(t, !t.Archived) }},
 					ui.MenuItem{Text: "Delete thread", Variant: ui.MenuItemDanger,
@@ -233,6 +251,9 @@ func (a *app) threadRow(cx *core.Scope, t proto.Thread, colors ui.Colors) core.N
 	case t.Archived:
 		head = append(head, ui.Icon(lucide.Archive, 11, colors.Faint))
 	}
+	if a.threadPinned(t.ID) {
+		head = append(head, core.View{TestID: "pinned-" + t.ID, Children: []core.Node{ui.Icon(lucide.Pin, 10, colors.Faint)}})
+	}
 	head = append(head,
 		core.Text{Content: title, MaxLines: 1, Style: core.Style{FontSize: 12.5, FontWeight: ui.Semibold, FlexGrow: 1, FlexShrink: 1},
 			StyleFunc: func() core.Style { return core.Style{Color: titleColor()} }},
@@ -240,17 +261,24 @@ func (a *app) threadRow(cx *core.Scope, t proto.Thread, colors ui.Colors) core.N
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 	)
 	rows := []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinWidth: core.Pt(0)}, Children: head}}
+	draft := a.draftFor(t.ID)
 	preview := oneLine(t.Summary, 80)
-	if preview == "" {
+	previewColor := colors.Faint
+	if draft != "" {
+		preview, previewColor = "Draft: "+oneLine(draft, 72), colors.Accent
+	} else if preview == "" {
 		preview = t.Provider
 	}
 	line := []core.Node{}
-	if t.WorktreePath != "" {
+	switch {
+	case draft != "":
+		line = append(line, ui.Icon(lucide.SquarePen, 10, colors.Accent))
+	case t.WorktreePath != "":
 		line = append(line, ui.Icon(lucide.GitBranch, 10, colors.Faint))
 	}
 	if strings.TrimSpace(preview) != "" {
 		line = append(line, core.Text{Content: preview, MaxLines: 1, Style: core.Style{FontSize: 11, FlexGrow: 1, FlexShrink: 1},
-			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
+			StyleFunc: func() core.Style { return core.Style{Color: previewColor()} }})
 	}
 	if len(line) > 0 {
 		rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinWidth: core.Pt(0)}, Children: line})

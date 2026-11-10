@@ -1121,3 +1121,63 @@ func TestUITranscriptChrome(t *testing.T) {
 	app.Press("id:copy-message-msg_reply")
 	app.WaitUntil(5*time.Second, func() bool { return app.Clipboard == "Hi there" })
 }
+
+// TestUISidebarDraftsAndPins keeps a draft per thread and sorts pinned
+// threads to the top of their project.
+func TestUISidebarDraftsAndPins(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Pins", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	first, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Older thread", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("first thread: %v", err)
+	}
+	second, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Newer thread", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("second thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+first.ID, 15*time.Second)
+	app.WaitFor("id:thread-"+second.ID, 15*time.Second)
+
+	// A draft follows its thread, and the sidebar preview names it.
+	app.Press("id:thread-" + first.ID)
+	app.WaitFor("id:composer-drop", 10*time.Second)
+	app.Type("label:Message", "half written")
+	app.Press("id:thread-" + second.ID)
+	app.WaitFor("text:Draft: half written", 5*time.Second)
+	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "" })
+	app.Press("id:thread-" + first.ID)
+	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "half written" })
+	app.Press("id:thread-" + second.ID)
+	app.WaitFor("id:composer-drop", 5*time.Second)
+
+	// Pinning moves the older thread above the newer one.
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:pin-thread-" + first.ID) {
+			return true
+		}
+		app.LongPress("id:thread-" + first.ID)
+		app.Settle()
+		return app.Exists("id:pin-thread-" + first.ID)
+	})
+	app.Press("id:pin-thread-" + first.ID)
+	app.Settle()
+	app.WaitFor("id:pinned-"+first.ID, 5*time.Second)
+	app.LongPress("id:thread-" + first.ID)
+	app.WaitFor("id:pin-thread-"+first.ID, 5*time.Second)
+	app.Settle()
+	app.Press("id:pin-thread-" + first.ID)
+	app.Settle()
+	app.WaitForGone("id:pinned-"+first.ID, 5*time.Second)
+}

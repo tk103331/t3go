@@ -92,6 +92,9 @@ type app struct {
 	sidebarQuery     *core.Signal[string]
 	sidebarCollapsed *core.Signal[map[string]bool]
 	seen             *core.Signal[map[string]time.Time]
+	drafts           *core.Signal[map[string]string]
+	pinned           *core.Signal[map[string]bool]
+	draftSave        func() bool
 
 	conv *chat.ConversationState
 
@@ -170,12 +173,26 @@ func newApp(cx *core.Scope) *app {
 		sidebarQuery:     core.NewSignal(cx, ""),
 		sidebarCollapsed: core.NewSignalFunc(cx, map[string]bool{}, func(map[string]bool, map[string]bool) bool { return false }),
 		seen:             core.NewSignalFunc(cx, map[string]time.Time{}, func(map[string]time.Time, map[string]time.Time) bool { return false }),
+		drafts:           core.NewSignalFunc(cx, map[string]string{}, func(map[string]string, map[string]string) bool { return false }),
+		pinned:           core.NewSignalFunc(cx, map[string]bool{}, func(map[string]bool, map[string]bool) bool { return false }),
 	}
 	a.conv = chat.NewConversationState(cx)
 	a.bindKeys()
 	// The sidebar keeps the size and state it had last time.
 	if raw, ok := a.store.GetItem("sidebarOpen"); ok {
 		a.sidebarOpen.Set(raw != "false")
+	}
+	if raw, ok := a.store.GetItem("drafts"); ok {
+		var drafts map[string]string
+		if json.Unmarshal([]byte(raw), &drafts) == nil {
+			a.drafts.Set(drafts)
+		}
+	}
+	if raw, ok := a.store.GetItem("pinnedThreads"); ok {
+		var pinned map[string]bool
+		if json.Unmarshal([]byte(raw), &pinned) == nil {
+			a.pinned.Set(pinned)
+		}
 	}
 	if raw, ok := a.store.GetItem("sidebarCollapsed"); ok {
 		var collapsed map[string]bool
@@ -372,6 +389,7 @@ func (a *app) applyEvent(e proto.Event) {
 		a.removeThread(e.ThreadID)
 		if a.selected.GetUntracked() == e.ThreadID {
 			a.selected.Set("")
+			a.draft.Set("")
 			a.messages.Set(nil)
 			a.detail.Set(proto.ThreadDetail{})
 		}
@@ -566,6 +584,30 @@ func (a *app) removeThread(id string) {
 		}
 	}
 	a.threads.Set(next)
+	if drafts := a.drafts.GetUntracked(); drafts[id] != "" {
+		next := map[string]string{}
+		for k, v := range drafts {
+			if k != id {
+				next[k] = v
+			}
+		}
+		a.drafts.Set(next)
+		if raw, err := json.Marshal(next); err == nil {
+			_ = a.store.SetItem("drafts", string(raw))
+		}
+	}
+	if pinned := a.pinned.GetUntracked(); pinned[id] {
+		next := map[string]bool{}
+		for k, v := range pinned {
+			if k != id {
+				next[k] = v
+			}
+		}
+		a.pinned.Set(next)
+		if raw, err := json.Marshal(next); err == nil {
+			_ = a.store.SetItem("pinnedThreads", string(raw))
+		}
+	}
 }
 
 func (a *app) applyMessage(m proto.Message) {
@@ -651,9 +693,15 @@ func (a *app) call(fn func(ctx context.Context, c *client.Client) error, done fu
 
 func (a *app) selectThread(id string) {
 	if id != a.selected.GetUntracked() {
+		if a.draftSave != nil {
+			a.draftSave()
+			a.draftSave = nil
+		}
+		a.persistDrafts()
 		a.attachments.Set(nil)
 	}
 	a.selected.Set(id)
+	a.draft.Set(a.drafts.GetUntracked()[id])
 	for _, t := range a.threads.GetUntracked() {
 		if t.ID == id {
 			a.markSeen(t)
@@ -711,7 +759,12 @@ func (a *app) send() {
 	}
 	attachments := a.attachments.GetUntracked()
 	a.stopDictation()
-	a.draft.Set("")
+	if a.draftSave != nil {
+		a.draftSave()
+		a.draftSave = nil
+	}
+	a.setDraft("")
+	a.persistDrafts()
 	a.attachments.Set(nil)
 	a.connErr.Set("")
 	// A prompt sent while the agent works waits its turn here; the next
@@ -1075,6 +1128,73 @@ func shortID(id string) string {
 		return id[:8]
 	}
 	return id
+}
+
+// setDraft stores the composer's text for the selected thread and
+// remembers it for the next visit.
+func (a *app) setDraft(text string) {
+	a.draft.Set(text)
+	// The sidebar's draft marker can wait for a pause; updating it on
+	// every key would rebuild the list under the composer.
+	if a.draftSave != nil {
+		a.draftSave()
+	}
+	a.draftSave = a.cx.AfterFunc(1200*time.Millisecond, func() {
+		a.persistDrafts()
+		a.draftSave = nil
+	})
+}
+
+// persistDrafts records the selected thread's text and writes every
+// thread's draft to the app's storage.
+func (a *app) persistDrafts() {
+	id := a.selected.GetUntracked()
+	drafts := a.drafts.GetUntracked()
+	next := make(map[string]string, len(drafts)+1)
+	for k, v := range drafts {
+		next[k] = v
+	}
+	if id != "" {
+		if text := a.draft.GetUntracked(); strings.TrimSpace(text) == "" {
+			delete(next, id)
+		} else {
+			next[id] = text
+		}
+	}
+	a.drafts.Set(next)
+	if raw, err := json.Marshal(next); err == nil {
+		_ = a.store.SetItem("drafts", string(raw))
+	}
+}
+
+// draftFor is a thread's unsent text when it is not the open one.
+func (a *app) draftFor(id string) string {
+	if id == a.selected.Get() {
+		return ""
+	}
+	return a.drafts.Get()[id]
+}
+
+// threadPinned reports whether a thread is pinned to its project's top.
+func (a *app) threadPinned(id string) bool {
+	return a.pinned.Get()[id]
+}
+
+// togglePin pins or unpins a thread.
+func (a *app) togglePin(t proto.Thread) {
+	next := make(map[string]bool, len(a.pinned.GetUntracked())+1)
+	for k, v := range a.pinned.GetUntracked() {
+		next[k] = v
+	}
+	if next[t.ID] {
+		delete(next, t.ID)
+	} else {
+		next[t.ID] = true
+	}
+	a.pinned.Set(next)
+	if raw, err := json.Marshal(next); err == nil {
+		_ = a.store.SetItem("pinnedThreads", string(raw))
+	}
 }
 
 // rememberThreads records the threads a snapshot first shows as seen, so
