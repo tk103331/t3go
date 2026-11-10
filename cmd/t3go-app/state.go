@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"mime"
 	"net/url"
 	"os"
@@ -44,18 +46,19 @@ type app struct {
 	showArchived *core.Signal[bool]
 
 	// the open thread
-	selected    *core.Signal[string]
-	detail      *core.Signal[proto.ThreadDetail]
-	messages    *core.Signal[[]proto.Message]
-	running     *core.Signal[bool]
-	draft       *core.Signal[string]
-	queue       *core.Signal[[]queuedPrompt]
-	queued      map[string][]queuedPrompt
-	attachments *core.Signal[[]proto.Attachment]
-	dictating   *core.Signal[bool]
-	speech      *core.SpeechSession
-	expanded    *core.Signal[map[string]bool]
-	approvals   *core.Signal[[]proto.ApprovalRequest]
+	selected         *core.Signal[string]
+	detail           *core.Signal[proto.ThreadDetail]
+	messages         *core.Signal[[]proto.Message]
+	running          *core.Signal[bool]
+	draft            *core.Signal[string]
+	queue            *core.Signal[[]queuedPrompt]
+	queued           map[string][]queuedPrompt
+	attachments      *core.Signal[[]proto.Attachment]
+	attachmentDrafts *core.Signal[map[string][]proto.Attachment]
+	dictating        *core.Signal[bool]
+	speech           *core.SpeechSession
+	expanded         *core.Signal[map[string]bool]
+	approvals        *core.Signal[[]proto.ApprovalRequest]
 
 	// dialogs
 	showNewProject *core.Signal[bool]
@@ -95,6 +98,10 @@ type app struct {
 	drafts           *core.Signal[map[string]string]
 	pinned           *core.Signal[map[string]bool]
 	draftSave        func() bool
+
+	fileIndex       *core.Signal[[]proto.WorkspaceEntry]
+	fileIndexThread *core.Signal[string]
+	fileIndexBusy   *core.Signal[bool]
 
 	rightOpen    *core.Signal[bool]
 	surface      *core.Signal[string]
@@ -146,17 +153,18 @@ func newApp(cx *core.Scope) *app {
 
 		showArchived: core.NewSignal(cx, false),
 
-		selected:    core.NewSignal(cx, ""),
-		detail:      core.NewSignalFunc(cx, proto.ThreadDetail{}, func(proto.ThreadDetail, proto.ThreadDetail) bool { return false }),
-		messages:    sliceSignal[proto.Message](cx),
-		running:     core.NewSignal(cx, false),
-		draft:       core.NewSignal(cx, ""),
-		queue:       sliceSignal[queuedPrompt](cx),
-		queued:      map[string][]queuedPrompt{},
-		attachments: sliceSignal[proto.Attachment](cx),
-		dictating:   core.NewSignal(cx, false),
-		expanded:    core.NewSignalFunc(cx, map[string]bool{}, func(map[string]bool, map[string]bool) bool { return false }),
-		approvals:   sliceSignal[proto.ApprovalRequest](cx),
+		selected:         core.NewSignal(cx, ""),
+		detail:           core.NewSignalFunc(cx, proto.ThreadDetail{}, func(proto.ThreadDetail, proto.ThreadDetail) bool { return false }),
+		messages:         sliceSignal[proto.Message](cx),
+		running:          core.NewSignal(cx, false),
+		draft:            core.NewSignal(cx, ""),
+		queue:            sliceSignal[queuedPrompt](cx),
+		queued:           map[string][]queuedPrompt{},
+		attachments:      sliceSignal[proto.Attachment](cx),
+		attachmentDrafts: core.NewSignalFunc(cx, map[string][]proto.Attachment{}, func(map[string][]proto.Attachment, map[string][]proto.Attachment) bool { return false }),
+		dictating:        core.NewSignal(cx, false),
+		expanded:         core.NewSignalFunc(cx, map[string]bool{}, func(map[string]bool, map[string]bool) bool { return false }),
+		approvals:        sliceSignal[proto.ApprovalRequest](cx),
 
 		showNewProject: core.NewSignal(cx, false),
 		showNewThread:  core.NewSignal(cx, false),
@@ -215,6 +223,9 @@ func newApp(cx *core.Scope) *app {
 		browserBack:      core.NewSignal(cx, false),
 		browserNext:      core.NewSignal(cx, false),
 		browserRef:       &core.Ref{},
+		fileIndex:        sliceSignal[proto.WorkspaceEntry](cx),
+		fileIndexThread:  core.NewSignal(cx, ""),
+		fileIndexBusy:    core.NewSignal(cx, false),
 		terminalSession:  core.NewSignal(cx, proto.TerminalSession{}),
 		terminals:        sliceSignal[proto.TerminalSession](cx),
 		terminalBusy:     core.NewSignal(cx, false),
@@ -228,6 +239,12 @@ func newApp(cx *core.Scope) *app {
 	}
 	if raw, ok := a.store.GetItem("rightOpen"); ok {
 		a.rightOpen.Set(raw != "false")
+	}
+	if raw, ok := a.store.GetItem("attachmentDrafts"); ok {
+		var drafts map[string][]proto.Attachment
+		if json.Unmarshal([]byte(raw), &drafts) == nil {
+			a.attachmentDrafts.Set(drafts)
+		}
 	}
 	if raw, ok := a.store.GetItem("drafts"); ok {
 		var drafts map[string]string
@@ -437,6 +454,7 @@ func (a *app) applyEvent(e proto.Event) {
 		if a.selected.GetUntracked() == e.ThreadID {
 			a.selected.Set("")
 			a.draft.Set("")
+			a.attachments.Set(nil)
 			a.messages.Set(nil)
 			a.detail.Set(proto.ThreadDetail{})
 		}
@@ -655,6 +673,18 @@ func (a *app) removeThread(id string) {
 			_ = a.store.SetItem("pinnedThreads", string(raw))
 		}
 	}
+	if drafts := a.attachmentDrafts.GetUntracked(); len(drafts[id]) > 0 {
+		next := map[string][]proto.Attachment{}
+		for k, v := range drafts {
+			if k != id {
+				next[k] = v
+			}
+		}
+		a.attachmentDrafts.Set(next)
+		if raw, err := json.Marshal(next); err == nil {
+			_ = a.store.SetItem("attachmentDrafts", string(raw))
+		}
+	}
 }
 
 func (a *app) applyMessage(m proto.Message) {
@@ -739,15 +769,21 @@ func (a *app) call(fn func(ctx context.Context, c *client.Client) error, done fu
 }
 
 func (a *app) selectThread(id string) {
-	if id != a.selected.GetUntracked() {
+	switching := id != a.selected.GetUntracked()
+	if switching {
 		if a.draftSave != nil {
 			a.draftSave()
 			a.draftSave = nil
 		}
 		a.persistDrafts()
-		a.attachments.Set(nil)
+		a.saveAttachmentDraft()
 	}
 	a.selected.Set(id)
+	if switching {
+		a.attachments.Set(append([]proto.Attachment(nil), a.attachmentDrafts.GetUntracked()[id]...))
+		a.fileIndex.Set(nil)
+		a.fileIndexThread.Set("")
+	}
 	a.draft.Set(a.drafts.GetUntracked()[id])
 	for _, t := range a.threads.GetUntracked() {
 		if t.ID == id {
@@ -827,6 +863,7 @@ func (a *app) send() {
 	a.setDraft("")
 	a.persistDrafts()
 	a.attachments.Set(nil)
+	a.saveAttachmentDraft()
 	a.connErr.Set("")
 	// A prompt sent while the agent works waits its turn here; the next
 	// run finishes before the client posts it.
@@ -951,6 +988,7 @@ func (a *app) attachFiles(files []core.File) {
 	if a.client() != nil {
 		a.connErr.Set("")
 	}
+	threadID := a.selected.GetUntracked()
 	for _, f := range files {
 		f := f
 		go func() {
@@ -971,7 +1009,12 @@ func (a *app) attachFiles(files []core.File) {
 					a.connErr.Set(friendlyError(uploadErr))
 					return
 				}
-				a.attachments.Set(append(a.attachments.GetUntracked(), attachment))
+				if a.selected.GetUntracked() == threadID {
+					a.attachments.Set(append(a.attachments.GetUntracked(), attachment))
+					a.saveAttachmentDraft()
+					return
+				}
+				a.addAttachmentDraft(threadID, attachment)
 			})
 		}()
 	}
@@ -1067,6 +1110,7 @@ func (a *app) removeAttachment(id string) {
 		}
 	}
 	a.attachments.Set(next)
+	a.saveAttachmentDraft()
 	a.discardAttachments([]proto.Attachment{{ID: id}})
 }
 
@@ -1199,6 +1243,9 @@ func shortID(id string) string {
 // remembers it for the next visit.
 func (a *app) setDraft(text string) {
 	a.draft.Set(text)
+	if strings.Contains(text, "@") {
+		a.ensureFileIndex()
+	}
 	// The sidebar's draft marker can wait for a pause; updating it on
 	// every key would rebuild the list under the composer.
 	if a.draftSave != nil {
@@ -1260,6 +1307,96 @@ func (a *app) togglePin(t proto.Thread) {
 	if raw, err := json.Marshal(next); err == nil {
 		_ = a.store.SetItem("pinnedThreads", string(raw))
 	}
+}
+
+// addAttachmentDraft stages a file for a thread that is not open, as
+// when an upload finishes after the reader switched away.
+func (a *app) addAttachmentDraft(threadID string, attachment proto.Attachment) {
+	if threadID == "" {
+		return
+	}
+	drafts := a.attachmentDrafts.GetUntracked()
+	next := make(map[string][]proto.Attachment, len(drafts)+1)
+	for key, value := range drafts {
+		next[key] = value
+	}
+	next[threadID] = append(next[threadID], attachment)
+	a.attachmentDrafts.Set(next)
+	if raw, err := json.Marshal(next); err == nil {
+		_ = a.store.SetItem("attachmentDrafts", string(raw))
+	}
+}
+
+// saveAttachmentDraft stores the open thread's staged files.
+func (a *app) saveAttachmentDraft() {
+	id := a.selected.GetUntracked()
+	if id == "" {
+		return
+	}
+	drafts := a.attachmentDrafts.GetUntracked()
+	next := make(map[string][]proto.Attachment, len(drafts)+1)
+	for key, value := range drafts {
+		next[key] = value
+	}
+	if files := a.attachments.GetUntracked(); len(files) > 0 {
+		next[id] = append([]proto.Attachment(nil), files...)
+	} else {
+		delete(next, id)
+	}
+	a.attachmentDrafts.Set(next)
+	if raw, err := json.Marshal(next); err == nil {
+		_ = a.store.SetItem("attachmentDrafts", string(raw))
+	}
+}
+
+// pasteAttachments takes images and files pasted into the composer.
+func (a *app) pasteAttachments(event core.PasteEvent) {
+	files := make([]core.File, 0, len(event.Files))
+	for _, pasted := range event.Files {
+		data := append([]byte(nil), pasted.Data...)
+		name := strings.TrimSpace(pasted.Name)
+		if name == "" {
+			name = "pasted-" + time.Now().Format("20060102-150405")
+			if exts, err := mime.ExtensionsByType(pasted.MIME); err == nil && len(exts) > 0 {
+				name += exts[0]
+			} else if strings.HasPrefix(pasted.MIME, "image/") {
+				name += ".png"
+			}
+		}
+		mimeType := pasted.MIME
+		files = append(files, core.File{Name: name, MIME: mimeType, Size: int64(len(data)),
+			Opener: func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(data)), nil }})
+	}
+	a.attachFiles(files)
+	if len(event.URIs) > 0 {
+		a.attachPaths(event.URIs)
+	}
+}
+
+// ensureFileIndex loads the checkout's files for @ mentions once.
+func (a *app) ensureFileIndex() {
+	id := a.selected.GetUntracked()
+	if id == "" || a.fileIndexThread.GetUntracked() == id || a.fileIndexBusy.GetUntracked() {
+		return
+	}
+	c := a.client()
+	if c == nil {
+		return
+	}
+	a.fileIndexBusy.Set(true)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		entries, err := c.FilesRecursive(ctx, id)
+		a.cx.Post(func() {
+			a.fileIndexBusy.Set(false)
+			if err != nil || a.selected.GetUntracked() != id {
+				return
+			}
+			a.fileIndex.Set(entries)
+			a.fileIndexThread.Set(id)
+		})
+	}()
 }
 
 // rememberThreads records the threads a snapshot first shows as seen, so

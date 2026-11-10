@@ -71,7 +71,7 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 		},
 	)
 	composer := chat.Composer{
-		Draft: a.draft.Get, OnDraftChange: a.setDraft,
+		Draft: a.draft.Get, OnDraftChange: a.setDraft, OnPaste: a.pasteAttachments,
 		Label: "Message", Placeholder: "Ask the agent…", SendLabel: "Send", StopLabel: "Stop",
 		Running: a.running.Get, OnSend: a.send, OnStop: a.stop,
 		Attachments:    func(cx *core.Scope) core.Node { return a.attachmentChips(cx) },
@@ -119,6 +119,7 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 		core.View{Style: core.Style{Padding: core.Edges{Top: 8, Right: 16, Bottom: 16, Left: 16}, AlignItems: core.AlignCenter}, Children: []core.Node{
 			core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(chat.ContentWidth)}, Children: []core.Node{
 				a.queuedBlock(cx),
+				core.Dynamic(a.composerSuggestions),
 				core.View{TestID: "composer-drop", OnFileDrop: a.attachPaths, Children: []core.Node{composer}},
 			}},
 		}},

@@ -19,7 +19,7 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - Web 客户端：同一份 NSGo 代码用 `GOOS=js GOARCH=wasm` 构建，由 `t3go serve --web` 直接提供
 - `t3go` CLI：`serve`、`pair`、`doctor`、`version`
 - 交互式权限审批：supervised 模式下 Claude Code 通过本地 MCP 询问 T3Go 客户端，允许/拒绝工具调用
-- NSGo 客户端：连接页、项目/线程侧栏（线程预览与相对时间、运行/失败/未读状态、每线程草稿与 Draft 标记、固定线程、搜索、可折叠项目并记住状态）、右侧 Surfaces 面板（Browser 内嵌网页；文件浏览与预览：Markdown 渲染、图片、JSON/文本、二进制外开；带行号和颜色标记的代码 Diff、Git graph、Pull request；内置终端（PTY/ConPTY + xterm.js，多标签、重开回放）；Device/Side chat 预留）、聊天流（日期分隔、消息时间与复制、run 用量页脚、思考/工具卡片）、新建/重命名/删除项目与线程、新建线程可选项目与 worktree 分支、线程归档与筛选、命令面板与快捷键、记住侧栏宽度与显隐、设置（环境名、默认 provider/model/权限、主题）、运行历史与逐次 diff、Changes 对话框（提交/推送/PR/切分支）、运行中排队发送、附件（选择或拖入文件并随消息发送）、语音听写、审批对话框、断线重连提示、窄屏布局、错误提示条
+- NSGo 客户端：连接页、项目/线程侧栏（线程预览与相对时间、运行/失败/未读状态、每线程草稿与 Draft 标记、固定线程、搜索、可折叠项目并记住状态）、右侧 Surfaces 面板（Browser 内嵌网页；文件浏览与预览：Markdown 渲染、图片、JSON/文本、二进制外开；带行号和颜色标记的代码 Diff、Git graph、Pull request；内置终端（PTY/ConPTY + xterm.js，多标签、重开回放）；Device/Side chat 预留）、聊天流（日期分隔、消息时间与复制、run 用量页脚、思考/工具卡片）、Composer 上下文（`@file` 提及、斜杠命令、粘贴图片/文件、每线程附件草稿）、新建/重命名/删除项目与线程、新建线程可选项目与 worktree 分支、线程归档与筛选、命令面板与快捷键、记住侧栏宽度与显隐、设置（环境名、默认 provider/model/权限、主题）、运行历史与逐次 diff、Changes 对话框（提交/推送/PR/切分支）、运行中排队发送、附件（选择或拖入文件并随消息发送）、语音听写、审批对话框、断线重连提示、窄屏布局、错误提示条
 - 测试：store、orchestrator（fake provider）、provider 流解析、HTTP/SSE/WS、Go 客户端、NSGo UI 集成
 
 尚未实现（有意留到后续）：
@@ -140,7 +140,7 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
 | `GET /api/v1/threads/{id}/diff?runId=` | 某次 run 的 checkpoint diff |
 | `POST /api/v1/threads/{id}/git` | 线程 checkout 的 `commit`/`push`/`create_pr`/`commit_push`/`commit_push_pr` |
 | `GET/POST /api/v1/threads/{id}/branches` | 列出本地分支 / 切换到指定分支 |
-| `GET /api/v1/threads/{id}/files?path=` | 列出线程 checkout 中的目录 |
+| `GET /api/v1/threads/{id}/files?path=` | 列出线程 checkout 中的目录；`recursive=1` 返回用于 @ 提及的源文件索引 |
 | `GET /api/v1/threads/{id}/file?path=` | 读取文件内容（文本预览，含 MIME，二进制标记） |
 | `GET /api/v1/threads/{id}/raw?path=` | 直接读取文件字节，用于图片和外部打开 |
 | `GET /api/v1/threads/{id}/graph` | 所有分支/远程/标签的提交图（含父子关系与 refs） |

@@ -1855,6 +1855,27 @@ func TestWorkspaceFilesAndPullRequest(t *testing.T) {
 	if len(listing.Entries) != 1 || listing.Entries[0].Path != "src/app.go" {
 		t.Fatalf("src entries = %#v", listing.Entries)
 	}
+	if err := os.MkdirAll(filepath.Join(repo, "node_modules", "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "node_modules", "pkg", "index.js"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := e.request(t, http.MethodGet, filesPath+"?recursive=1", nil, e.token, &listing); code != http.StatusOK {
+		t.Fatalf("recursive files = %d", code)
+	}
+	foundSource := false
+	for _, entry := range listing.Entries {
+		if entry.Path == "src/app.go" {
+			foundSource = true
+		}
+		if strings.Contains(entry.Path, "node_modules") {
+			t.Fatalf("recursive files include node_modules: %#v", entry)
+		}
+	}
+	if !foundSource {
+		t.Fatalf("recursive files = %#v", listing.Entries)
+	}
 
 	var file proto.WorkspaceFile
 	if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/file?path=src/app.go", nil, e.token, &file); code != http.StatusOK {

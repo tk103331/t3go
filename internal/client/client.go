@@ -364,6 +364,16 @@ func (c *Client) Files(ctx context.Context, threadID, path string) ([]proto.Work
 	return out.Entries, err
 }
 
+// FilesRecursive lists every source file in a thread's checkout.
+func (c *Client) FilesRecursive(ctx context.Context, threadID string) ([]proto.WorkspaceEntry, error) {
+	var out struct {
+		Entries []proto.WorkspaceEntry `json:"entries"`
+	}
+	endpoint := "/api/v1/threads/" + url.PathEscape(threadID) + "/files?recursive=1"
+	err := c.do(ctx, http.MethodGet, endpoint, nil, &out)
+	return out.Entries, err
+}
+
 // File reads one file from a thread's checkout.
 func (c *Client) File(ctx context.Context, threadID, path string) (proto.WorkspaceFile, error) {
 	var out proto.WorkspaceFile

@@ -1153,7 +1153,15 @@ func TestUISidebarDraftsAndPins(t *testing.T) {
 	// A draft follows its thread, and the sidebar preview names it.
 	app.Press("id:thread-" + first.ID)
 	app.WaitFor("id:composer-drop", 10*time.Second)
-	app.Type("label:Message", "half written")
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Find("label:Message").Text == "half written" {
+			return true
+		}
+		app.Clear("label:Message")
+		app.Type("label:Message", "half written")
+		app.Settle()
+		return app.Find("label:Message").Text == "half written"
+	})
 	app.Press("id:thread-" + second.ID)
 	app.WaitFor("text:Draft: half written", 5*time.Second)
 	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "" })
@@ -1347,4 +1355,98 @@ func TestUIRightPanel(t *testing.T) {
 		}
 		return !app.Exists("id:right-panel")
 	})
+}
+
+// TestUIComposerMentionsAndCommands covers @ file mentions and slash
+// commands above the composer.
+func TestUIComposerMentionsAndCommands(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Repo", gitRepo(t))
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Mentions", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:composer-drop", 10*time.Second)
+
+	app.WaitUntil(15*time.Second, func() bool {
+		if app.Exists("id:mention-file-README.md") {
+			return true
+		}
+		if !strings.Contains(app.Find("label:Message").Text, "@READ") {
+			app.Clear("label:Message")
+			app.Type("label:Message", "Look at @READ")
+			app.Settle()
+		}
+		return app.Exists("id:mention-file-README.md")
+	})
+	app.Press("id:mention-file-README.md")
+	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "Look at @README.md " })
+
+	app.Clear("label:Message")
+	app.WaitUntil(15*time.Second, func() bool {
+		if app.Exists("id:slash-command-settings") {
+			return true
+		}
+		if !strings.Contains(app.Find("label:Message").Text, "/sett") {
+			app.Clear("label:Message")
+			app.Type("label:Message", "/sett")
+			app.Settle()
+		}
+		return app.Exists("id:slash-command-settings")
+	})
+	app.Press("id:slash-command-settings")
+	app.WaitFor("id:settings-dialog", 10*time.Second)
+}
+
+// TestUIAttachmentDrafts restores staged files with their thread.
+func TestUIAttachmentDrafts(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Files", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	first, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "First", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	second, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Second", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "draft-note.txt")
+	if err := os.WriteFile(path, []byte("staged"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+first.ID, 15*time.Second)
+	app.Press("id:thread-" + first.ID)
+	app.WaitFor("id:composer-drop", 10*time.Second)
+	uri := (&url.URL{Scheme: "file", Path: path}).String()
+	app.DropFiles("id:composer-drop", uri)
+	app.WaitFor("text:draft-note.txt", 10*time.Second)
+
+	app.Press("id:thread-" + second.ID)
+	app.WaitForGone("text:draft-note.txt", 5*time.Second)
+	app.Press("id:thread-" + first.ID)
+	app.WaitFor("text:draft-note.txt", 10*time.Second)
 }

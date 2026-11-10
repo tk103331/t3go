@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"mime"
 	"net/http"
 	"os"
@@ -24,6 +25,10 @@ func (s *Server) handleThreadFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	root := s.Service.ThreadDir(r.Context(), t)
+	if r.URL.Query().Get("recursive") == "1" {
+		writeJSON(w, 200, map[string]any{"path": "", "entries": recursiveFiles(root)})
+		return
+	}
 	rel := filepath.ToSlash(strings.TrimSpace(r.URL.Query().Get("path")))
 	full, err := workspacePath(root, rel)
 	if err != nil {
@@ -57,6 +62,43 @@ func (s *Server) handleThreadFiles(w http.ResponseWriter, r *http.Request) {
 		return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
 	})
 	writeJSON(w, 200, map[string]any{"path": rel, "entries": items})
+}
+
+// recursiveFiles lists a checkout's source files for @ mentions.
+func recursiveFiles(root string) []proto.WorkspaceEntry {
+	const limit = 2000
+	var entries []proto.WorkspaceEntry
+	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil || rel == "." {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", "node_modules", "vendor", "dist", "build", ".next", "target", ".cache":
+				return filepath.SkipDir
+			}
+			if strings.Count(rel, "/") >= 8 {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			return nil
+		}
+		entries = append(entries, proto.WorkspaceEntry{Name: entry.Name(), Path: rel, Size: info.Size()})
+		if len(entries) >= limit {
+			return fs.SkipAll
+		}
+		return nil
+	})
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	return entries
 }
 
 // handleThreadFile reads one text file from a thread's checkout.
