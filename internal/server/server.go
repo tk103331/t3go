@@ -757,6 +757,16 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			continue
+		case "orchestration.searchThreads":
+			if !s.upstreamSearchThreads(ctx, writer, envelope.ID, envelope.Payload) {
+				return
+			}
+			continue
+		case "orchestration.searchThread":
+			if !s.upstreamSearchThread(ctx, writer, envelope.ID, envelope.Payload) {
+				return
+			}
+			continue
 		case "vcs.refreshStatus", "subscribeVcsStatus":
 			if !s.upstreamVcsStatus(ctx, writer, envelope.ID, envelope.Tag, envelope.Payload) {
 				return
@@ -868,6 +878,98 @@ func (s *Server) upstreamThread(threadID string) (upstream.Thread, []upstream.Me
 		})
 	}
 	return shellThread(thread), messages, runs, true
+}
+
+// upstreamSearchThreads searches text messages across the environment.
+func (s *Server) upstreamSearchThreads(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, payload json.RawMessage) bool {
+	var input struct {
+		Query string `json:"query"`
+		Limit int    `json:"limit"`
+	}
+	_ = json.Unmarshal(payload, &input)
+	if len([]rune(input.Query)) < 2 {
+		return writer.write(upstream.Exit(requestID, map[string]any{"matches": []any{}})) == nil
+	}
+	if input.Limit <= 0 || input.Limit > 50 {
+		input.Limit = 20
+	}
+	messages, err := s.Store.SearchMessages(ctx, input.Query, input.Limit)
+	if err != nil {
+		_ = writer.write(upstream.UnknownFailure(requestID, err.Error()))
+		return true
+	}
+	projects := map[string]string{}
+	if threads, err := s.Store.Threads(ctx, "", true); err == nil {
+		for _, t := range threads {
+			projects[t.ID] = t.ProjectID
+		}
+	}
+	matches := make([]any, 0, len(messages))
+	for _, m := range messages {
+		if m.Role != proto.RoleUser && m.Role != proto.RoleAssistant {
+			continue
+		}
+		matches = append(matches, map[string]any{
+			"threadId":         m.ThreadID,
+			"projectId":        projects[m.ThreadID],
+			"source":           string(m.Role),
+			"snippet":          truncateRunes(m.Content, 240),
+			"messageCreatedAt": m.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+			"quality":          1,
+			"hits":             1,
+			"messageId":        m.ID,
+		})
+	}
+	return writer.write(upstream.Exit(requestID, map[string]any{"matches": matches})) == nil
+}
+
+// upstreamSearchThread finds a query inside one thread's transcript.
+func (s *Server) upstreamSearchThread(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, payload json.RawMessage) bool {
+	var input struct {
+		ThreadID string `json:"threadId"`
+		Query    string `json:"query"`
+		Index    int    `json:"index"`
+	}
+	_ = json.Unmarshal(payload, &input)
+	messages, err := s.Store.Messages(ctx, input.ThreadID, 4000)
+	if err != nil {
+		_ = writer.write(upstream.UnknownFailure(requestID, err.Error()))
+		return true
+	}
+	var matched []proto.Message
+	for _, m := range messages {
+		if m.Kind != proto.KindText || !strings.Contains(strings.ToLower(m.Content), strings.ToLower(input.Query)) {
+			continue
+		}
+		matched = append(matched, m)
+	}
+	active := input.Index
+	if active < 0 || active >= len(matched) {
+		active = 0
+	}
+	var match any
+	if len(matched) > 0 {
+		m := matched[active]
+		match = map[string]any{"entryId": m.ID, "runId": nullableString(m.RunID), "occurrence": 0}
+	}
+	return writer.write(upstream.Exit(requestID, map[string]any{
+		"snapshotSequence": 0, "totalMatches": len(matched), "activeIndex": active, "match": match,
+	})) == nil
+}
+
+func nullableString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func truncateRunes(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit-1]) + "…"
 }
 
 // upstreamVcsStatus answers git status calls for a project or worktree.

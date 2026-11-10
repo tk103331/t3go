@@ -650,3 +650,27 @@ func NormalizePath(p string) string {
 	}
 	return filepath.Clean(p)
 }
+
+// SearchMessages finds text messages whose content contains query, newest
+// first, at most limit.
+func (s *Store) SearchMessages(ctx context.Context, query string, limit int) ([]proto.Message, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id,thread_id,run_id,role,kind,content,title,detail,status,attachments,created_at FROM messages
+		WHERE kind=? AND content LIKE ? ORDER BY created_at DESC LIMIT ?`,
+		proto.KindText, "%"+query+"%", limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: search messages: %w", err)
+	}
+	defer rows.Close()
+	var out []proto.Message
+	for rows.Next() {
+		m, err := scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}

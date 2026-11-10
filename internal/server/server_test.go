@@ -1200,3 +1200,63 @@ func TestUpstreamVcsStatus(t *testing.T) {
 		t.Fatalf("status event = %#v", event)
 	}
 }
+
+// TestUpstreamSearch finds a thread by message text and finds within it.
+func TestUpstreamSearch(t *testing.T) {
+	e := newTestEnv(t)
+	project := e.project(t)
+	var thread proto.Thread
+	body := map[string]any{"projectId": project.ID, "title": "Searchable", "provider": "claude",
+		"model": "test-model", "permission": "full-access"}
+	if code := e.request(t, http.MethodPost, "/api/v1/threads", body, e.token, &thread); code != http.StatusCreated {
+		t.Fatalf("thread = %d", code)
+	}
+	ctx := context.Background()
+	for _, m := range []proto.Message{
+		{ID: "msg_s1", ThreadID: thread.ID, RunID: "run_s", Role: proto.RoleUser, Kind: proto.KindText, Content: "where is the needle", CreatedAt: time.Now().Add(-time.Second)},
+		{ID: "msg_s2", ThreadID: thread.ID, RunID: "run_s", Role: proto.RoleAssistant, Kind: proto.KindText, Content: "the needle is here", CreatedAt: time.Now()},
+	} {
+		if _, err := e.server.Store.AppendMessage(ctx, m); err != nil {
+			t.Fatalf("message: %v", err)
+		}
+	}
+
+	wsCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2"
+	conn, _, err := websocket.Dial(wsCtx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+		"Authorization": []string{"Bearer " + e.token},
+	}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+	call := func(id int, tag string, payload map[string]any) map[string]any {
+		t.Helper()
+		if err := wsjson.Write(wsCtx, conn, map[string]any{"_tag": "Request", "id": id, "tag": tag,
+			"payload": payload, "headers": []any{}}); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		var frame map[string]any
+		if err := wsjson.Read(wsCtx, conn, &frame); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		return frame
+	}
+
+	frame := call(1, "orchestration.searchThreads", map[string]any{"query": "needle", "limit": 10})
+	value, _ := frame["exit"].(map[string]any)["value"].(map[string]any)
+	matches, _ := value["matches"].([]any)
+	if frame["_tag"] != "Exit" || len(matches) != 2 {
+		t.Fatalf("searchThreads = %#v", frame)
+	}
+	if match := matches[0].(map[string]any); match["projectId"] != project.ID || match["threadId"] != thread.ID {
+		t.Fatalf("match = %#v", match)
+	}
+
+	frame = call(2, "orchestration.searchThread", map[string]any{"threadId": thread.ID, "query": "needle", "index": 0})
+	value, _ = frame["exit"].(map[string]any)["value"].(map[string]any)
+	if value["totalMatches"].(float64) != 2 || value["match"].(map[string]any)["entryId"] == "" {
+		t.Fatalf("searchThread = %#v", value)
+	}
+}
