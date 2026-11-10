@@ -348,6 +348,11 @@ func UnknownFailure(id json.RawMessage, message string) map[string]any {
 	}}
 }
 
+// ExitVoid answers a request whose method has no success value.
+func ExitVoid(id json.RawMessage) map[string]any {
+	return map[string]any{"_tag": "Exit", "requestId": id, "exit": map[string]any{"_tag": "Success"}}
+}
+
 // Failure answers a request with an error.
 func Failure(id json.RawMessage, kind, message string) map[string]any {
 	return map[string]any{"_tag": "Exit", "requestId": id, "exit": map[string]any{

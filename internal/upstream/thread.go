@@ -2,21 +2,56 @@ package upstream
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 )
 
 // Message is one transcript row the compatibility layer projects.
 type Message struct {
-	ID        string
-	ThreadID  string
-	RunID     string
-	Role      string
-	Kind      string
-	Title     string
-	Detail    string
-	Content   string
-	Status    string
-	CreatedAt string
+	ID          string
+	ThreadID    string
+	RunID       string
+	Role        string
+	Kind        string
+	Title       string
+	Detail      string
+	Content     string
+	Status      string
+	Attachments []Attachment
+	CreatedAt   string
+}
+
+// Attachment is a file the message carries.
+type Attachment struct {
+	ID       string
+	Name     string
+	MimeType string
+	Size     int64
+}
+
+// AttachmentRow is one upstream ChatAttachment.
+func AttachmentRow(a Attachment) map[string]any {
+	kind := "file"
+	if strings.HasPrefix(strings.ToLower(a.MimeType), "image/") {
+		kind = "image"
+	}
+	return map[string]any{
+		"type": kind, "id": a.ID, "name": nonEmpty(a.Name, a.ID),
+		"mimeType": nonEmpty(a.MimeType, "application/octet-stream"), "sizeBytes": a.Size,
+	}
+}
+
+// AttachmentRows maps T3Go attachments to upstream ChatAttachments.
+func AttachmentRows(attachments []Attachment) []any {
+	return attachmentRows(attachments)
+}
+
+func attachmentRows(attachments []Attachment) []any {
+	rows := make([]any, 0, len(attachments))
+	for _, a := range attachments {
+		rows = append(rows, AttachmentRow(a))
+	}
+	return rows
 }
 
 // Run is one agent turn as the upstream run projection carries it.
@@ -111,7 +146,7 @@ func MessageRow(m Message) map[string]any {
 		"nodeId":         nil,
 		"role":           role,
 		"text":           m.Content,
-		"attachments":    []any{},
+		"attachments":    attachmentRows(m.Attachments),
 		"streaming":      m.Status == "running",
 		"createdAt":      created,
 		"updatedAt":      created,
@@ -157,7 +192,7 @@ func TurnItem(m Message, ordinal int) map[string]any {
 		item["messageId"] = m.ID
 		item["inputIntent"] = "turn_start"
 		item["text"] = m.Content
-		item["attachments"] = []any{}
+		item["attachments"] = attachmentRows(m.Attachments)
 	case m.Kind == "reasoning":
 		item["type"] = "reasoning"
 		item["text"] = m.Content

@@ -4,16 +4,19 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -186,6 +189,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /oauth/token", s.handleOAuthToken)
 	mux.HandleFunc("GET /api/auth/session", s.auth(s.handleAuthSession))
 	mux.HandleFunc("POST /api/auth/websocket-ticket", s.auth(s.handleWebsocketTicket))
+	mux.HandleFunc("POST /api/attachments/{id}", s.handleAttachmentUpload)
+	mux.HandleFunc("GET /api/attachments/{id}", s.handleAttachmentRead)
 	mux.HandleFunc("POST /api/auth/websocket-ticket/{use}", s.auth(s.handleWebsocketTicket))
 	mux.HandleFunc("GET /.well-known/t3/environment", s.handleUpstreamDescriptor)
 	mux.HandleFunc("GET /api/v1/state", s.auth(s.handleState))
@@ -741,6 +746,46 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			continue
+		case "assets.persistChatAttachments":
+			if !s.upstreamPersistAttachments(ctx, writer, envelope.ID, envelope.Payload) {
+				return
+			}
+			continue
+		case "assets.createUrl":
+			if !s.upstreamAssetURL(writer, envelope.ID, envelope.Payload) {
+				return
+			}
+			continue
+		case "attachments.createUploadUrl":
+			var input struct {
+				Name      string `json:"name"`
+				MimeType  string `json:"mimeType"`
+				SizeBytes int64  `json:"sizeBytes"`
+			}
+			_ = json.Unmarshal(envelope.Payload, &input)
+			attachment, err := s.Service.CreateUpload(ctx, input.Name, input.MimeType, input.SizeBytes)
+			if err != nil {
+				_ = writer.write(upstream.UnknownFailure(envelope.ID, err.Error()))
+				continue
+			}
+			relative := "/api/attachments/" + attachment.ID + "?token=" + url.QueryEscape(s.Config.Token)
+			if err := writer.write(upstream.Exit(envelope.ID, map[string]any{
+				"attachmentId": attachment.ID, "relativeUrl": relative,
+				"expiresAt": float64(time.Now().Add(time.Hour).Unix()),
+			})); err != nil {
+				return
+			}
+			continue
+		case "attachments.delete":
+			var input struct {
+				AttachmentID string `json:"attachmentId"`
+			}
+			_ = json.Unmarshal(envelope.Payload, &input)
+			_ = s.Service.DeleteUpload(ctx, input.AttachmentID)
+			if err := writer.write(upstream.ExitVoid(envelope.ID)); err != nil {
+				return
+			}
+			continue
 		case "orchestration.getTurnDiff", "orchestration.getFullThreadDiff":
 			if !s.upstreamDiff(ctx, writer, envelope.ID, envelope.Tag, envelope.Payload) {
 				return
@@ -795,7 +840,8 @@ func (s *Server) upstreamThread(threadID string) (upstream.Thread, []upstream.Me
 		messages = append(messages, upstream.Message{
 			ID: m.ID, ThreadID: m.ThreadID, RunID: m.RunID, Role: string(m.Role), Kind: string(m.Kind),
 			Title: m.Title, Detail: m.Detail, Content: m.Content, Status: m.Status,
-			CreatedAt: m.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+			Attachments: upstreamAttachments(m.Attachments),
+			CreatedAt:   m.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
 	protoRuns, _ := s.Store.Runs(ctx, threadID)
@@ -860,6 +906,162 @@ func diffErrorTag(tag string) string {
 	return "OrchestrationGetTurnDiffError"
 }
 
+type upstreamAttachmentRef struct {
+	ID string `json:"id"`
+}
+
+func attachmentIDs(items []upstreamAttachmentRef) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.ID != "" {
+			out = append(out, item.ID)
+		}
+	}
+	return out
+}
+
+func upstreamAttachments(attachments []proto.Attachment) []upstream.Attachment {
+	out := make([]upstream.Attachment, 0, len(attachments))
+	for _, a := range attachments {
+		out = append(out, upstream.Attachment{ID: a.ID, Name: a.Name, MimeType: a.MimeType, Size: a.Size})
+	}
+	return out
+}
+
+// handleAttachmentUpload receives the bytes a T3 Code client PUTs to the
+// URL attachments.createUploadUrl minted.
+func (s *Server) handleAttachmentUpload(w http.ResponseWriter, r *http.Request) {
+	if !s.Config.NoAuth {
+		token := r.URL.Query().Get("token")
+		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+			token = strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+		}
+		if !constantTimeEqual(token, s.Config.Token) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+	attachment, err := s.Store.Upload(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	f, err := os.OpenFile(s.Service.UploadPath(attachment.ID), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		writeError(w, 500, "upload", err.Error())
+		return
+	}
+	body := http.MaxBytesReader(w, r.Body, 50<<20)
+	_, copyErr := io.Copy(f, body)
+	closeErr := f.Close()
+	if copyErr != nil || closeErr != nil {
+		_ = os.Remove(s.Service.UploadPath(attachment.ID))
+		writeError(w, 413, "too-large", "the attachment could not be stored")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// upstreamPersistAttachments stores the data URLs a client pastes.
+func (s *Server) upstreamPersistAttachments(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, payload json.RawMessage) bool {
+	var input struct {
+		Attachments []struct {
+			Name     string `json:"name"`
+			MimeType string `json:"mimeType"`
+			DataURL  string `json:"dataUrl"`
+		} `json:"attachments"`
+	}
+	if err := json.Unmarshal(payload, &input); err != nil {
+		_ = writer.write(upstream.TypedFailure(requestID, "PersistChatAttachmentsError", "invalid attachments"))
+		return true
+	}
+	rows := make([]any, 0, len(input.Attachments))
+	for _, in := range input.Attachments {
+		comma := strings.IndexByte(in.DataURL, ',')
+		if comma < 0 {
+			_ = writer.write(upstream.TypedFailure(requestID, "PersistChatAttachmentsError", "an attachment has no data"))
+			return true
+		}
+		raw, err := base64.StdEncoding.DecodeString(in.DataURL[comma+1:])
+		if err != nil {
+			_ = writer.write(upstream.TypedFailure(requestID, "PersistChatAttachmentsError", "an attachment is not valid base64"))
+			return true
+		}
+		attachment, err := s.Service.SaveUpload(ctx, in.Name, in.MimeType, bytes.NewReader(raw))
+		if err != nil {
+			_ = writer.write(upstream.TypedFailure(requestID, "PersistChatAttachmentsError", err.Error()))
+			return true
+		}
+		rows = append(rows, upstream.AttachmentRow(upstream.Attachment{
+			ID: attachment.ID, Name: attachment.Name, MimeType: attachment.MimeType, Size: attachment.Size,
+		}))
+	}
+	return writer.write(upstream.Exit(requestID, map[string]any{"attachments": rows})) == nil
+}
+
+// upstreamAssetURL signs a URL for an attachment a client shows.
+func (s *Server) upstreamAssetURL(writer *upstreamWriter, requestID json.RawMessage, payload json.RawMessage) bool {
+	var input struct {
+		Resource struct {
+			Type         string `json:"type"`
+			AttachmentID string `json:"attachmentId"`
+			Disposition  string `json:"disposition"`
+		} `json:"resource"`
+	}
+	_ = json.Unmarshal(payload, &input)
+	if input.Resource.Type != "attachment" || input.Resource.AttachmentID == "" {
+		_ = writer.write(upstream.TypedFailure(requestID, "AssetAccessError", "only attachment resources are available"))
+		return true
+	}
+	if _, err := s.Store.Upload(context.Background(), input.Resource.AttachmentID); err != nil {
+		_ = writer.write(upstream.TypedFailure(requestID, "AssetAccessError", "the attachment is gone"))
+		return true
+	}
+	relative := "/api/attachments/" + input.Resource.AttachmentID + "?token=" + url.QueryEscape(s.Config.Token)
+	if input.Resource.Disposition == "inline" {
+		relative += "&inline=1"
+	}
+	return writer.write(upstream.Exit(requestID, map[string]any{
+		"relativeUrl": relative, "expiresAt": float64(time.Now().Add(time.Hour).Unix()),
+	})) == nil
+}
+
+// handleAttachmentRead serves an attachment to a URL a client was given.
+func (s *Server) handleAttachmentRead(w http.ResponseWriter, r *http.Request) {
+	if !s.Config.NoAuth {
+		token := r.URL.Query().Get("token")
+		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+			token = strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+		}
+		if !constantTimeEqual(token, s.Config.Token) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+	attachment, err := s.Store.Upload(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	f, err := os.Open(s.Service.UploadPath(attachment.ID))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+	if attachment.MimeType != "" {
+		w.Header().Set("Content-Type", attachment.MimeType)
+	}
+	disposition := "attachment"
+	if r.URL.Query().Get("inline") != "" {
+		disposition = "inline"
+	}
+	if value := mime.FormatMediaType(disposition, map[string]string{"filename": attachment.Name}); value != "" {
+		w.Header().Set("Content-Disposition", value)
+	}
+	http.ServeContent(w, r, attachment.Name, time.Time{}, f)
+}
+
 // upstreamLaunch creates a thread for a T3 Code client and optionally sends
 // its first message.
 func (s *Server) upstreamLaunch(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, payload json.RawMessage) bool {
@@ -874,7 +1076,8 @@ func (s *Server) upstreamLaunch(ctx context.Context, writer *upstreamWriter, req
 			Model      string `json:"model"`
 		} `json:"modelSelection"`
 		InitialMessage struct {
-			Text string `json:"text"`
+			Text        string                  `json:"text"`
+			Attachments []upstreamAttachmentRef `json:"attachments"`
 		} `json:"initialMessage"`
 		WorkspaceStrategy struct {
 			Type         string `json:"type"`
@@ -911,7 +1114,7 @@ func (s *Server) upstreamLaunch(ctx context.Context, writer *upstreamWriter, req
 		return true
 	}
 	if strings.TrimSpace(input.InitialMessage.Text) != "" {
-		_, _ = s.Service.SendWith(ctx, thread.ID, input.InitialMessage.Text, nil)
+		_, _ = s.Service.SendWith(ctx, thread.ID, input.InitialMessage.Text, attachmentIDs(input.InitialMessage.Attachments))
 	}
 	shell, messages, runs, ok := s.upstreamThread(thread.ID)
 	if !ok {
@@ -942,9 +1145,10 @@ func permissionFromRuntimeMode(mode string) proto.PermissionMode {
 // upstreamDispatch maps the T3 Code commands this layer understands.
 func (s *Server) upstreamDispatch(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, payload json.RawMessage) bool {
 	var command struct {
-		Type     string `json:"type"`
-		ThreadID string `json:"threadId"`
-		Text     string `json:"text"`
+		Type        string                  `json:"type"`
+		ThreadID    string                  `json:"threadId"`
+		Text        string                  `json:"text"`
+		Attachments []upstreamAttachmentRef `json:"attachments"`
 	}
 	if err := json.Unmarshal(payload, &command); err != nil {
 		_ = writer.write(upstream.UnknownFailure(requestID, "invalid command"))
@@ -952,7 +1156,7 @@ func (s *Server) upstreamDispatch(ctx context.Context, writer *upstreamWriter, r
 	}
 	switch command.Type {
 	case "message.dispatch":
-		if _, err := s.Service.SendWith(ctx, command.ThreadID, command.Text, nil); err != nil {
+		if _, err := s.Service.SendWith(ctx, command.ThreadID, command.Text, attachmentIDs(command.Attachments)); err != nil {
 			_ = writer.write(upstream.UnknownFailure(requestID, err.Error()))
 			return true
 		}
@@ -1043,7 +1247,8 @@ func (s *Server) forwardThread(ctx context.Context, writer *upstreamWriter, requ
 			}
 			projected := upstream.Message{ID: m.ID, ThreadID: m.ThreadID, RunID: m.RunID, Role: string(m.Role),
 				Kind: string(m.Kind), Title: m.Title, Detail: m.Detail, Content: m.Content, Status: m.Status,
-				CreatedAt: m.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z")}
+				Attachments: upstreamAttachments(m.Attachments),
+				CreatedAt:   m.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z")}
 			if !upstream.IsProjected(projected) {
 				continue
 			}

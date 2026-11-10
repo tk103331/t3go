@@ -129,6 +129,21 @@ func (s *Service) SaveSettings(ctx context.Context, settings proto.Settings) err
 // UploadPath is an uploaded file's place on disk.
 func (s *Service) UploadPath(id string) string { return filepath.Join(s.Home, "uploads", id) }
 
+// CreateUpload reserves an attachment whose bytes arrive later.
+func (s *Service) CreateUpload(ctx context.Context, name, mime string, size int64) (proto.Attachment, error) {
+	if err := os.MkdirAll(filepath.Join(s.Home, "uploads"), 0o700); err != nil {
+		return proto.Attachment{}, fmt.Errorf("upload: directory: %w", err)
+	}
+	attachment := proto.Attachment{ID: id.New("upl"), Name: cleanFilename(name), MimeType: strings.TrimSpace(mime), Size: size}
+	if attachment.Name == "" {
+		attachment.Name = "file"
+	}
+	if err := s.Store.CreateUpload(ctx, attachment); err != nil {
+		return proto.Attachment{}, err
+	}
+	return attachment, nil
+}
+
 // SaveUpload stores a prompt attachment and returns its metadata.
 func (s *Service) SaveUpload(ctx context.Context, name, mime string, r io.Reader) (proto.Attachment, error) {
 	name = cleanFilename(name)

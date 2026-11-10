@@ -988,3 +988,158 @@ func TestUpstreamDiffs(t *testing.T) {
 		}
 	}
 }
+
+// TestUpstreamAttachmentUpload mints an upload URL, posts bytes to it and
+// sends the attachment with a message.
+func TestUpstreamAttachmentUpload(t *testing.T) {
+	e := newTestEnv(t)
+	e.server.Service.Providers.Register(upstreamRunner{})
+	project := e.project(t)
+	var thread proto.Thread
+	body := map[string]any{"projectId": project.ID, "title": "Files", "provider": "upstream-fake",
+		"model": "upstream-fake-1", "permission": "full-access"}
+	if code := e.request(t, http.MethodPost, "/api/v1/threads", body, e.token, &thread); code != http.StatusCreated {
+		t.Fatalf("thread = %d", code)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2"
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+		"Authorization": []string{"Bearer " + e.token},
+	}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+	write := func(v any) {
+		t.Helper()
+		if err := wsjson.Write(ctx, conn, v); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	read := func() map[string]any {
+		t.Helper()
+		var frame map[string]any
+		if err := wsjson.Read(ctx, conn, &frame); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		return frame
+	}
+
+	write(map[string]any{"_tag": "Request", "id": 1, "tag": "attachments.createUploadUrl", "headers": []any{},
+		"payload": map[string]any{"type": "file", "name": "notes.txt", "mimeType": "text/plain", "sizeBytes": 7}})
+	frame := read()
+	value, _ := frame["exit"].(map[string]any)["value"].(map[string]any)
+	attachmentID, _ := value["attachmentId"].(string)
+	relativeURL, _ := value["relativeUrl"].(string)
+	if frame["_tag"] != "Exit" || attachmentID == "" || relativeURL == "" {
+		t.Fatalf("upload url = %#v", frame)
+	}
+
+	req, _ := http.NewRequest(http.MethodPost, e.http.URL+relativeURL, strings.NewReader("attached"))
+	req.Header.Set("Content-Type", "text/plain")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("upload = %d", resp.StatusCode)
+	}
+	raw, err := os.ReadFile(e.server.Service.UploadPath(attachmentID))
+	if err != nil || string(raw) != "attached" {
+		t.Fatalf("stored = %q, %v", raw, err)
+	}
+
+	write(map[string]any{"_tag": "Request", "id": 10, "tag": "orchestration.subscribeThread",
+		"payload": map[string]any{"threadId": thread.ID}, "headers": []any{}})
+	read()
+
+	write(map[string]any{"_tag": "Request", "id": 2, "tag": "orchestration.dispatchCommand", "headers": []any{},
+		"payload": map[string]any{"type": "message.dispatch", "commandId": "cmd_files", "threadId": thread.ID,
+			"messageId": "msg_files", "text": "Look", "createdBy": "user", "creationSource": "web",
+			"attachments": []any{map[string]any{"type": "file", "id": attachmentID, "name": "notes.txt",
+				"mimeType": "text/plain", "sizeBytes": 7}}}})
+	var sawAttachment bool
+	for !sawAttachment {
+		frame = read()
+		items, _ := frame["values"].([]any)
+		if frame["_tag"] != "Chunk" || len(items) != 1 {
+			continue
+		}
+		event, _ := items[0].(map[string]any)
+		domain, _ := event["event"].(map[string]any)
+		payload, _ := domain["payload"].(map[string]any)
+		if domain["type"] != "message.updated" || payload["role"] != "user" {
+			continue
+		}
+		attachments, _ := payload["attachments"].([]any)
+		if len(attachments) == 1 && attachments[0].(map[string]any)["id"] == attachmentID {
+			sawAttachment = true
+		}
+	}
+}
+
+// TestUpstreamPastedImage persists a data URL and serves it back through
+// an asset URL.
+func TestUpstreamPastedImage(t *testing.T) {
+	e := newTestEnv(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2"
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+		"Authorization": []string{"Bearer " + e.token},
+	}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+	call := func(id int, tag string, payload map[string]any) map[string]any {
+		t.Helper()
+		if err := wsjson.Write(ctx, conn, map[string]any{"_tag": "Request", "id": id, "tag": tag,
+			"payload": payload, "headers": []any{}}); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		var frame map[string]any
+		if err := wsjson.Read(ctx, conn, &frame); err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		return frame
+	}
+
+	const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+	frame := call(1, "assets.persistChatAttachments", map[string]any{
+		"threadId": "thr_1", "messageId": "msg_1", "attachments": []any{map[string]any{
+			"type": "image", "name": "pixel.png", "mimeType": "image/png", "sizeBytes": len(png),
+			"dataUrl": "data:image/png;base64," + png,
+		}},
+	})
+	value, _ := frame["exit"].(map[string]any)["value"].(map[string]any)
+	attachments, _ := value["attachments"].([]any)
+	if frame["_tag"] != "Exit" || len(attachments) != 1 {
+		t.Fatalf("persist = %#v", frame)
+	}
+	attachment := attachments[0].(map[string]any)
+	if attachment["type"] != "image" || attachment["mimeType"] != "image/png" || attachment["id"] == "" {
+		t.Fatalf("attachment = %#v", attachment)
+	}
+
+	frame = call(2, "assets.createUrl", map[string]any{"resource": map[string]any{
+		"type": "attachment", "attachmentId": attachment["id"], "mimeType": "image/png", "disposition": "inline",
+	}})
+	value, _ = frame["exit"].(map[string]any)["value"].(map[string]any)
+	relative, _ := value["relativeUrl"].(string)
+	if frame["_tag"] != "Exit" || relative == "" {
+		t.Fatalf("asset url = %#v", frame)
+	}
+	resp, err := http.Get(e.http.URL + relative)
+	if err != nil {
+		t.Fatalf("get asset: %v", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || len(raw) == 0 || resp.Header.Get("Content-Type") != "image/png" {
+		t.Fatalf("asset = %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+}
