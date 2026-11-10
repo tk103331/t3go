@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -672,5 +673,100 @@ func TestUpstreamThreadAndDispatch(t *testing.T) {
 	}
 	if !sawUser {
 		t.Fatalf("no user message event (assistant = %v)", sawAssistant)
+	}
+}
+
+// TestUpstreamBearerAuth walks the pairing token exchange, session and
+// one-time socket ticket a T3 Code client uses.
+func TestUpstreamBearerAuth(t *testing.T) {
+	e := newTestEnv(t)
+
+	form := url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:token-exchange"},
+		"subject_token": {e.token}, "subject_token_type": {"urn:t3:params:oauth:token-type:environment-bootstrap"},
+		"requested_token_type": {"urn:ietf:params:oauth:token-type:access_token"}}
+	resp, err := http.PostForm(e.http.URL+"/oauth/token", form)
+	if err != nil {
+		t.Fatalf("token: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("token = %d", resp.StatusCode)
+	}
+	var token struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		ExpiresIn   int    `json:"expires_in"`
+		Scope       string `json:"scope"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&token); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if token.AccessToken != e.token || token.TokenType != "Bearer" || token.ExpiresIn == 0 || token.Scope == "" {
+		t.Fatalf("token = %#v", token)
+	}
+
+	bad := url.Values{"subject_token": {"wrong"}}
+	resp, err = http.PostForm(e.http.URL+"/oauth/token", bad)
+	if err != nil {
+		t.Fatalf("bad token: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("bad token = %d", resp.StatusCode)
+	}
+
+	var session struct {
+		Authenticated bool     `json:"authenticated"`
+		Scopes        []string `json:"scopes"`
+		SessionMethod string   `json:"sessionMethod"`
+	}
+	if code := e.request(t, http.MethodGet, "/api/auth/session", nil, e.token, &session); code != http.StatusOK {
+		t.Fatalf("session = %d", code)
+	}
+	if !session.Authenticated || len(session.Scopes) == 0 || session.SessionMethod != "bearer-access-token" {
+		t.Fatalf("session = %#v", session)
+	}
+
+	req, _ := http.NewRequest(http.MethodPost, e.http.URL+"/api/auth/websocket-ticket/rpc", nil)
+	req.Header.Set("Authorization", "Bearer "+e.token)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("ticket: %v", err)
+	}
+	defer resp.Body.Close()
+	var ticket struct {
+		Ticket    string `json:"ticket"`
+		ExpiresAt string `json:"expiresAt"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&ticket); err != nil {
+		t.Fatalf("ticket decode: %v", err)
+	}
+	if ticket.Ticket == "" || ticket.ExpiresAt == "" {
+		t.Fatalf("ticket = %#v", ticket)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2&wsTicket=" + url.QueryEscape(ticket.Ticket)
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+	if err := wsjson.Write(ctx, conn, map[string]any{"_tag": "Request", "id": 1, "tag": "server.probe",
+		"payload": map[string]any{}, "headers": []any{}}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	var frame map[string]any
+	if err := wsjson.Read(ctx, conn, &frame); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if frame["_tag"] != "Exit" {
+		t.Fatalf("probe = %#v", frame)
+	}
+
+	// The ticket is one-time.
+	if _, _, err := websocket.Dial(ctx, wsURL, nil); err == nil {
+		t.Fatal("a used ticket opened another socket")
 	}
 }

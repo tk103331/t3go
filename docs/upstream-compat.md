@@ -9,6 +9,10 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
 | 接口 | 说明 |
 | --- | --- |
 | `GET /.well-known/t3/environment` | 上游的 `ExecutionEnvironmentDescriptor`，`orchestrationProtocolVersion: 2` |
+| `POST /oauth/token` | 用环境 token 换取 bearer access token（token-exchange 表单） |
+| `GET /api/auth/session` | 当前 bearer 会话的权限 |
+| `POST /api/auth/websocket-ticket[/{use}]` | 一次性 socket ticket |
+| `/ws?...&wsTicket=<ticket>` | 用 ticket 升级 WebSocket，或用 Bearer header |
 | `GET /ws?orchestrationProtocol=2` | Effect RPC 的 JSON 帧（`_tag: Request/Exit/Chunk`，含 `Ping/Pong`） |
 | `server.probe` | 环境探活 |
 | `server.getConfig` | 最小 `ServerConfig`（环境、auth、cwd、空 provider/编辑器列表、默认设置） |
@@ -27,15 +31,18 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
 
 ## 尚未实现（完整兼容所需）
 
-- 上游的认证/配对/DPoP 流程：目前 `/ws` 仍用 T3Go 的 bearer token（header 或
-  `?token=`），官方客户端的配对链接和会话凭据还不能直接复用
+- DPoP 和 T3 Connect 云身份：直接配对的 bearer token exchange 已实现，DPoP
+  证明和云 relay 流程尚未实现
+- `t3code://pair` 链接本身：`t3go serve`/`t3go pair --json` 会给出
+  `http://host/#token=...` 形式的直连地址，官方客户端可直接作为 pairing URL
 - `ServerConfig` 里的 provider 目录、模型和编辑器列表
 - 线程创建/归档/删除等其余 dispatch 命令
 - reasoning、工具调用、审批、run 状态在 turn item / v2 事件里的完整投影
 - 附件、diff、git、usage 等其余 RPC
 - 上游 `t3code://pair` 链接格式
 
-官方客户端现在可以连上、看到项目和线程列表、打开线程读到文本历史，并通过
+官方客户端现在可以用 bearer 直连配对（把 `t3go serve` 打印的 `t3` 地址作为
+pairing URL）、看到项目和线程列表、打开线程读到文本历史，并通过
 `message.dispatch` 发送消息。reasoning/工具调用、附件和完整 run 元数据仍会让
 细节缺失；T3Go 自己的客户端不受影响。
 

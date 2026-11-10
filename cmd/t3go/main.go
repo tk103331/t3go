@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -131,6 +132,7 @@ func cmdServe(args []string) int {
 		if !cfg.NoAuth {
 			fmt.Printf("  token   %s\n", config.TokenPath(cfg.Home))
 			fmt.Printf("  pair    %s\n", pairingURL(ln.Addr().String(), cfg.Token))
+			fmt.Printf("  t3      %s\n", upstreamPairingURL(ln.Addr().String(), cfg.Token))
 		}
 	}
 	if err := srv.Serve(ctx, ln); err != nil {
@@ -158,7 +160,8 @@ func cmdPair(args []string) int {
 	}
 	url := pairingURL(cfg.Listen, cfg.Token)
 	if *jsonOut {
-		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"url": cfg.Listen, "token": cfg.Token, "pairing": url})
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"url": cfg.Listen, "token": cfg.Token,
+			"pairing": url, "t3": upstreamPairingURL(cfg.Listen, cfg.Token)})
 		return 0
 	}
 	fmt.Println(url)
@@ -172,6 +175,17 @@ func pairingURL(addr, token string) string {
 		}
 	}
 	return fmt.Sprintf("t3go://pair?url=%s&token=%s", "http://"+addr, token)
+}
+
+// upstreamPairingURL is the direct pairing link a T3 Code client accepts:
+// the address with the token in the fragment.
+func upstreamPairingURL(addr, token string) string {
+	if strings.HasPrefix(addr, "0.0.0.0:") || strings.HasPrefix(addr, "[::]:") {
+		if ip := outboundIP(); ip != "" {
+			addr = ip + addr[strings.LastIndex(addr, ":"):]
+		}
+	}
+	return "http://" + addr + "/#token=" + url.QueryEscape(token)
 }
 
 func outboundIP() string {

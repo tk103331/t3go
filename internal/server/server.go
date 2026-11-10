@@ -5,6 +5,8 @@ package server
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,6 +50,8 @@ type Server struct {
 	addr     string
 	closing  chan struct{}
 	stopOnce sync.Once
+	ticketMu sync.Mutex
+	tickets  map[string]time.Time
 }
 
 // New opens the environment's database and builds its services.
@@ -64,7 +68,7 @@ func New(cfg config.Config, logger *log.Logger) (*Server, error) {
 	svc := orchestrator.New(st, providers, bus, cfg.Home, logger)
 	svc.ApprovalToken = cfg.Token
 	s := &Server{Config: cfg, Store: st, Service: svc, Bus: bus, Log: logger, ID: id.New("env"), StartedAt: time.Now(),
-		closing: make(chan struct{})}
+		closing: make(chan struct{}), tickets: map[string]time.Time{}}
 	if runs, threads, err := svc.RecoverInterrupted(context.Background()); err != nil {
 		_ = st.Close()
 		return nil, err
@@ -179,6 +183,10 @@ func (s *Server) PairingURL() string {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
+	mux.HandleFunc("POST /oauth/token", s.handleOAuthToken)
+	mux.HandleFunc("GET /api/auth/session", s.auth(s.handleAuthSession))
+	mux.HandleFunc("POST /api/auth/websocket-ticket", s.auth(s.handleWebsocketTicket))
+	mux.HandleFunc("POST /api/auth/websocket-ticket/{use}", s.auth(s.handleWebsocketTicket))
 	mux.HandleFunc("GET /.well-known/t3/environment", s.handleUpstreamDescriptor)
 	mux.HandleFunc("GET /api/v1/state", s.auth(s.handleState))
 	mux.HandleFunc("GET /api/v1/projects", s.auth(s.handleProjects))
@@ -225,6 +233,12 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		if token == "" {
 			token = r.URL.Query().Get("token")
+		}
+		if r.URL.Path == "/ws" {
+			if ticket := r.URL.Query().Get("wsTicket"); ticket != "" && s.consumeTicket(ticket) {
+				next(w, r)
+				return
+			}
 		}
 		if !constantTimeEqual(token, s.Config.Token) {
 			writeError(w, http.StatusUnauthorized, "unauthorized", "a valid token is required")
@@ -511,6 +525,74 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]string{"diff": diff})
+}
+
+// handleOAuthToken exchanges the environment's token for a bearer access
+// token, the flow a T3 Code client uses after a pairing link.
+func (s *Server) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writeError(w, 400, "invalid", err.Error())
+		return
+	}
+	subject := r.PostFormValue("subject_token")
+	if !constantTimeEqual(subject, s.Config.Token) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant", "error_description": "the pairing token is not valid"})
+		return
+	}
+	scope := strings.TrimSpace(r.PostFormValue("scope"))
+	if scope == "" {
+		scope = strings.Join(upstream.Scopes(), " ")
+	}
+	writeJSON(w, 200, map[string]any{
+		"access_token":      s.Config.Token,
+		"issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+		"token_type":        "Bearer",
+		"expires_in":        3600,
+		"scope":             scope,
+	})
+}
+
+// handleAuthSession reports who the bearer token belongs to.
+func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]any{
+		"authenticated": true,
+		"auth":          upstream.AuthDescriptor(s.upstreamEnvironment()),
+		"scopes":        upstream.Scopes(),
+		"permissions":   upstream.Scopes(),
+		"sessionMethod": "bearer-access-token",
+		"expiresAt":     time.Now().Add(time.Hour).UTC().Format("2006-01-02T15:04:05.000Z"),
+	})
+}
+
+// handleWebsocketTicket mints the one-time ticket a socket URL carries.
+func (s *Server) handleWebsocketTicket(w http.ResponseWriter, r *http.Request) {
+	raw := make([]byte, 24)
+	if _, err := rand.Read(raw); err != nil {
+		writeError(w, 500, "ticket", err.Error())
+		return
+	}
+	ticket := base64.RawURLEncoding.EncodeToString(raw)
+	expires := time.Now().Add(time.Hour)
+	s.ticketMu.Lock()
+	s.tickets[ticket] = expires
+	s.ticketMu.Unlock()
+	writeJSON(w, 200, map[string]any{"ticket": ticket, "expiresAt": expires.UTC().Format("2006-01-02T15:04:05.000Z")})
+}
+
+func (s *Server) consumeTicket(ticket string) bool {
+	s.ticketMu.Lock()
+	defer s.ticketMu.Unlock()
+	expires, ok := s.tickets[ticket]
+	if !ok {
+		return false
+	}
+	delete(s.tickets, ticket)
+	if time.Now().After(expires) {
+		return false
+	}
+	return true
 }
 
 // upstreamEnvironment is what the compatibility layer answers about this

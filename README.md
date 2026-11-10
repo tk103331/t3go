@@ -75,7 +75,7 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
 ```
 
 在连接页填入服务地址和 token（也可以直接粘贴 `t3go://pair?...` 链接），
-点击 Connect。之后可以添加项目目录、创建线程、选择 provider/model/权限并开始对话。
+点击 Connect。`t3` 那一行是给 T3 Code 官方客户端用的直连配对地址。之后可以添加项目目录、创建线程、选择 provider/model/权限并开始对话。
 
 快捷键（非 Apple 平台把 `⌘` 换成 `Ctrl`）：
 

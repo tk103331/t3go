@@ -85,18 +85,34 @@ func Descriptor(env Environment) map[string]any {
 	}
 }
 
+// AuthDescriptor is the environment's authentication description.
+func AuthDescriptor(env Environment) map[string]any {
+	return map[string]any{
+		"policy":            "remote-reachable",
+		"bootstrapMethods":  []string{"one-time-token"},
+		"sessionMethods":    []string{"bearer-access-token"},
+		"sessionCookieName": "t3_session",
+	}
+}
+
+// Scopes are the permissions this layer reports. It maps them all to T3Go's
+// single bearer token.
+func Scopes() []string {
+	return []string{
+		"orchestration:read", "orchestration:operate", "settings:write", "providers:manage",
+		"environment:maintain", "preview:operate", "diagnostics:read", "terminal:read",
+		"terminal:operate", "filesystem:read", "filesystem:write", "source-control:write",
+		"access:read", "access:write", "relay:read", "relay:write",
+	}
+}
+
 // Config is a minimal ServerConfig: the environment and its defaults, with
 // no providers yet. Upstream clients decode it with the fields they know and
 // ignore the rest.
 func Config(env Environment) map[string]any {
 	return map[string]any{
-		"environment": Descriptor(env),
-		"auth": map[string]any{
-			"policy":            "loopback-browser",
-			"bootstrapMethods":  []string{"one-time-token"},
-			"sessionMethods":    []string{"bearer-access-token"},
-			"sessionCookieName": "t3_session",
-		},
+		"environment":           Descriptor(env),
+		"auth":                  AuthDescriptor(env),
 		"cwd":                   env.CWD,
 		"keybindingsConfigPath": env.Home + "/keybindings.json",
 		"keybindings":           []any{},
