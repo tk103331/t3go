@@ -653,9 +653,8 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 		}}
 }
 
-// settingsBody reads the draft in its own scope, so a button press updates
-// the body without rebuilding the dialog.
-func (a *app) settingsBody(cx *core.Scope) core.Node {
+// settingsGeneral is the environment defaults page of settings.
+func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	draft := a.settingsDraft.Get()
 	update := func(fn func(*proto.Settings)) {
@@ -755,9 +754,7 @@ func (a *app) settingsBody(cx *core.Scope) core.Node {
 			core.Text{Content: a.serverURL.Get(), MaxLines: 1, Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 		}},
 	}
-	return core.Scroll{Style: core.Style{MaxHeight: core.Pct(70)},
-		Children: []core.Node{core.View{Style: core.Style{Direction: core.Column, Gap: 12,
-			Padding: core.Edges{Right: 16}}, Children: fields}}}
+	return core.View{Style: core.Style{Direction: core.Column, Gap: 12, Padding: core.Edges{Right: 16}}, Children: fields}
 }
 
 func (a *app) diffDialog(cx *core.Scope) core.Node {

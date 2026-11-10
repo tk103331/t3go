@@ -1448,3 +1448,40 @@ func TestUIAttachmentDrafts(t *testing.T) {
 	app.Press("id:thread-" + first.ID)
 	app.WaitFor("text:draft-note.txt", 10*time.Second)
 }
+
+// TestUISettingsSections walks the settings navigation.
+func TestUISettingsSections(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Demo", gitRepo(t))
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Worktree", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+		Worktree: true,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	_ = thread
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:settings", 15*time.Second)
+	app.Press("id:settings")
+	app.WaitFor("id:settings-dialog", 5*time.Second)
+	app.WaitFor("id:settings-nav-general", 5*time.Second)
+
+	app.Press("id:settings-nav-providers")
+	app.WaitFor("id:settings-refresh-providers", 5*time.Second)
+	app.Press("id:settings-nav-worktrees")
+	app.WaitFor("text:managed worktrees", 5*time.Second)
+	app.Press("id:settings-nav-shortcuts")
+	app.WaitFor("text:Keyboard shortcuts", 5*time.Second)
+	app.Press("id:settings-nav-about")
+	app.WaitFor("text:About T3Go", 5*time.Second)
+	app.Press("id:settings-nav-general")
+	app.WaitFor("id:settings-model", 5*time.Second)
+}

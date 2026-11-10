@@ -61,23 +61,24 @@ type app struct {
 	approvals        *core.Signal[[]proto.ApprovalRequest]
 
 	// dialogs
-	showNewProject *core.Signal[bool]
-	showNewThread  *core.Signal[bool]
-	showSettings   *core.Signal[bool]
-	showPalette    *core.Signal[bool]
-	settingsDraft  *core.Signal[proto.Settings]
-	settingsTitle  *core.Signal[string]
-	showDiff       *core.Signal[bool]
-	showRuns       *core.Signal[bool]
-	diffText       *core.Signal[string]
-	gitMessage     *core.Signal[string]
-	gitBusy        *core.Signal[bool]
-	gitNote        *core.Signal[string]
-	gitPR          *core.Signal[string]
-	branches       *core.Signal[[]proto.Branch]
-	pendingDelete  *core.Signal[itemTarget]
-	pendingRename  *core.Signal[itemTarget]
-	renameName     *core.Signal[string]
+	showNewProject  *core.Signal[bool]
+	showNewThread   *core.Signal[bool]
+	showSettings    *core.Signal[bool]
+	showPalette     *core.Signal[bool]
+	settingsDraft   *core.Signal[proto.Settings]
+	settingsTitle   *core.Signal[string]
+	settingsSection *core.Signal[string]
+	showDiff        *core.Signal[bool]
+	showRuns        *core.Signal[bool]
+	diffText        *core.Signal[string]
+	gitMessage      *core.Signal[string]
+	gitBusy         *core.Signal[bool]
+	gitNote         *core.Signal[string]
+	gitPR           *core.Signal[string]
+	branches        *core.Signal[[]proto.Branch]
+	pendingDelete   *core.Signal[itemTarget]
+	pendingRename   *core.Signal[itemTarget]
+	renameName      *core.Signal[string]
 
 	newProjectName *core.Signal[string]
 	newProjectPath *core.Signal[string]
@@ -169,20 +170,21 @@ func newApp(cx *core.Scope) *app {
 		expanded:         core.NewSignalFunc(cx, map[string]bool{}, func(map[string]bool, map[string]bool) bool { return false }),
 		approvals:        sliceSignal[proto.ApprovalRequest](cx),
 
-		showNewProject: core.NewSignal(cx, false),
-		showNewThread:  core.NewSignal(cx, false),
-		showSettings:   core.NewSignal(cx, false),
-		showPalette:    core.NewSignal(cx, false),
-		settingsDraft:  core.NewSignal(cx, proto.DefaultSettings()),
-		settingsTitle:  core.NewSignal(cx, ""),
-		showDiff:       core.NewSignal(cx, false),
-		showRuns:       core.NewSignal(cx, false),
-		diffText:       core.NewSignal(cx, ""),
-		gitMessage:     core.NewSignal(cx, ""),
-		gitBusy:        core.NewSignal(cx, false),
-		gitNote:        core.NewSignal(cx, ""),
-		gitPR:          core.NewSignal(cx, ""),
-		branches:       sliceSignal[proto.Branch](cx),
+		showNewProject:  core.NewSignal(cx, false),
+		showNewThread:   core.NewSignal(cx, false),
+		showSettings:    core.NewSignal(cx, false),
+		showPalette:     core.NewSignal(cx, false),
+		settingsDraft:   core.NewSignal(cx, proto.DefaultSettings()),
+		settingsTitle:   core.NewSignal(cx, ""),
+		settingsSection: core.NewSignal(cx, "general"),
+		showDiff:        core.NewSignal(cx, false),
+		showRuns:        core.NewSignal(cx, false),
+		diffText:        core.NewSignal(cx, ""),
+		gitMessage:      core.NewSignal(cx, ""),
+		gitBusy:         core.NewSignal(cx, false),
+		gitNote:         core.NewSignal(cx, ""),
+		gitPR:           core.NewSignal(cx, ""),
+		branches:        sliceSignal[proto.Branch](cx),
 		pendingDelete: core.NewSignalFunc(cx, itemTarget{}, func(a, b itemTarget) bool {
 			return a == b
 		}),
@@ -241,6 +243,9 @@ func newApp(cx *core.Scope) *app {
 	// The sidebar keeps the size and state it had last time.
 	if raw, ok := a.store.GetItem("sidebarOpen"); ok {
 		a.sidebarOpen.Set(raw != "false")
+	}
+	if raw, ok := a.store.GetItem("settingsSection"); ok && raw != "" {
+		a.settingsSection.Set(raw)
 	}
 	if raw, ok := a.store.GetItem("rightOpen"); ok {
 		a.rightOpen.Set(raw != "false")
@@ -2170,6 +2175,12 @@ func (a *app) commandItems() []base.CommandItem {
 		})
 	}
 	return items
+}
+
+// setSettingsSection switches the settings page and remembers it.
+func (a *app) setSettingsSection(name string) {
+	a.settingsSection.Set(name)
+	_ = a.store.SetItem("settingsSection", name)
 }
 
 // openSettings starts a draft from the environment's settings, so closing
