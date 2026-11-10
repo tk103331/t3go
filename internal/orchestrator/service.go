@@ -277,6 +277,10 @@ type CreateThreadInput struct {
 	Permission proto.PermissionMode
 	Branch     string
 	Worktree   bool
+	// BaseRef starts a new worktree from a ref; empty uses the current HEAD.
+	BaseRef string
+	// ExistingWorktree uses a checkout that already exists.
+	ExistingWorktree string
 }
 
 // CreateThread makes a thread and its worktree when asked.
@@ -309,7 +313,9 @@ func (s *Service) CreateThread(ctx context.Context, in CreateThreadInput) (proto
 	if thread.Title == "" {
 		thread.Title = "New thread"
 	}
-	if in.Worktree {
+	if in.ExistingWorktree != "" {
+		thread.WorktreePath = in.ExistingWorktree
+	} else if in.Worktree {
 		if !git.IsRepo(ctx, project.Path) {
 			return proto.Thread{}, errors.New("worktrees need a Git project")
 		}
@@ -321,7 +327,7 @@ func (s *Service) CreateThread(ctx context.Context, in CreateThreadInput) (proto
 			thread.Branch = "t3go/" + slug
 		}
 		thread.WorktreePath = filepath.Join(s.Home, "worktrees", slug+"-"+shortID(thread.ID))
-		if err := git.CreateWorktree(ctx, project.Path, thread.WorktreePath, thread.Branch, ""); err != nil {
+		if err := git.CreateWorktree(ctx, project.Path, thread.WorktreePath, thread.Branch, in.BaseRef); err != nil {
 			return proto.Thread{}, fmt.Errorf("create worktree: %w", err)
 		}
 	} else if thread.Branch == "" {

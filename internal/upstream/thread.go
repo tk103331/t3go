@@ -9,6 +9,8 @@ type Message struct {
 	RunID     string
 	Role      string
 	Kind      string
+	Title     string
+	Detail    string
 	Content   string
 	Status    string
 	CreatedAt string
@@ -81,10 +83,6 @@ func TurnItem(m Message, ordinal int) map[string]any {
 	case "cancelled":
 		status = "cancelled"
 	}
-	role := "assistant"
-	if m.Role == "user" {
-		role = "user"
-	}
 	created := m.CreatedAt
 	if created == "" {
 		created = isoTimestamp(TimeNow())
@@ -105,7 +103,8 @@ func TurnItem(m Message, ordinal int) map[string]any {
 		"completedAt":      created,
 		"updatedAt":        created,
 	}
-	if role == "user" {
+	switch {
+	case m.Role == "user":
 		item["type"] = "user_message"
 		item["createdBy"] = "user"
 		item["creationSource"] = "web"
@@ -113,12 +112,34 @@ func TurnItem(m Message, ordinal int) map[string]any {
 		item["inputIntent"] = "turn_start"
 		item["text"] = m.Content
 		item["attachments"] = []any{}
-		return item
+	case m.Kind == "reasoning":
+		item["type"] = "reasoning"
+		item["text"] = m.Content
+		item["streaming"] = m.Status == "running"
+	case m.Kind == "tool":
+		item["type"] = "command_execution"
+		input := m.Title
+		if input == "" {
+			input = m.Detail
+		}
+		if input == "" {
+			input = "Tool"
+		}
+		item["input"] = input
+		if m.Content != "" {
+			item["output"] = m.Content
+		}
+		if m.Status == "failed" {
+			item["outputIndicatesFailure"] = true
+		}
+	case m.Kind == "text":
+		item["type"] = "assistant_message"
+		item["messageId"] = m.ID
+		item["text"] = m.Content
+		item["streaming"] = m.Status == "running"
+	default:
+		return nil
 	}
-	item["type"] = "assistant_message"
-	item["messageId"] = m.ID
-	item["text"] = m.Content
-	item["streaming"] = m.Status == "running"
 	return item
 }
 
@@ -129,12 +150,16 @@ func ThreadProjection(t Thread, messages []Message) map[string]any {
 	visible := make([]any, 0, len(messages))
 	ordinal := 0
 	for _, m := range messages {
-		if !isText(m) {
+		if !IsProjected(m) {
 			continue
 		}
-		row := MessageRow(m)
+		if m.Role == "user" || (m.Role == "assistant" && m.Kind == "text") {
+			rows = append(rows, MessageRow(m))
+		}
 		item := TurnItem(m, ordinal)
-		rows = append(rows, row)
+		if item == nil {
+			continue
+		}
 		items = append(items, item)
 		visible = append(visible, map[string]any{
 			"position": ordinal, "visibility": "local", "sourceThreadId": m.ThreadID,
@@ -224,6 +249,20 @@ func itoa(v int64) string {
 	return string(digits[i:])
 }
 
-func isText(m Message) bool {
-	return m.Content != "" && (m.Role == "user" || (m.Role == "assistant" && m.Kind == "text"))
+// IsProjected reports whether a message becomes an upstream turn item.
+func IsProjected(m Message) bool {
+	if m.Content == "" {
+		return false
+	}
+	if m.Role == "user" {
+		return m.Kind == "text"
+	}
+	if m.Role != "assistant" {
+		return false
+	}
+	switch m.Kind {
+	case "text", "reasoning", "tool":
+		return true
+	}
+	return false
 }

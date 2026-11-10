@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -844,5 +845,77 @@ func TestUpstreamLaunchAndManage(t *testing.T) {
 	}
 	if _, err := e.server.Store.Thread(ctx, threadID); err == nil {
 		t.Fatal("the thread was not deleted")
+	}
+}
+
+func upstreamGitRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-b", "main")
+	run("config", "user.email", "t3go@example.com")
+	run("config", "user.name", "T3Go")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "-m", "initial")
+	return dir
+}
+
+// TestUpstreamLaunchWorktree starts a thread in the worktree strategy a T3
+// Code client asks for.
+func TestUpstreamLaunchWorktree(t *testing.T) {
+	e := newTestEnv(t)
+	e.server.Service.Providers.Register(upstreamRunner{})
+	repo := upstreamGitRepo(t)
+	var project proto.Project
+	if code := e.request(t, http.MethodPost, "/api/v1/projects",
+		map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
+		t.Fatalf("project = %d", code)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(e.http.URL, "http") + "/ws?orchestrationProtocol=2"
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{
+		"Authorization": []string{"Bearer " + e.token},
+	}})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+
+	if err := wsjson.Write(ctx, conn, map[string]any{"_tag": "Request", "id": 1, "tag": "orchestration.launchThread",
+		"headers": []any{}, "payload": map[string]any{
+			"commandId": "cmd_worktree", "threadId": "thr_worktree", "projectId": project.ID,
+			"title": "Worktree thread", "runtimeMode": "full-access", "interactionMode": "default",
+			"modelSelection":    map[string]any{"instanceId": "upstream-fake", "model": "upstream-fake-1"},
+			"workspaceStrategy": map[string]any{"type": "worktree", "branch": "t3go/upstream"},
+		}}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	var frame map[string]any
+	if err := wsjson.Read(ctx, conn, &frame); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if frame["_tag"] != "Exit" {
+		t.Fatalf("launch = %#v", frame)
+	}
+	thread, err := e.server.Store.Thread(ctx, "thr_worktree")
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	if thread.WorktreePath == "" || thread.Branch != "t3go/upstream" {
+		t.Fatalf("thread = %#v", thread)
+	}
+	if _, err := os.Stat(thread.WorktreePath); err != nil {
+		t.Fatalf("worktree: %v", err)
 	}
 }

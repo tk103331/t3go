@@ -20,9 +20,9 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
 | `subscribeServerLifecycle` | `welcome` 事件 |
 | `orchestration.subscribeShell` | `snapshot` + `synchronized`，包含 T3Go 的项目和线程 shell 行；之后的项目/线程变化以 `project.updated` / `project.removed` / `thread.updated` / `thread.removed` 实时推送 |
 | `subscribeAuthAccess` | 空权限流 |
-| `orchestration.subscribeThread` | 线程快照：AppThread、文本消息与 `user_message`/`assistant_message` turn item，并按 200ms 的文本更新推送 `message.updated` / `turn-item.updated` 事件 |
+| `orchestration.subscribeThread` | 线程快照：AppThread、文本消息与 `user_message`/`assistant_message`/`reasoning`/`command_execution` turn item，并随 T3Go 的文本更新推送 `message.updated` / `turn-item.updated` 事件 |
 | `orchestration.getThreadProjection` | 同一投影的普通请求 |
-| `orchestration.launchThread` | 用客户端的 threadId、项目、模型和 runtime mode 创建线程，可带首条消息 |
+| `orchestration.launchThread` | 用客户端的 threadId、项目、模型和 runtime mode 创建线程，可带首条消息；`workspaceStrategy` 的 `root`、`worktree`、`existing_worktree` 都映射到 T3Go |
 | `orchestration.dispatchCommand` | `message.dispatch`、`thread.stop`、`thread.archive`/`unarchive`、`thread.delete` |
 
 以上形状用上游本仓库的 `@t3tools/contracts`（0.1.8）与 `effect@4.1.2` 的
@@ -36,9 +36,8 @@ T3Go 的线程/run/工具事件投影成上游 v2 协议打基础。
   证明和云 relay 流程尚未实现
 - `t3code://pair` 链接本身：`t3go serve`/`t3go pair --json` 会给出
   `http://host/#token=...` 形式的直连地址，官方客户端可直接作为 pairing URL
-- reasoning、工具调用、审批、run 状态在 turn item / v2 事件里的完整投影
+- run 状态、审批、用量和 diff 在 v2 投影里的完整字段
 - 附件、diff、git、usage、搜索等其余 RPC
-- `workspaceStrategy` 的 worktree 分支（目前按 root 创建）
 - 上游 `t3code://pair` 链接格式
 
 官方客户端现在可以用 bearer 直连配对（把 `t3go serve` 打印的 `t3` 地址作为

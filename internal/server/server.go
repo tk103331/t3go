@@ -720,7 +720,7 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 			if err := writer.write(upstream.Chunk(envelope.ID, []any{upstream.ThreadSnapshot(thread, messages)})); err != nil {
 				return
 			}
-			go s.forwardThread(ctx, writer, envelope.ID, input.ThreadID)
+			go s.forwardThread(ctx, writer, envelope.ID, input.ThreadID, messages)
 			continue
 		case "orchestration.getThreadProjection":
 			var input struct {
@@ -776,12 +776,13 @@ func (s *Server) upstreamThread(threadID string) (upstream.Thread, []upstream.Me
 	}
 	messages := make([]upstream.Message, 0, len(stored))
 	for _, m := range stored {
-		if m.Content == "" || (m.Role != "user" && m.Kind != "text") {
+		if !upstream.IsProjected(upstream.Message{Role: string(m.Role), Kind: string(m.Kind), Content: m.Content, Status: m.Status}) {
 			continue
 		}
 		messages = append(messages, upstream.Message{
 			ID: m.ID, ThreadID: m.ThreadID, RunID: m.RunID, Role: string(m.Role), Kind: string(m.Kind),
-			Content: m.Content, Status: m.Status, CreatedAt: m.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+			Title: m.Title, Detail: m.Detail, Content: m.Content, Status: m.Status,
+			CreatedAt: m.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
 	return shellThread(thread), messages, true
@@ -803,6 +804,12 @@ func (s *Server) upstreamLaunch(ctx context.Context, writer *upstreamWriter, req
 		InitialMessage struct {
 			Text string `json:"text"`
 		} `json:"initialMessage"`
+		WorkspaceStrategy struct {
+			Type         string `json:"type"`
+			BaseRef      string `json:"baseRef"`
+			Branch       string `json:"branch"`
+			WorktreePath string `json:"worktreePath"`
+		} `json:"workspaceStrategy"`
 	}
 	if err := json.Unmarshal(payload, &input); err != nil {
 		_ = writer.write(upstream.UnknownFailure(requestID, "invalid launch"))
@@ -813,11 +820,19 @@ func (s *Server) upstreamLaunch(ctx context.Context, writer *upstreamWriter, req
 	if input.ReuseExisting && err == nil {
 		resumed = true
 	} else {
-		thread, err = s.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		create := orchestrator.CreateThreadInput{
 			ID: input.ThreadID, ProjectID: input.ProjectID, Title: input.Title,
 			Provider: input.ModelSelection.InstanceID, Model: input.ModelSelection.Model,
-			Permission: permissionFromRuntimeMode(input.RuntimeMode),
-		})
+			Permission: permissionFromRuntimeMode(input.RuntimeMode), Branch: input.WorkspaceStrategy.Branch,
+		}
+		switch input.WorkspaceStrategy.Type {
+		case "worktree":
+			create.Worktree = true
+			create.BaseRef = input.WorkspaceStrategy.BaseRef
+		case "existing_worktree":
+			create.ExistingWorktree = input.WorkspaceStrategy.WorktreePath
+		}
+		thread, err = s.Service.CreateThread(ctx, create)
 	}
 	if err != nil {
 		_ = writer.write(upstream.UnknownFailure(requestID, err.Error()))
@@ -893,11 +908,18 @@ func (s *Server) upstreamDispatch(ctx context.Context, writer *upstreamWriter, r
 }
 
 // forwardThread sends text message changes to an upstream thread stream.
-func (s *Server) forwardThread(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, threadID string) {
+func (s *Server) forwardThread(ctx context.Context, writer *upstreamWriter, requestID json.RawMessage, threadID string, existing []upstream.Message) {
 	live, unsubscribe := s.Bus.Subscribe()
 	defer unsubscribe()
 	ordinals := map[string]int{}
 	nextOrdinal := 0
+	for _, m := range existing {
+		if !upstream.IsProjected(m) {
+			continue
+		}
+		ordinals[m.ID] = nextOrdinal
+		nextOrdinal++
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -910,7 +932,13 @@ func (s *Server) forwardThread(ctx context.Context, writer *upstreamWriter, requ
 				continue
 			}
 			m, ok := decodeEvent[proto.Message](event.Data)
-			if !ok || m.Content == "" || (m.Role != "user" && m.Kind != "text") {
+			if !ok {
+				continue
+			}
+			projected := upstream.Message{ID: m.ID, ThreadID: m.ThreadID, RunID: m.RunID, Role: string(m.Role),
+				Kind: string(m.Kind), Title: m.Title, Detail: m.Detail, Content: m.Content, Status: m.Status,
+				CreatedAt: m.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z")}
+			if !upstream.IsProjected(projected) {
 				continue
 			}
 			ordinal, seen := ordinals[m.ID]
@@ -919,14 +947,13 @@ func (s *Server) forwardThread(ctx context.Context, writer *upstreamWriter, requ
 				ordinals[m.ID] = ordinal
 				nextOrdinal++
 			}
-			message := upstream.Message{ID: m.ID, ThreadID: m.ThreadID, RunID: m.RunID, Role: string(m.Role),
-				Kind: string(m.Kind), Content: m.Content, Status: m.Status,
-				CreatedAt: m.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z")}
 			sequence := event.Seq * 2
-			if err := writer.write(upstream.Chunk(requestID, []any{upstream.MessageUpdated(sequence, message, ordinal)})); err != nil {
-				return
+			if projected.Role == "user" || projected.Kind == "text" {
+				if err := writer.write(upstream.Chunk(requestID, []any{upstream.MessageUpdated(sequence, projected, ordinal)})); err != nil {
+					return
+				}
 			}
-			if err := writer.write(upstream.Chunk(requestID, []any{upstream.TurnItemUpdated(sequence+1, message, ordinal)})); err != nil {
+			if err := writer.write(upstream.Chunk(requestID, []any{upstream.TurnItemUpdated(sequence+1, projected, ordinal)})); err != nil {
 				return
 			}
 		}
