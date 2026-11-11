@@ -564,6 +564,14 @@ func (c *Client) Retry(ctx context.Context, threadID, runID string) (proto.Run, 
 	return out, err
 }
 
+// CreateSideChat returns a thread's hidden side chat, creating it first.
+func (c *Client) CreateSideChat(ctx context.Context, threadID string) (proto.Thread, error) {
+	var thread proto.Thread
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/side-chat"
+	err := c.do(ctx, http.MethodPost, path, map[string]any{}, &thread)
+	return thread, err
+}
+
 // Fork copies a thread into a new one, optionally starting with content.
 func (c *Client) Fork(ctx context.Context, threadID, messageID, content string) (proto.Thread, error) {
 	var out proto.Thread

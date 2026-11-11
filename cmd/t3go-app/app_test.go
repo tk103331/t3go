@@ -2128,3 +2128,82 @@ esac
 		return false
 	})
 }
+
+// sideRunner answers a side question at once.
+type sideRunner struct{}
+
+func (sideRunner) ID() string   { return "side-fake" }
+func (sideRunner) Name() string { return "Side Fake" }
+
+func (sideRunner) Snapshot(context.Context) proto.Provider {
+	return proto.Provider{ID: "side-fake", Name: "Side Fake", Installed: true, Version: "1",
+		Models: []proto.Model{{ID: "side-fake-1", Name: "Side One", Provider: "side-fake", Default: true}}}
+}
+
+func (sideRunner) Run(ctx context.Context, turn provider.Turn, sink provider.Sink) error {
+	sink.Text("side reply")
+	return nil
+}
+
+// TestUISideChat opens the Side chat surface and asks a question.
+func TestUISideChat(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	srv.Service.Providers.Register(sideRunner{})
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Repo", gitRepo(t))
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Parent", Provider: "side-fake", Model: "side-fake-1",
+		Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:toggle-right-panel", 10*time.Second)
+	app.WaitUntil(15*time.Second, func() bool {
+		if app.Exists("id:surface-chat") {
+			return true
+		}
+		if app.Exists("id:surface-add") {
+			app.Press("id:surface-add")
+			app.Settle()
+		} else if app.Exists("id:toggle-right-panel") {
+			app.Press("id:toggle-right-panel")
+			app.Settle()
+		}
+		return app.Exists("id:surface-chat")
+	})
+	app.Press("id:surface-chat")
+	app.WaitFor("id:side-input", 20*time.Second)
+
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Find("id:side-input").Text == "quick question" {
+			return true
+		}
+		app.Clear("id:side-input")
+		app.Type("id:side-input", "quick question")
+		app.Settle()
+		return app.Find("id:side-input").Text == "quick question"
+	})
+	app.WaitUntil(15*time.Second, func() bool {
+		if len(app.Query("text:side reply")) > 0 {
+			return true
+		}
+		if app.Exists("id:side-send") {
+			app.Press("id:side-send")
+			app.Settle()
+		}
+		return len(app.Query("text:side reply")) > 0
+	})
+	if app.Exists("text:Side chat · Parent") {
+		t.Fatal("the side chat is listed in the sidebar")
+	}
+}

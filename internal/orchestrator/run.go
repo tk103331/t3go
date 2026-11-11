@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +45,52 @@ func (s *Service) Retry(ctx context.Context, threadID, runID string) (proto.Run,
 	return s.start(ctx, threadID, prompt, nil, false)
 }
 
+// sideChatHandoff summarizes the parent thread for its side chat's first
+// prompt, so the answer has the conversation's context.
+func (s *Service) sideChatHandoff(ctx context.Context, side proto.Thread) string {
+	parent, err := s.Store.Thread(ctx, side.ParentID)
+	if err != nil {
+		return ""
+	}
+	messages, err := s.Store.Messages(ctx, parent.ID, 0)
+	if err != nil {
+		return ""
+	}
+	var lines []string
+	for i := len(messages) - 1; i >= 0 && len(lines) < 24; i-- {
+		message := messages[i]
+		if message.Kind != proto.KindText || (message.Role != proto.RoleUser && message.Role != proto.RoleAssistant) {
+			continue
+		}
+		text := strings.TrimSpace(message.Content)
+		if text == "" {
+			continue
+		}
+		if len(text) > 1200 {
+			text = text[:1200] + "…"
+		}
+		who := "User"
+		if message.Role == proto.RoleAssistant {
+			who = "Assistant"
+		}
+		lines = append([]string{who + ": " + text}, lines...)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	context := strings.Join(lines, "\n")
+	if len(context) > 12000 {
+		context = context[len(context)-12000:]
+	}
+	dir := parent.ProjectID
+	if project, err := s.Store.Project(ctx, parent.ProjectID); err == nil {
+		dir = project.Path
+	}
+	return "You are answering a side question about the thread " + strconv.Quote(parent.Title) +
+		" in " + dir + ". Recent messages from that thread:\n\n" + context +
+		"\n\nUse this context to answer the side question. The side chat is separate from that thread."
+}
+
 func (s *Service) start(ctx context.Context, threadID, prompt string, attachmentIDs []string, recordUser bool) (proto.Run, error) {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
@@ -70,6 +117,13 @@ func (s *Service) start(ctx context.Context, threadID, prompt string, attachment
 	project, err := s.Store.Project(ctx, t.ProjectID)
 	if err != nil {
 		return proto.Run{}, err
+	}
+	if t.SideChat && t.ParentID != "" {
+		if runs, err := s.Store.Runs(ctx, threadID); err == nil && len(runs) == 0 {
+			if handoff := s.sideChatHandoff(ctx, t); handoff != "" {
+				providerPrompt = handoff + "\n\n" + providerPrompt
+			}
+		}
 	}
 	dir := t.WorktreePath
 	if dir == "" {

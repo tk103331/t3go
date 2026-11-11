@@ -58,9 +58,13 @@ type Thread struct {
 	ProviderSession string         `json:"providerSession,omitempty"`
 	Summary         string         `json:"summary,omitempty"`
 	Archived        bool           `json:"archived"`
-	CreatedAt       time.Time      `json:"createdAt"`
-	UpdatedAt       time.Time      `json:"updatedAt"`
-	LastError       string         `json:"lastError,omitempty"`
+	// ParentID is the thread a side chat belongs to.
+	ParentID string `json:"parentId,omitempty"`
+	// SideChat hides the thread from lists and gives it handoff context.
+	SideChat  bool      `json:"sideChat,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	LastError string    `json:"lastError,omitempty"`
 }
 
 // MessageKind says how a message shows in the transcript.

@@ -46,6 +46,15 @@ type app struct {
 
 	showArchived *core.Signal[bool]
 
+	// side chat
+	sideChat     *core.Signal[proto.Thread]
+	sideMessages *core.Signal[[]proto.Message]
+	sideRunning  *core.Signal[bool]
+	sideDraft    *core.Signal[string]
+	sideBusy     *core.Signal[bool]
+	sideErr      *core.Signal[string]
+	sideFor      *core.Signal[string]
+
 	// scroll handles for surfaces that draw their own bars
 	filesScroll *core.Ref
 	graphScroll *core.Ref
@@ -194,7 +203,16 @@ func newApp(cx *core.Scope) *app {
 		models:    sliceSignal[proto.Model](cx),
 		settings:  core.NewSignal(cx, proto.DefaultSettings()),
 
-		showArchived:   core.NewSignal(cx, false),
+		showArchived: core.NewSignal(cx, false),
+		sideChat: core.NewSignalFunc(cx, proto.Thread{}, func(a, b proto.Thread) bool {
+			return a.ID == b.ID && a.Status == b.Status
+		}),
+		sideMessages:   sliceSignal[proto.Message](cx),
+		sideRunning:    core.NewSignal(cx, false),
+		sideDraft:      core.NewSignal(cx, ""),
+		sideBusy:       core.NewSignal(cx, false),
+		sideErr:        core.NewSignal(cx, ""),
+		sideFor:        core.NewSignal(cx, ""),
 		filesScroll:    &core.Ref{},
 		graphScroll:    &core.Ref{},
 		devices:        sliceSignal[proto.Device](cx),
@@ -522,6 +540,137 @@ func (a *app) reload() {
 	}()
 }
 
+// openSideChat opens the selected thread's hidden side chat, creating it
+// on first use.
+func (a *app) openSideChat() {
+	id := a.selected.GetUntracked()
+	if id == "" {
+		return
+	}
+	if a.sideFor.GetUntracked() == id && a.sideChat.GetUntracked().ID != "" {
+		return
+	}
+	a.resetSideChat()
+	a.sideFor.Set(id)
+	a.sideBusy.Set(true)
+	a.call(func(ctx context.Context, c *client.Client) error {
+		thread, err := c.CreateSideChat(ctx, id)
+		if err != nil {
+			return err
+		}
+		detail, err := c.ThreadDetail(ctx, thread.ID)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			if a.sideFor.GetUntracked() != id {
+				return
+			}
+			running := false
+			for _, run := range detail.Runs {
+				if run.Status == proto.RunRunning {
+					running = true
+				}
+			}
+			a.cx.Batch(func() {
+				a.sideChat.Set(thread)
+				a.sideMessages.Set(detail.Messages)
+				a.sideRunning.Set(running)
+				a.sideBusy.Set(false)
+			})
+		})
+		return nil
+	}, func(err error) {
+		a.sideBusy.Set(false)
+		if err != nil {
+			a.sideErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// resetSideChat clears the side chat's transcript and draft.
+func (a *app) resetSideChat() {
+	a.sideChat.Set(proto.Thread{})
+	a.sideMessages.Set(nil)
+	a.sideRunning.Set(false)
+	a.sideDraft.Set("")
+	a.sideErr.Set("")
+}
+
+// sendSideChat asks the side chat a question.
+func (a *app) sendSideChat() {
+	thread := a.sideChat.GetUntracked()
+	text := strings.TrimSpace(a.sideDraft.GetUntracked())
+	if thread.ID == "" || text == "" || a.sideRunning.GetUntracked() {
+		return
+	}
+	a.sideBusy.Set(true)
+	a.sideErr.Set("")
+	a.call(func(ctx context.Context, c *client.Client) error {
+		run, err := c.Send(ctx, thread.ID, text)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			a.sideDraft.Set("")
+			a.sideBusy.Set(false)
+			a.sideRunning.Set(run.Status == proto.RunRunning)
+		})
+		return nil
+	}, func(err error) {
+		a.sideBusy.Set(false)
+		if err != nil {
+			a.sideErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// stopSideChat stops the side chat's turn.
+func (a *app) stopSideChat() {
+	thread := a.sideChat.GetUntracked()
+	if thread.ID == "" {
+		return
+	}
+	a.call(func(ctx context.Context, c *client.Client) error {
+		_, err := c.Stop(ctx, thread.ID)
+		return err
+	}, func(err error) {
+		if err != nil {
+			a.sideErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// applySideDelta appends streamed text to a side chat message.
+func (a *app) applySideDelta(d proto.MessageDelta) {
+	if d.MessageID == "" || d.Delta == "" {
+		return
+	}
+	list := a.sideMessages.GetUntracked()
+	next := make([]proto.Message, len(list))
+	copy(next, list)
+	for i := range next {
+		if next[i].ID == d.MessageID {
+			next[i].Content += d.Delta
+			a.sideMessages.Set(next)
+			return
+		}
+	}
+}
+
+// upsertProto replaces a message with the same id, or appends it.
+func upsertProto(list []proto.Message, message proto.Message) []proto.Message {
+	next := make([]proto.Message, len(list), len(list)+1)
+	copy(next, list)
+	for i := range next {
+		if next[i].ID == message.ID {
+			next[i] = message
+			return next
+		}
+	}
+	return append(next, message)
+}
+
 // refreshProviders re-probes the agent CLIs, after a sign-in for example.
 func (a *app) refreshProviders() {
 	a.call(func(ctx context.Context, c *client.Client) error {
@@ -548,6 +697,12 @@ func (a *app) applyEvent(e proto.Event) {
 		if !ok {
 			return
 		}
+		if t.SideChat {
+			if a.sideChat.GetUntracked().ID == t.ID {
+				a.sideChat.Set(t)
+			}
+			return
+		}
 		a.upsertThread(t)
 		if a.selected.GetUntracked() == t.ID {
 			a.markSeen(t)
@@ -560,6 +715,11 @@ func (a *app) applyEvent(e proto.Event) {
 			}
 		}
 	case proto.EventThreadDeleted:
+		if side := a.sideChat.GetUntracked(); side.ID != "" && side.ID == e.ThreadID {
+			a.sideFor.Set("")
+			a.resetSideChat()
+			return
+		}
 		a.removeThread(e.ThreadID)
 		if a.selected.GetUntracked() == e.ThreadID {
 			a.selected.Set("")
@@ -597,19 +757,31 @@ func (a *app) applyEvent(e proto.Event) {
 		}
 	case proto.EventMessage:
 		m, ok := decodeData[proto.Message](e.Data)
+		if ok && m.ThreadID == a.sideChat.GetUntracked().ID && m.ThreadID != "" {
+			a.sideMessages.Set(upsertProto(a.sideMessages.GetUntracked(), m))
+		}
 		if ok && m.ThreadID == a.selected.GetUntracked() {
 			a.applyMessage(m)
 		}
 	case proto.EventMessageDelta:
 		d, ok := decodeData[proto.MessageDelta](e.Data)
+		if ok && e.ThreadID == a.sideChat.GetUntracked().ID && e.ThreadID != "" {
+			a.applySideDelta(d)
+		}
 		if ok && e.ThreadID == a.selected.GetUntracked() {
 			a.applyDelta(d)
 		}
 	case proto.EventRunStarted:
+		if e.ThreadID == a.sideChat.GetUntracked().ID && e.ThreadID != "" {
+			a.sideRunning.Set(true)
+		}
 		if e.ThreadID == a.selected.GetUntracked() {
 			a.running.Set(true)
 		}
 	case proto.EventRunFinished:
+		if e.ThreadID == a.sideChat.GetUntracked().ID && e.ThreadID != "" {
+			a.sideRunning.Set(false)
+		}
 		if e.ThreadID == a.selected.GetUntracked() {
 			a.running.Set(false)
 			a.maybeFlush(e.ThreadID)
@@ -919,6 +1091,8 @@ func (a *app) selectThread(id string) {
 	a.prDetail.Set("")
 	a.pullRequests.Set(nil)
 	a.prListDetail.Set("")
+	a.resetSideChat()
+	a.sideFor.Set("")
 	a.prView.Set(proto.PullRequestDetail{})
 	a.prViewNumber.Set(0)
 	a.prNote.Set("")
@@ -1872,6 +2046,8 @@ func (a *app) openSurface(name string) {
 		a.loadPullRequests(a.selected.GetUntracked())
 	case "device":
 		a.loadDevices()
+	case "chat":
+		a.openSideChat()
 	}
 }
 

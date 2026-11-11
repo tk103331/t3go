@@ -100,6 +100,17 @@ func (e *testEnv) thread(t *testing.T, projectID string) proto.Thread {
 	return th
 }
 
+func (e *testEnv) threadWithProvider(t *testing.T, projectID, providerID, model string) proto.Thread {
+	t.Helper()
+	var th proto.Thread
+	body := map[string]any{"projectId": projectID, "title": "Side parent", "provider": providerID,
+		"model": model, "permission": "full-access"}
+	if code := e.request(t, http.MethodPost, "/api/v1/threads", body, e.token, &th); code != http.StatusCreated {
+		t.Fatalf("create thread: %d", code)
+	}
+	return th
+}
+
 func TestHealthAndAuth(t *testing.T) {
 	e := newTestEnv(t)
 	if code := e.request(t, http.MethodGet, "/api/v1/health", nil, "", nil); code != http.StatusOK {
@@ -2424,5 +2435,77 @@ esac
 	raw, _ := os.ReadFile(logPath)
 	if !strings.Contains(string(raw), "boot "+id) || !strings.Contains(string(raw), "shutdown "+id) {
 		t.Fatalf("device log = %q", raw)
+	}
+}
+
+// recordingRunner answers at once and keeps the prompt it saw.
+type recordingRunner struct{ prompts chan string }
+
+func (recordingRunner) ID() string   { return "record-fake" }
+func (recordingRunner) Name() string { return "Recording Fake" }
+
+func (recordingRunner) Snapshot(context.Context) proto.Provider {
+	return proto.Provider{ID: "record-fake", Name: "Recording Fake", Installed: true, Version: "1",
+		Models: []proto.Model{{ID: "record-fake-1", Name: "One", Provider: "record-fake", Default: true}}}
+}
+
+func (r recordingRunner) Run(ctx context.Context, turn provider.Turn, sink provider.Sink) error {
+	select {
+	case r.prompts <- turn.Prompt:
+	default:
+	}
+	sink.Text("side reply")
+	return nil
+}
+
+func TestSideChatContextAndVisibility(t *testing.T) {
+	e := newTestEnv(t)
+	prompts := make(chan string, 4)
+	e.server.Service.Providers.Register(recordingRunner{prompts: prompts})
+	parent := e.threadWithProvider(t, e.project(t).ID, "record-fake", "record-fake-1")
+	ctx := context.Background()
+	if _, err := e.server.Store.AppendMessage(ctx, proto.Message{ID: "msg_parent", ThreadID: parent.ID,
+		Role: proto.RoleUser, Kind: proto.KindText, Content: "the parent secret", CreatedAt: time.Now()}); err != nil {
+		t.Fatalf("parent message: %v", err)
+	}
+
+	var side proto.Thread
+	if code := e.request(t, http.MethodPost, "/api/v1/threads/"+parent.ID+"/side-chat", map[string]any{}, e.token, &side); code != http.StatusOK {
+		t.Fatalf("side chat = %d", code)
+	}
+	if !side.SideChat || side.ParentID != parent.ID || side.Branch != parent.Branch {
+		t.Fatalf("side chat = %#v", side)
+	}
+	var again proto.Thread
+	if code := e.request(t, http.MethodPost, "/api/v1/threads/"+parent.ID+"/side-chat", map[string]any{}, e.token, &again); code != http.StatusOK {
+		t.Fatalf("side chat again = %d", code)
+	}
+	if again.ID != side.ID {
+		t.Fatalf("side chat is not reused: %s then %s", side.ID, again.ID)
+	}
+
+	var state proto.State
+	if code := e.request(t, http.MethodGet, "/api/v1/state", nil, e.token, &state); code != http.StatusOK {
+		t.Fatalf("state = %d", code)
+	}
+	for _, thread := range state.Threads {
+		if thread.ID == side.ID {
+			t.Fatal("the side chat is in the thread list")
+		}
+	}
+
+	body := map[string]any{"content": "what did we discuss?"}
+	if code := e.request(t, http.MethodPost, "/api/v1/threads/"+side.ID+"/messages", body, e.token, nil); code != http.StatusAccepted {
+		t.Fatalf("side message = %d", code)
+	}
+	select {
+	case prompt := <-prompts:
+		for _, want := range []string{"the parent secret", "what did we discuss?", "side question"} {
+			if !strings.Contains(prompt, want) {
+				t.Fatalf("provider prompt is missing %q: %q", want, prompt)
+			}
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the side chat did not run")
 	}
 }

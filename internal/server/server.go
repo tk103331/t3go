@@ -216,6 +216,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/threads/{id}/stop", s.auth(s.handleStop))
 	mux.HandleFunc("POST /api/v1/threads/{id}/retry", s.auth(s.handleRetry))
 	mux.HandleFunc("POST /api/v1/threads/{id}/fork", s.auth(s.handleFork))
+	mux.HandleFunc("POST /api/v1/threads/{id}/side-chat", s.auth(s.handleSideChat))
 	mux.HandleFunc("GET /api/v1/threads/{id}/diff", s.auth(s.handleDiff))
 	mux.HandleFunc("POST /api/v1/threads/{id}/git", s.auth(s.handleGitAction))
 	mux.HandleFunc("GET /api/v1/threads/{id}/working-diff", s.auth(s.handleWorkingDiff))
@@ -401,6 +402,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "store", err.Error())
 		return
 	}
+	threads = visibleThreads(threads)
 	providers := s.Service.Providers.Snapshot(ctx)
 	settings := s.Service.Settings(ctx)
 	writeJSON(w, 200, proto.State{
@@ -474,7 +476,7 @@ func (s *Server) handleThreads(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "store", err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"threads": nonNil(threads)})
+	writeJSON(w, 200, map[string]any{"threads": nonNil(visibleThreads(threads))})
 }
 
 func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
@@ -777,7 +779,7 @@ func (s *Server) upstreamEnvironment() upstream.Environment {
 		env.Providers = append(env.Providers, provider)
 	}
 	if threads, err := s.Store.Threads(ctx, "", true); err == nil {
-		for _, t := range threads {
+		for _, t := range visibleThreads(threads) {
 			env.Threads = append(env.Threads, upstream.Thread{
 				ID: t.ID, ProjectID: t.ProjectID, Title: t.Title, Provider: t.Provider, Model: t.Model,
 				Permission: string(t.Permission), Branch: t.Branch, WorktreePath: t.WorktreePath,

@@ -296,6 +296,9 @@ type CreateThreadInput struct {
 	BaseRef string
 	// ExistingWorktree uses a checkout that already exists.
 	ExistingWorktree string
+	// ParentID and SideChat make a hidden side chat of another thread.
+	ParentID string
+	SideChat bool
 }
 
 // CreateThread makes a thread and its worktree when asked.
@@ -324,6 +327,7 @@ func (s *Service) CreateThread(ctx context.Context, in CreateThreadInput) (proto
 	thread := proto.Thread{
 		ID: nonEmptyID(in.ID, "thr"), ProjectID: project.ID, Title: cleanTitle(in.Title), Provider: in.Provider, Model: in.Model,
 		Permission: in.Permission, Branch: strings.TrimSpace(in.Branch), Status: proto.ThreadIdle, CreatedAt: now, UpdatedAt: now,
+		ParentID: in.ParentID, SideChat: in.SideChat,
 	}
 	if thread.Title == "" {
 		thread.Title = "New thread"
@@ -356,6 +360,29 @@ func (s *Service) CreateThread(ctx context.Context, in CreateThreadInput) (proto
 	}
 	s.publish(ctx, proto.Event{Type: proto.EventThreadCreated, ThreadID: thread.ID, ProjectID: thread.ProjectID, Data: thread})
 	return thread, nil
+}
+
+// CreateSideChat returns the hidden side chat of a thread, making it from
+// the parent's settings and checkout when there is none.
+func (s *Service) CreateSideChat(ctx context.Context, parentID string) (proto.Thread, error) {
+	parent, err := s.Store.Thread(ctx, parentID)
+	if err != nil {
+		return proto.Thread{}, err
+	}
+	if parent.SideChat {
+		return proto.Thread{}, errors.New("a side chat cannot have a side chat")
+	}
+	if existing, ok, err := s.Store.SideChat(ctx, parentID); err != nil {
+		return proto.Thread{}, err
+	} else if ok {
+		return existing, nil
+	}
+	return s.CreateThread(ctx, CreateThreadInput{
+		ProjectID: parent.ProjectID, Title: "Side chat · " + parent.Title,
+		Provider: parent.Provider, Model: parent.Model, Permission: parent.Permission,
+		Branch: parent.Branch, ExistingWorktree: parent.WorktreePath,
+		ParentID: parent.ID, SideChat: true,
+	})
 }
 
 // UpdateThread changes a thread's title, model, permission or archive
@@ -412,7 +439,12 @@ func (s *Service) DeleteThread(ctx context.Context, threadID string) error {
 		return err
 	}
 	s.Stop(threadID)
-	if t.WorktreePath != "" && strings.HasPrefix(t.WorktreePath, filepath.Join(s.Home, "worktrees")+string(os.PathSeparator)) {
+	if children, err := s.Store.SideChats(ctx, threadID); err == nil {
+		for _, child := range children {
+			_ = s.DeleteThread(ctx, child.ID)
+		}
+	}
+	if !t.SideChat && t.WorktreePath != "" && strings.HasPrefix(t.WorktreePath, filepath.Join(s.Home, "worktrees")+string(os.PathSeparator)) {
 		if p, err := s.Store.Project(ctx, t.ProjectID); err == nil {
 			_ = git.RemoveWorktree(ctx, p.Path, t.WorktreePath)
 		}

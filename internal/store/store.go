@@ -73,6 +73,8 @@ CREATE TABLE IF NOT EXISTS threads (
   provider_session TEXT NOT NULL DEFAULT '',
   summary TEXT NOT NULL DEFAULT '',
   archived INTEGER NOT NULL DEFAULT 0,
+  parent_id TEXT NOT NULL DEFAULT '',
+  side_chat INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   last_error TEXT NOT NULL DEFAULT ''
@@ -137,6 +139,12 @@ CREATE INDEX IF NOT EXISTS events_thread ON events(thread_id, seq);
 		return err
 	}
 	if err := s.ensureColumn(ctx, "threads", "plan", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "threads", "parent_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "threads", "side_chat", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	return nil
@@ -261,7 +269,7 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 }
 
 func threadColumns() string {
-	return `id,project_id,title,provider,model,permission,plan,branch,worktree_path,status,provider_session,summary,archived,created_at,updated_at,last_error`
+	return `id,project_id,title,provider,model,permission,plan,branch,worktree_path,status,provider_session,summary,archived,parent_id,side_chat,created_at,updated_at,last_error`
 }
 
 type scanner interface{ Scan(...any) error }
@@ -269,23 +277,25 @@ type scanner interface{ Scan(...any) error }
 func scanThread(row scanner) (proto.Thread, error) {
 	var t proto.Thread
 	var created, updated string
-	var archived, plan int
+	var archived, plan, sideChat int
 	err := row.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Provider, &t.Model, &t.Permission, &plan, &t.Branch, &t.WorktreePath,
-		&t.Status, &t.ProviderSession, &t.Summary, &archived, &created, &updated, &t.LastError)
+		&t.Status, &t.ProviderSession, &t.Summary, &archived, &t.ParentID, &sideChat, &created, &updated, &t.LastError)
 	if err != nil {
 		return t, err
 	}
 	t.Archived = archived != 0
 	t.Plan = plan != 0
+	t.SideChat = sideChat != 0
 	t.CreatedAt, t.UpdatedAt = parseTime(created), parseTime(updated)
 	return t, nil
 }
 
 // CreateThread inserts a thread.
 func (s *Store) CreateThread(ctx context.Context, t proto.Thread) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO threads(`+threadColumns()+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := s.db.ExecContext(ctx, `INSERT INTO threads(`+threadColumns()+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		t.ID, t.ProjectID, t.Title, t.Provider, t.Model, t.Permission, boolInt(t.Plan), t.Branch, t.WorktreePath, t.Status, t.ProviderSession,
-		t.Summary, boolInt(t.Archived), t.CreatedAt.UTC().Format(time.RFC3339Nano), t.UpdatedAt.UTC().Format(time.RFC3339Nano), t.LastError)
+		t.Summary, boolInt(t.Archived), t.ParentID, boolInt(t.SideChat), t.CreatedAt.UTC().Format(time.RFC3339Nano),
+		t.UpdatedAt.UTC().Format(time.RFC3339Nano), t.LastError)
 	if err != nil {
 		return fmt.Errorf("store: create thread: %w", err)
 	}
@@ -347,6 +357,38 @@ func (s *Store) UpdateThread(ctx context.Context, t proto.Thread) error {
 }
 
 // DeleteThread removes a thread and its history.
+// SideChat returns the newest side chat of a parent thread.
+func (s *Store) SideChat(ctx context.Context, parentID string) (proto.Thread, bool, error) {
+	t, err := scanThread(s.db.QueryRowContext(ctx, `SELECT `+threadColumns()+
+		` FROM threads WHERE parent_id=? AND side_chat=1 ORDER BY updated_at DESC LIMIT 1`, parentID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return proto.Thread{}, false, nil
+	}
+	if err != nil {
+		return proto.Thread{}, false, err
+	}
+	return t, true, nil
+}
+
+// SideChats lists a parent thread's side chats.
+func (s *Store) SideChats(ctx context.Context, parentID string) ([]proto.Thread, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+threadColumns()+
+		` FROM threads WHERE parent_id=? AND side_chat=1`, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []proto.Thread
+	for rows.Next() {
+		t, err := scanThread(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) DeleteThread(ctx context.Context, id string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM threads WHERE id=?`, id)
 	if err != nil {

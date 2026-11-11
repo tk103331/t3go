@@ -151,6 +151,8 @@ func surfaceIcon(name string) func() *core.SVG {
 		return lucide.Link2
 	case "device":
 		return lucide.MonitorSmartphone
+	case "chat":
+		return lucide.MessageCircleMore
 	case "terminal":
 		return lucide.Terminal
 	}
@@ -176,6 +178,8 @@ func (a *app) rightBody(cx *core.Scope) core.Node {
 		return a.rightLinkedPRs(cx)
 	case "device":
 		return a.rightDevices(cx)
+	case "chat":
+		return a.rightSideChat(cx)
 	}
 	return a.surfacePicker(cx)
 }
@@ -194,7 +198,7 @@ func (a *app) surfacePicker(cx *core.Scope) core.Node {
 		a.surfaceRow(cx, "pr", "Pull request", lucide.GitPullRequest, "P", hasThread),
 		a.surfaceRow(cx, "linked", "Linked pull requests", lucide.Link2, "L", hasThread),
 		a.surfaceRow(cx, "device", "Device", lucide.MonitorSmartphone, "M", true),
-		a.surfaceRow(cx, "chat", "Side chat", lucide.MessageCircleMore, "S", false),
+		a.surfaceRow(cx, "chat", "Side chat", lucide.MessageCircleMore, "S", hasThread),
 	}
 	note := "Open a surface"
 	if !hasThread {
@@ -509,6 +513,111 @@ func (a *app) rightLinkedPRs(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 6, Padding: core.All(10), FlexGrow: 1, MinHeight: core.Pt(0)},
 		Children: []core.Node{head, a.rightError(cx), core.Scroll{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0)},
 			Children: []core.Node{core.View{Style: core.Style{Direction: core.Column, Gap: 6}, Children: rows}}}}}
+}
+
+// rightSideChat asks questions in a hidden thread with the current one's
+// context, without touching its transcript.
+func (a *app) rightSideChat(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	if a.selected.Get() == "" {
+		return a.rightNotice(cx, "Pick a thread to ask a side question.")
+	}
+	thread := a.sideChat.Get()
+	if thread.ID == "" {
+		note := "A side chat keeps this thread's conversation out of the way."
+		if message := a.sideErr.Get(); message != "" {
+			note = message
+		}
+		var action core.Node = ui.Button{Text: "Start side chat", Icon: lucide.MessageCircleMore, Variant: ui.ButtonPrimary,
+			Size: ui.SizeSmall, TestID: "side-start", OnPress: a.openSideChat}
+		if a.sideBusy.Get() {
+			action = ui.Spinner{Size: 14, Label: "Starting side chat"}
+		}
+		return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+			Gap: 8, Padding: core.All(18)}, Children: []core.Node{
+			ui.Icon(lucide.MessageCircleMore, 22, colors.Faint),
+			core.Text{Content: note, MaxLines: 4, Style: core.Style{FontSize: 11.5, TextAlign: core.TextAlignCenter},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+			action,
+		}}
+	}
+	var rows []core.Node
+	for _, message := range a.sideMessages.Get() {
+		message := message
+		switch message.Kind {
+		case proto.KindText:
+			if message.Role == proto.RoleUser {
+				rows = append(rows, core.View{Style: core.Style{Direction: core.Row, JustifyContent: core.JustifyEnd},
+					Children: []core.Node{core.View{Style: core.Style{MaxWidth: core.Pct(88), Padding: core.Symmetric(6, 9),
+						Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{
+						core.Text{Content: message.Content, Selectable: core.SelectableOn,
+							Style:     core.Style{FontSize: 11.5, LineHeight: 16},
+							StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+					}}}})
+			} else {
+				rows = append(rows, core.View{TestID: "side-message-" + message.ID, Style: core.Style{MinWidth: core.Pt(0)},
+					Children: []core.Node{ui.TextView{MarkdownFunc: func() string { return a.markdownPreview(message.Content, "") },
+						Selectable: true, OpenLinks: true}}})
+			}
+		case proto.KindReasoning:
+			rows = append(rows, core.Text{Content: message.Content, MaxLines: 4,
+				Style:     core.Style{FontSize: 10.5, FontStyle: core.FontStyleItalic},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
+		case proto.KindTool:
+			label := message.Title
+			if label == "" {
+				label = "Tool"
+			}
+			rows = append(rows, core.Text{Content: label, MaxLines: 2, Style: core.Style{FontSize: 10.5},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }})
+		case proto.KindError:
+			rows = append(rows, core.Text{Content: message.Content, MaxLines: 5, Style: core.Style{FontSize: 10.5},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }})
+		case proto.KindNotice:
+			rows = append(rows, core.Text{Content: message.Content, MaxLines: 2, Style: core.Style{FontSize: 10},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
+		}
+	}
+	if len(rows) == 0 {
+		rows = append(rows, core.Text{Content: "Ask a question about this thread.", MaxLines: 2,
+			Style: core.Style{FontSize: 11}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
+	}
+	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
+		Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
+		core.Text{Content: "Side chat", MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+		core.Show{When: func() bool { return a.sideBusy.Get() }, Then: func(*core.Scope) core.Node {
+			return ui.Spinner{Size: 12, Label: "Working on the side chat"}
+		}},
+		ui.Button{Text: "Reset", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "side-reset",
+			OnPress: func() { a.resetSideChat(); a.sideFor.Set(""); a.openSideChat() }},
+	}}
+	var input core.Node = ui.Input{Input: base.Input{Multiline: true, Value: a.sideDraft.Get, OnChange: a.sideDraft.Set,
+		Placeholder: "Ask a side question…", Label: "Side question", TestID: "side-input"}}
+	var submit core.Node
+	if a.sideRunning.Get() {
+		submit = ui.Button{Text: "Stop", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "side-stop",
+			OnPress: a.stopSideChat}
+	} else {
+		submit = ui.Button{Text: "Send", Icon: lucide.Send, Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "side-send",
+			Disabled: func() bool { return strings.TrimSpace(a.sideDraft.Get()) == "" }, OnPress: a.sendSideChat}
+	}
+	if message := a.sideErr.Get(); message != "" {
+		head = core.View{Style: core.Style{Direction: core.Column, Gap: 4}, Children: []core.Node{head,
+			core.Text{Content: message, MaxLines: 3, Style: core.Style{FontSize: 10.5},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }}}}
+	}
+	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(10)},
+		Children: []core.Node{
+			head,
+			core.Scroll{Style: ui.FillRest, Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: rows}}},
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignEnd, Gap: 6,
+				Padding: core.Edges{Top: 6}}, Children: []core.Node{
+				core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{input}},
+				submit,
+			}},
+		}}
 }
 
 // rightDevices lists the environment's simulators and shows one screen.
