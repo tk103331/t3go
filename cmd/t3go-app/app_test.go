@@ -1947,3 +1947,55 @@ esac
 		return len(srv.Terminals.List(thread.ID)) > 0 && app.Exists("id:surface-tab-terminal")
 	})
 }
+
+// TestUITerminalExitedShell offers a restart when the active shell exits.
+func TestUITerminalExitedShell(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Repo", gitRepo(t))
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Shell", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:toggle-right-panel", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:surface-terminal") {
+			return true
+		}
+		if app.Exists("id:toggle-right-panel") {
+			app.Press("id:toggle-right-panel")
+			app.Settle()
+		}
+		if app.Exists("id:surface-add") {
+			app.Press("id:surface-add")
+			app.Settle()
+		}
+		return app.Exists("id:surface-terminal")
+	})
+	app.Press("id:surface-terminal")
+	app.WaitFor("id:terminal-view", 15*time.Second)
+
+	app.WaitUntil(15*time.Second, func() bool {
+		list := srv.Terminals.List(thread.ID)
+		if len(list) == 0 {
+			return false
+		}
+		_ = list[0].Write([]byte("exit\n"))
+		return true
+	})
+	app.WaitFor("id:terminal-restart-exited", 15*time.Second)
+	app.Press("id:terminal-restart-exited")
+	app.WaitForGone("id:terminal-restart-exited", 15*time.Second)
+	app.WaitFor("id:terminal-view", 15*time.Second)
+}

@@ -38,6 +38,7 @@ type Session struct {
 	exitCode int
 	done     chan struct{}
 	subs     map[chan []byte]struct{}
+	onExit   func(*Session)
 }
 
 // Manager owns the environment's terminal sessions.
@@ -45,6 +46,8 @@ type Manager struct {
 	mu       sync.Mutex
 	byID     map[string]*Session
 	byThread map[string][]*Session
+	// OnExit runs after a shell ends, e.g. to tell clients to refresh.
+	OnExit func(*Session)
 }
 
 // NewManager returns an empty manager.
@@ -76,7 +79,7 @@ func (m *Manager) Create(threadID, dir, shell string) (*Session, error) {
 func (m *Manager) createLocked(threadID, dir, shell string) (*Session, error) {
 	list := m.byThread[threadID]
 	shell, args := shellCommand(shell)
-	session, err := start(id.New("term"), threadID, dir, shell, args)
+	session, err := start(id.New("term"), threadID, dir, shell, args, m.OnExit)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +195,7 @@ func filepathBase(path string) string {
 	return path
 }
 
-func start(sessionID, threadID, dir, shell string, args []string) (*Session, error) {
+func start(sessionID, threadID, dir, shell string, args []string, onExit func(*Session)) (*Session, error) {
 	term, err := gopty.New()
 	if err != nil {
 		return nil, err
@@ -207,6 +210,7 @@ func start(sessionID, threadID, dir, shell string, args []string) (*Session, err
 	_ = term.Resize(80, 24)
 	session := &Session{ID: sessionID, ThreadID: threadID, Shell: shell, Cwd: dir,
 		term: term, cmd: cmd, cols: 80, rows: 24, done: make(chan struct{}), subs: map[chan []byte]struct{}{}}
+	session.onExit = onExit
 	go session.read()
 	go session.wait()
 	return session, nil
@@ -265,6 +269,9 @@ func (s *Session) finish(code int) {
 	s.subs = map[chan []byte]struct{}{}
 	s.mu.Unlock()
 	_ = s.term.Close()
+	if s.onExit != nil {
+		s.onExit(s)
+	}
 }
 
 // Exited reports whether the shell has ended.

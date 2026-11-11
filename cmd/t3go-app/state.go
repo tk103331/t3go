@@ -560,6 +560,8 @@ func (a *app) applyEvent(e proto.Event) {
 			a.applyTheme(settings.Theme)
 			a.settings.Set(settings)
 		}
+	case proto.EventTerminalExit:
+		a.loadTerminalSessions()
 	case proto.EventProject:
 		if p, ok := decodeData[proto.Project](e.Data); ok && p.ID != "" {
 			a.upsertProject(p)
@@ -1669,6 +1671,46 @@ func (a *app) runProviderCommand(command string) {
 		if err != nil {
 			a.cx.SetClipboard(command)
 			a.connErr.Set(friendlyError(err) + " — copied “" + command + "” instead.")
+		}
+	})
+}
+
+// loadTerminalSessions refreshes the stored sessions without starting
+// another shell, so an exited one can offer a restart.
+func (a *app) loadTerminalSessions() {
+	id := a.selected.GetUntracked()
+	if id == "" {
+		return
+	}
+	active := a.terminalSession.GetUntracked().ID
+	a.call(func(ctx context.Context, c *client.Client) error {
+		sessions, err := c.Terminals(ctx, id)
+		if err != nil {
+			return err
+		}
+		if len(sessions) == 0 {
+			return nil
+		}
+		next := sessions[len(sessions)-1]
+		for _, session := range sessions {
+			if session.ID == active {
+				next = session
+				break
+			}
+		}
+		a.cx.Post(func() {
+			if a.selected.GetUntracked() != id {
+				return
+			}
+			a.cx.Batch(func() {
+				a.terminals.Set(sessions)
+				a.terminalSession.Set(next)
+			})
+		})
+		return nil
+	}, func(err error) {
+		if err != nil {
+			a.terminalErr.Set(friendlyError(err))
 		}
 	})
 }

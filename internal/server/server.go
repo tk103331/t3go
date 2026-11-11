@@ -76,6 +76,10 @@ func New(cfg config.Config, logger *log.Logger) (*Server, error) {
 	s := &Server{Config: cfg, Store: st, Service: svc, Bus: bus, Terminals: terminal.NewManager(),
 		Log: logger, ID: id.New("env"), StartedAt: time.Now(),
 		closing: make(chan struct{}), tickets: map[string]time.Time{}}
+	s.Terminals.OnExit = func(session *terminal.Session) {
+		s.Bus.Publish(context.Background(), proto.Event{Type: proto.EventTerminalExit,
+			Data: map[string]string{"sessionId": session.ID, "threadId": session.ThreadID}})
+	}
 	if runs, threads, err := svc.RecoverInterrupted(context.Background()); err != nil {
 		_ = st.Close()
 		return nil, err

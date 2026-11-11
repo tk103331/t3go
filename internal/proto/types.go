@@ -384,6 +384,7 @@ const (
 	EventApproval         = "approval.requested"
 	EventApprovalResolved = "approval.resolved"
 	EventNotice           = "notice"
+	EventTerminalExit     = "terminal.exit"
 )
 
 // ApprovalRequest is a tool call waiting for a person's decision.

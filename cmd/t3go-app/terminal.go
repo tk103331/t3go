@@ -91,7 +91,10 @@ const terminalPage = `<!doctype html>
     let message;
     try { message = JSON.parse(event.data); } catch (e) { return; }
     if (message.type === 'output' && message.data) term.write(message.data);
-    if (message.type === 'exit') term.write('\r\n\x1b[38;5;244m[process exited ' + message.code + ']\x1b[0m\r\n');
+    if (message.type === 'exit') {
+      term.write('\r\n\x1b[38;5;244m[process exited ' + message.code + ']\x1b[0m\r\n');
+      try { if (window.nsgo) window.nsgo.postMessage('exit'); } catch (e) {}
+    }
   };
   ws.onclose = function () {
     ready = false;
