@@ -2368,3 +2368,61 @@ func TestTerminalInput(t *testing.T) {
 	}
 	t.Fatal("the shell did not exit after its input")
 }
+
+func TestDeviceEndpoints(t *testing.T) {
+	dir := t.TempDir()
+	state := filepath.Join(dir, "booted")
+	logPath := filepath.Join(dir, "device.log")
+	script := `#!/bin/sh
+case "$2" in
+list)
+  if [ -f "$DEVICE_STATE" ]; then state=Booted; else state=Shutdown; fi
+  printf '{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-17-0":[{"udid":"7E99F39F-299A-4E23-A2D0-7948BC3EE5F4","name":"iPhone 15 Pro","state":"%s","isAvailable":true}]}}\n' "$state"
+  ;;
+boot) touch "$DEVICE_STATE"; echo "boot $3" >> "$DEVICE_LOG" ;;
+shutdown) rm -f "$DEVICE_STATE"; echo "shutdown $3" >> "$DEVICE_LOG" ;;
+io) printf 'PNGDATA' > "$5" ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "xcrun"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEVICE_STATE", state)
+	t.Setenv("DEVICE_LOG", logPath)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	e := newTestEnv(t)
+	var listed struct {
+		Devices []proto.Device `json:"devices"`
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/devices", nil, e.token, &listed); code != http.StatusOK {
+		t.Fatalf("devices = %d", code)
+	}
+	if len(listed.Devices) != 1 || listed.Devices[0].Name != "iPhone 15 Pro" || listed.Devices[0].State != "shutdown" {
+		t.Fatalf("devices = %#v", listed.Devices)
+	}
+	id := listed.Devices[0].ID
+	if code := e.request(t, http.MethodPost, "/api/v1/devices/"+id+"/boot", map[string]any{}, e.token, nil); code != http.StatusOK {
+		t.Fatalf("boot = %d", code)
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/devices", nil, e.token, &listed); code != http.StatusOK ||
+		len(listed.Devices) != 1 || listed.Devices[0].State != "booted" {
+		t.Fatalf("devices after boot = %d, %#v", code, listed.Devices)
+	}
+	resp, err := http.Get(e.http.URL + "/api/v1/devices/" + id + "/screenshot?token=" + e.token)
+	if err != nil {
+		t.Fatalf("screenshot: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "image/png" || string(body) != "PNGDATA" {
+		t.Fatalf("screenshot = %d %q %q", resp.StatusCode, resp.Header.Get("Content-Type"), body)
+	}
+	if code := e.request(t, http.MethodPost, "/api/v1/devices/"+id+"/shutdown", map[string]any{}, e.token, nil); code != http.StatusOK {
+		t.Fatalf("shutdown = %d", code)
+	}
+	raw, _ := os.ReadFile(logPath)
+	if !strings.Contains(string(raw), "boot "+id) || !strings.Contains(string(raw), "shutdown "+id) {
+		t.Fatalf("device log = %q", raw)
+	}
+}

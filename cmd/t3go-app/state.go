@@ -46,6 +46,14 @@ type app struct {
 
 	showArchived *core.Signal[bool]
 
+	// simulators
+	devices        *core.Signal[[]proto.Device]
+	deviceDetail   *core.Signal[string]
+	deviceSelected *core.Signal[string]
+	deviceBusy     *core.Signal[bool]
+	deviceErr      *core.Signal[string]
+	deviceShot     *core.Signal[int]
+
 	// the open thread
 	selected         *core.Signal[string]
 	detail           *core.Signal[proto.ThreadDetail]
@@ -181,7 +189,13 @@ func newApp(cx *core.Scope) *app {
 		models:    sliceSignal[proto.Model](cx),
 		settings:  core.NewSignal(cx, proto.DefaultSettings()),
 
-		showArchived: core.NewSignal(cx, false),
+		showArchived:   core.NewSignal(cx, false),
+		devices:        sliceSignal[proto.Device](cx),
+		deviceDetail:   core.NewSignal(cx, ""),
+		deviceSelected: core.NewSignal(cx, ""),
+		deviceBusy:     core.NewSignal(cx, false),
+		deviceErr:      core.NewSignal(cx, ""),
+		deviceShot:     core.NewSignal(cx, 0),
 
 		selected:         core.NewSignal(cx, ""),
 		detail:           core.NewSignalFunc(cx, proto.ThreadDetail{}, func(proto.ThreadDetail, proto.ThreadDetail) bool { return false }),
@@ -1848,6 +1862,8 @@ func (a *app) openSurface(name string) {
 		a.openTerminal()
 	case "linked":
 		a.loadPullRequests(a.selected.GetUntracked())
+	case "device":
+		a.loadDevices()
 	}
 }
 
@@ -2278,6 +2294,106 @@ func (a *app) changePullRequestState(action string) {
 		a.openPullRequest(number)
 		a.loadPullRequests(id)
 	})
+}
+
+// loadDevices lists the environment's simulators.
+func (a *app) loadDevices() {
+	a.deviceErr.Set("")
+	a.call(func(ctx context.Context, c *client.Client) error {
+		devices, detail, err := c.Devices(ctx)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			a.devices.Set(devices)
+			a.deviceDetail.Set(detail)
+			selected := a.deviceSelected.GetUntracked()
+			found := false
+			for _, device := range devices {
+				if device.ID == selected {
+					found = true
+				}
+			}
+			if !found && len(devices) > 0 {
+				next := devices[0]
+				for _, device := range devices {
+					if device.State == "booted" {
+						next = device
+						break
+					}
+				}
+				a.deviceSelected.Set(next.ID)
+			}
+			if len(devices) > 0 {
+				a.deviceShot.Set(a.deviceShot.GetUntracked() + 1)
+			}
+		})
+		return nil
+	}, func(err error) {
+		if err != nil {
+			a.deviceErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// selectDevice shows one simulator's screen.
+func (a *app) selectDevice(device proto.Device) {
+	a.deviceSelected.Set(device.ID)
+	a.deviceErr.Set("")
+	a.deviceShot.Set(a.deviceShot.GetUntracked() + 1)
+}
+
+// bootDevice starts a simulator and refreshes its screen.
+func (a *app) bootDevice(id string) {
+	if id == "" {
+		return
+	}
+	a.deviceBusy.Set(true)
+	a.deviceErr.Set("")
+	a.call(func(ctx context.Context, c *client.Client) error {
+		return c.BootDevice(ctx, id)
+	}, func(err error) {
+		a.deviceBusy.Set(false)
+		if err != nil {
+			a.deviceErr.Set(friendlyError(err))
+			return
+		}
+		a.deviceSelected.Set(id)
+		a.loadDevices()
+	})
+}
+
+// shutdownDevice stops a simulator.
+func (a *app) shutdownDevice(id string) {
+	if id == "" {
+		return
+	}
+	a.deviceBusy.Set(true)
+	a.deviceErr.Set("")
+	a.call(func(ctx context.Context, c *client.Client) error {
+		return c.ShutdownDevice(ctx, id)
+	}, func(err error) {
+		a.deviceBusy.Set(false)
+		if err != nil {
+			a.deviceErr.Set(friendlyError(err))
+			return
+		}
+		a.loadDevices()
+	})
+}
+
+// refreshDeviceShot reloads a booted simulator's screen.
+func (a *app) refreshDeviceShot() {
+	a.deviceShot.Set(a.deviceShot.GetUntracked() + 1)
+}
+
+// deviceScreenshotURL is where the device image loads from.
+func (a *app) deviceScreenshotURL(id string) string {
+	c := a.client()
+	if c == nil {
+		return ""
+	}
+	return c.DeviceScreenshotURL(id, a.deviceShot.GetUntracked())
 }
 
 // loadPullRequests lists the branch's pull requests.

@@ -445,6 +445,34 @@ func (c *Client) PullBranch(ctx context.Context, threadID string) (string, strin
 	return out.Status, out.RefName, err
 }
 
+// Devices lists the environment's simulators.
+func (c *Client) Devices(ctx context.Context) ([]proto.Device, string, error) {
+	var out struct {
+		Devices []proto.Device `json:"devices"`
+		Detail  string         `json:"detail"`
+	}
+	err := c.do(ctx, http.MethodGet, "/api/v1/devices", nil, &out)
+	return out.Devices, out.Detail, err
+}
+
+// BootDevice starts a simulator.
+func (c *Client) BootDevice(ctx context.Context, id string) error {
+	path := "/api/v1/devices/" + url.PathEscape(id) + "/boot"
+	return c.do(ctx, http.MethodPost, path, map[string]any{}, nil)
+}
+
+// ShutdownDevice stops a simulator.
+func (c *Client) ShutdownDevice(ctx context.Context, id string) error {
+	path := "/api/v1/devices/" + url.PathEscape(id) + "/shutdown"
+	return c.do(ctx, http.MethodPost, path, map[string]any{}, nil)
+}
+
+// DeviceScreenshotURL is where the device surface loads a simulator's screen.
+func (c *Client) DeviceScreenshotURL(id string, nonce int) string {
+	return c.BaseURL + "/api/v1/devices/" + url.PathEscape(id) + "/screenshot?token=" +
+		url.QueryEscape(c.Token) + "&t=" + fmt.Sprint(nonce)
+}
+
 // PullRequestDetail reads one pull request's checks and reviews.
 func (c *Client) PullRequestDetail(ctx context.Context, threadID string, number int) (proto.PullRequestDetail, error) {
 	var out proto.PullRequestDetail

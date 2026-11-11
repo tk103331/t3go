@@ -1992,3 +1992,76 @@ func TestUITerminalExitedShell(t *testing.T) {
 	app.WaitForGone("id:terminal-restart-exited", 15*time.Second)
 	app.WaitFor("id:terminal-view", 15*time.Second)
 }
+
+// TestUIDevices lists a simulator, boots it and shows its screen.
+func TestUIDevices(t *testing.T) {
+	dir := t.TempDir()
+	state := filepath.Join(dir, "booted")
+	logPath := filepath.Join(dir, "device.log")
+	script := `#!/bin/sh
+case "$2" in
+list)
+  if [ -f "$DEVICE_STATE" ]; then state=Booted; else state=Shutdown; fi
+  printf '{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-17-0":[{"udid":"7E99F39F-299A-4E23-A2D0-7948BC3EE5F4","name":"iPhone 15 Pro","state":"%s","isAvailable":true}]}}\n' "$state"
+  ;;
+boot) touch "$DEVICE_STATE"; echo "boot $3" >> "$DEVICE_LOG" ;;
+shutdown) rm -f "$DEVICE_STATE"; echo "shutdown $3" >> "$DEVICE_LOG" ;;
+io) printf 'PNGDATA' > "$5" ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "xcrun"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEVICE_STATE", state)
+	t.Setenv("DEVICE_LOG", logPath)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Repo", gitRepo(t))
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Device", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:toggle-right-panel", 10*time.Second)
+	app.WaitUntil(15*time.Second, func() bool {
+		if app.Exists("id:surface-device") {
+			return true
+		}
+		if app.Exists("id:surface-add") {
+			app.Press("id:surface-add")
+			app.Settle()
+		} else if app.Exists("id:toggle-right-panel") {
+			app.Press("id:toggle-right-panel")
+			app.Settle()
+		}
+		return app.Exists("id:surface-device")
+	})
+	app.Press("id:surface-device")
+
+	app.WaitFor("id:device-7E99F39F-299A-4E23-A2D0-7948BC3EE5F4", 15*time.Second)
+	app.Press("id:device-7E99F39F-299A-4E23-A2D0-7948BC3EE5F4")
+	app.WaitFor("id:device-boot", 5*time.Second)
+	app.Press("id:device-boot")
+	app.WaitFor("id:device-screen", 15*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		raw, err := os.ReadFile(logPath)
+		return err == nil && strings.Contains(string(raw), "boot 7E99F39F")
+	})
+	app.Press("id:device-shutdown")
+	app.WaitUntil(10*time.Second, func() bool {
+		_, err := os.Stat(state)
+		return os.IsNotExist(err)
+	})
+}

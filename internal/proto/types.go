@@ -173,6 +173,15 @@ type Provider struct {
 	LoginCommand    string `json:"loginCommand,omitempty"`
 }
 
+// Device is a simulator or emulator the environment can drive.
+type Device struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Platform string `json:"platform"`
+	OS       string `json:"os,omitempty"`
+	State    string `json:"state"`
+}
+
 // GitStatus is the checkout a thread works in.
 type GitStatus struct {
 	Repo       bool   `json:"repo"`
