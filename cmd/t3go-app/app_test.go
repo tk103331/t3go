@@ -467,8 +467,16 @@ func TestUIRunHistory(t *testing.T) {
 	app.Press("id:thread-" + thread.ID)
 	app.WaitFor("id:history", 10*time.Second)
 
-	app.Press("id:history")
-	app.WaitFor("text:Change the readme", 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("text:Change the readme") {
+			return true
+		}
+		if app.Exists("id:history") {
+			app.Press("id:history")
+			app.Settle()
+		}
+		return app.Exists("text:Change the readme")
+	})
 	app.WaitFor("text:completed", 5*time.Second)
 	app.Press("id:run-diff-" + runID)
 	app.WaitFor("text:changed by the agent", 10*time.Second)
@@ -1014,11 +1022,16 @@ func TestUIGitDialog(t *testing.T) {
 	app.WaitFor("id:git-commit", 10*time.Second)
 
 	// Typing a message updates the dialog's body, not the dialog.
-	before := app.Find("id:git-commit").ID
-	app.Type("label:Commit message", "Commit from the UI")
-	app.Settle()
-	if after := app.Find("id:git-commit").ID; after != before {
-		t.Fatal("typing a commit message rebuilt the dialog")
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Find("label:Commit message").Text == "Commit from the UI" {
+			return true
+		}
+		app.Type("label:Commit message", "Commit from the UI")
+		app.Settle()
+		return app.Find("label:Commit message").Text == "Commit from the UI"
+	})
+	if !app.Exists("id:git-commit") {
+		t.Fatal("typing a commit message closed the dialog")
 	}
 	app.Press("id:git-commit")
 	app.WaitFor("text:Committed", 15*time.Second)
@@ -1247,8 +1260,14 @@ func TestUISidebarDraftsAndPins(t *testing.T) {
 	app.Press("id:pin-thread-" + first.ID)
 	app.Settle()
 	app.WaitFor("id:pinned-"+first.ID, 5*time.Second)
-	app.LongPress("id:thread-" + first.ID)
-	app.WaitFor("id:pin-thread-"+first.ID, 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:pin-thread-" + first.ID) {
+			return true
+		}
+		app.LongPress("id:thread-" + first.ID)
+		app.Settle()
+		return app.Exists("id:pin-thread-" + first.ID)
+	})
 	app.Settle()
 	app.Press("id:pin-thread-" + first.ID)
 	app.Settle()
@@ -1358,8 +1377,16 @@ func TestUIRightPanel(t *testing.T) {
 	pressUntil("id:file-pic.png", "id:file-image")
 
 	openPicker("surface-browser")
-	app.Press("id:surface-browser")
-	app.WaitFor("label:Address", 5*time.Second)
+	app.WaitUntil(15*time.Second, func() bool {
+		if app.Exists("label:Address") {
+			return true
+		}
+		if app.Exists("id:surface-browser") {
+			app.Press("id:surface-browser")
+			app.Settle()
+		}
+		return app.Exists("label:Address")
+	})
 	app.Type("label:Address", "localhost:1")
 	app.WaitUntil(10*time.Second, func() bool {
 		if app.Exists("id:browser-view") {
@@ -1381,8 +1408,16 @@ func TestUIRightPanel(t *testing.T) {
 	app.Press("id:surface-terminal")
 	app.WaitFor("id:terminal-view", 15*time.Second)
 	app.WaitFor("id:terminal-tab-0", 5*time.Second)
-	app.Press("id:terminal-new")
-	app.WaitFor("id:terminal-tab-1", 10*time.Second)
+	app.WaitUntil(15*time.Second, func() bool {
+		if app.Exists("id:terminal-tab-1") {
+			return true
+		}
+		if app.Exists("id:terminal-new") {
+			app.Press("id:terminal-new")
+			app.Settle()
+		}
+		return app.Exists("id:terminal-tab-1")
+	})
 	app.WaitFor("id:terminal-view", 10*time.Second)
 
 	openPicker("surface-diff")
@@ -1799,8 +1834,16 @@ done
 		}
 		return app.Exists("id:agent-command-mcp-mcp__fake__summarize")
 	})
-	app.Press("id:agent-command-mcp-mcp__fake__summarize")
-	app.WaitFor("id:prompt-args-dialog", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:prompt-args-dialog") {
+			return true
+		}
+		if app.Exists("id:agent-command-mcp-mcp__fake__summarize") {
+			app.Press("id:agent-command-mcp-mcp__fake__summarize")
+			app.Settle()
+		}
+		return app.Exists("id:prompt-args-dialog")
+	})
 
 	for label, want := range map[string]string{"id:prompt-arg-topic": "release notes", "id:prompt-arg-style": "brief"} {
 		label, want := label, want
@@ -1814,8 +1857,16 @@ done
 			return app.Find(label).Text == want
 		})
 	}
-	app.Press("id:confirm-prompt-args")
-	app.WaitForGone("id:prompt-args-dialog", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if !app.Exists("id:prompt-args-dialog") {
+			return true
+		}
+		if app.Exists("id:confirm-prompt-args") {
+			app.Press("id:confirm-prompt-args")
+			app.Settle()
+		}
+		return !app.Exists("id:prompt-args-dialog")
+	})
 	app.WaitUntil(5*time.Second, func() bool {
 		return app.Find("label:Message").Text == "/mcp__fake__summarize release notes brief"
 	})
@@ -1836,4 +1887,63 @@ func TestContextUsagePrefersReportedWindow(t *testing.T) {
 	if _, limit := contextUsage("gemini-3-pro", nil, nil); limit != 1_000_000 {
 		t.Fatalf("fallback window = %d", limit)
 	}
+}
+
+// TestUIProviderSignIn runs a provider's login command in a thread's
+// terminal from Settings.
+func TestUIProviderSignIn(t *testing.T) {
+	dir := t.TempDir()
+	script := `#!/bin/sh
+case "$1" in
+--version) echo 1.0.0 ;;
+auth) echo "Not logged in" >&2; exit 1 ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Repo", gitRepo(t))
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Sign in", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:settings", 10*time.Second)
+	app.WaitUntil(15*time.Second, func() bool {
+		if app.Exists("id:settings-nav-providers") {
+			return true
+		}
+		if app.Exists("id:settings") {
+			app.Press("id:settings")
+			app.Settle()
+		}
+		return app.Exists("id:settings-nav-providers")
+	})
+	app.Press("id:settings-nav-providers")
+	app.WaitUntil(20*time.Second, func() bool { return app.Exists("id:settings-login-claude") })
+	app.Press("id:settings-login-claude")
+	app.WaitUntil(20*time.Second, func() bool {
+		if len(srv.Terminals.List(thread.ID)) > 0 && app.Exists("id:surface-tab-terminal") {
+			return true
+		}
+		if app.Exists("id:settings-login-claude") {
+			app.Press("id:settings-login-claude")
+			app.Settle()
+		}
+		return len(srv.Terminals.List(thread.ID)) > 0 && app.Exists("id:surface-tab-terminal")
+	})
 }

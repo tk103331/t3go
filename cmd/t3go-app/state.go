@@ -499,6 +499,25 @@ func (a *app) reload() {
 	}()
 }
 
+// refreshProviders re-probes the agent CLIs, after a sign-in for example.
+func (a *app) refreshProviders() {
+	a.call(func(ctx context.Context, c *client.Client) error {
+		providers, models, err := c.Providers(ctx)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			a.providers.Set(providers)
+			a.models.Set(models)
+		})
+		return nil
+	}, func(err error) {
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
+		}
+	})
+}
+
 func (a *app) applyEvent(e proto.Event) {
 	switch e.Type {
 	case proto.EventThreadCreated, proto.EventThreadUpdated:
@@ -1621,6 +1640,35 @@ func (a *app) openTerminal() {
 		a.terminalBusy.Set(false)
 		if err != nil {
 			a.terminalErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// runProviderCommand runs a provider setup command in the thread's shell,
+// or copies it when no thread is open.
+func (a *app) runProviderCommand(command string) {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return
+	}
+	id := a.selected.GetUntracked()
+	if id == "" {
+		a.cx.SetClipboard(command)
+		a.connErr.Set("Copied “" + command + "”. Open a thread to run it in its terminal.")
+		return
+	}
+	a.setRightOpen(true)
+	a.openSurface("terminal")
+	a.call(func(ctx context.Context, c *client.Client) error {
+		session, err := c.EnsureTerminal(ctx, id)
+		if err != nil {
+			return err
+		}
+		return c.TerminalInput(ctx, session.ID, command+"\n")
+	}, func(err error) {
+		if err != nil {
+			a.cx.SetClipboard(command)
+			a.connErr.Set(friendlyError(err) + " — copied “" + command + "” instead.")
 		}
 	})
 }

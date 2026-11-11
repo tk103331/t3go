@@ -338,6 +338,12 @@ func (c *Client) CloseTerminal(ctx context.Context, id string) error {
 }
 
 // TerminalURL is where a terminal page attaches to its shell.
+// TerminalInput writes to a shell.
+func (c *Client) TerminalInput(ctx context.Context, id, data string) error {
+	path := "/api/v1/terminals/" + url.PathEscape(id) + "/input"
+	return c.do(ctx, http.MethodPost, path, map[string]string{"data": data}, nil)
+}
+
 func (c *Client) TerminalURL(id string) string {
 	base := strings.Replace(c.BaseURL, "https://", "wss://", 1)
 	base = strings.Replace(base, "http://", "ws://", 1)

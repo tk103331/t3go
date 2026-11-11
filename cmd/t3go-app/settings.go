@@ -102,9 +102,15 @@ func (a *app) settingsProviders(cx *core.Scope) core.Node {
 		provider := provider
 		status := "Installed"
 		color := colors.Up
-		if !provider.Installed {
+		switch {
+		case !provider.Installed:
 			status = "Not found on PATH"
 			color = colors.Danger
+		case provider.AuthStatus == "authenticated":
+			status = "Installed · signed in"
+		case provider.AuthStatus == "unauthenticated":
+			status = "Installed · signed out"
+			color = colors.Muted
 		}
 		var labels []core.Node
 		for _, model := range models {
@@ -149,11 +155,36 @@ func (a *app) settingsProviders(cx *core.Scope) core.Node {
 		} else if provider.Installed {
 			body = append(body, ui.Text("No models reported yet.", 10.5, ui.Regular, colors.Faint))
 		}
+		if provider.AuthStatus == "unauthenticated" || provider.AuthStatus == "unknown" {
+			if provider.LoginCommand != "" {
+				body = append(body, core.Text{Content: provider.LoginCommand, MaxLines: 1,
+					Style:     core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
+			}
+		}
+		var actions []core.Node
+		if !provider.Installed && provider.CanInstall && provider.InstallCommand != "" {
+			body = append(body, core.Text{Content: provider.InstallCommand, MaxLines: 1,
+				Style:     core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
+			actions = append(actions, ui.Button{Text: "Install", Icon: lucide.Download, Variant: ui.ButtonSecondary,
+				Size: ui.SizeSmall, TestID: "settings-install-" + provider.ID,
+				OnPress: func() { a.runProviderCommand(provider.InstallCommand) }})
+		}
+		if provider.Installed && provider.CanAuthenticate && provider.AuthStatus != "authenticated" && provider.LoginCommand != "" {
+			actions = append(actions, ui.Button{Text: "Sign in", Icon: lucide.LogIn, Variant: ui.ButtonSecondary,
+				Size: ui.SizeSmall, TestID: "settings-login-" + provider.ID,
+				OnPress: func() { a.runProviderCommand(provider.LoginCommand) }})
+		}
+		if len(actions) > 0 {
+			body = append(body, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4,
+				Padding: core.Edges{Top: 2}}, Children: actions})
+		}
 		cards = append(cards, core.View{Style: core.Style{Direction: core.Column, Gap: 5, Padding: core.Symmetric(8, 10),
 			Background: colors.Inset(), CornerRadius: 8}, Children: body})
 	}
 	refresh := ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-		TestID: "settings-refresh-providers", OnPress: a.reload}
+		TestID: "settings-refresh-providers", OnPress: a.refreshProviders}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: []core.Node{
 		settingsSectionTitle(cx, "Providers", "Agent CLIs T3Go can run. Install a CLI and keep it on PATH to use it."),
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter}, Children: []core.Node{

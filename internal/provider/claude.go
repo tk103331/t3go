@@ -34,6 +34,11 @@ var claudeModels = []proto.Model{
 func (*Claude) Snapshot(ctx context.Context) proto.Provider {
 	p := detect(ctx, "claude", "Claude Code", "claude")
 	p.Models = claudeModels
+	p.CanInstall, p.CanAuthenticate = true, true
+	p.InstallCommand, p.LoginCommand = "npm install -g @anthropic-ai/claude-code", "claude auth login"
+	if p.Installed {
+		p.AuthStatus, p.AuthDetail = probeAuth(ctx, p.Path, "auth", "status")
+	}
 	return p
 }
 

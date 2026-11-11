@@ -156,3 +156,28 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	cancel()
 	<-writerDone
 }
+
+// handleTerminalInput writes to a shell, for running a setup command.
+func (s *Server) handleTerminalInput(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Data string `json:"data"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, 400, "terminal", err.Error())
+		return
+	}
+	session, ok := s.Terminals.Get(r.PathValue("id"))
+	if !ok {
+		writeError(w, 404, "terminal", terminal.ErrNotFound.Error())
+		return
+	}
+	if session.Exited() {
+		writeError(w, 400, "terminal", "this shell has exited")
+		return
+	}
+	if err := session.Write([]byte(input.Data)); err != nil {
+		writeError(w, 500, "terminal", err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}

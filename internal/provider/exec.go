@@ -2,6 +2,7 @@ package provider
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -150,6 +151,32 @@ func detect(ctx context.Context, id, name, binary string) proto.Provider {
 	}
 	p := proto.Provider{ID: id, Name: name, Installed: true, Path: path, Version: versionOf(ctx, path)}
 	return p
+}
+
+// probeAuth runs a CLI's status command and classifies its result.
+// Output that names an unknown command means the CLI predates status.
+func probeAuth(ctx context.Context, path string, args ...string) (string, string) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, args...)
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	err := cmd.Run()
+	text := strings.TrimSpace(out.String())
+	if err == nil {
+		return "authenticated", text
+	}
+	lower := strings.ToLower(text)
+	for _, unknown := range []string{"unknown command", "unrecognized", "no such command", "not a valid command"} {
+		if strings.Contains(lower, unknown) {
+			return "unknown", text
+		}
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return "unauthenticated", text
+	}
+	return "unknown", text
 }
 
 // jsonString reads a string field from a decoded JSON map.

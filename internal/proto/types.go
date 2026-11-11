@@ -164,6 +164,13 @@ type Provider struct {
 	Path      string  `json:"path,omitempty"`
 	Error     string  `json:"error,omitempty"`
 	Models    []Model `json:"models,omitempty"`
+	// AuthStatus is authenticated, unauthenticated or unknown.
+	AuthStatus      string `json:"authStatus,omitempty"`
+	AuthDetail      string `json:"authDetail,omitempty"`
+	CanInstall      bool   `json:"canInstall,omitempty"`
+	CanAuthenticate bool   `json:"canAuthenticate,omitempty"`
+	InstallCommand  string `json:"installCommand,omitempty"`
+	LoginCommand    string `json:"loginCommand,omitempty"`
 }
 
 // GitStatus is the checkout a thread works in.

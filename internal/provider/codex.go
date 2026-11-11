@@ -24,6 +24,11 @@ var codexModels = []proto.Model{
 func (*Codex) Snapshot(ctx context.Context) proto.Provider {
 	p := detect(ctx, "codex", "Codex", "codex")
 	p.Models = codexModels
+	p.CanInstall, p.CanAuthenticate = true, true
+	p.InstallCommand, p.LoginCommand = "npm install -g @openai/codex", "codex login"
+	if p.Installed {
+		p.AuthStatus, p.AuthDetail = probeAuth(ctx, p.Path, "login", "status")
+	}
 	return p
 }
 

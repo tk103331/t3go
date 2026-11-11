@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tk/t3go/internal/proto"
 )
@@ -18,9 +20,12 @@ func (*OpenCode) Name() string { return "OpenCode" }
 
 func (*OpenCode) Snapshot(ctx context.Context) proto.Provider {
 	p := detect(ctx, "opencode", "OpenCode", "opencode")
+	p.CanInstall, p.CanAuthenticate = true, true
+	p.InstallCommand, p.LoginCommand = "npm install -g opencode-ai", "opencode auth login"
 	if !p.Installed {
 		return p
 	}
+	p.AuthStatus, p.AuthDetail = probeOpenCodeAuth(ctx, p.Path)
 	// `opencode models` lists the models the user's providers expose.
 	out, err := commandOutput(ctx, p.Path, "models")
 	if err != nil {
@@ -45,6 +50,37 @@ func (*OpenCode) Snapshot(ctx context.Context) proto.Provider {
 		p.Error = "no models; run `opencode auth login`"
 	}
 	return p
+}
+
+// probeOpenCodeAuth lists credentials; an empty list means signed out.
+func probeOpenCodeAuth(ctx context.Context, path string) (string, string) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, path, "auth", "list", "--format", "json").CombinedOutput()
+	text := strings.TrimSpace(string(out))
+	if err != nil {
+		if strings.Contains(strings.ToLower(text), "no authenticated") {
+			return "unauthenticated", text
+		}
+		return "unknown", text
+	}
+	var entries []any
+	if json.Unmarshal([]byte(text), &entries) == nil {
+		if len(entries) > 0 {
+			return "authenticated", text
+		}
+		return "unauthenticated", text
+	}
+	var wrapper struct {
+		Credentials []any `json:"credentials"`
+	}
+	if json.Unmarshal([]byte(text), &wrapper) == nil && wrapper.Credentials != nil {
+		if len(wrapper.Credentials) > 0 {
+			return "authenticated", text
+		}
+		return "unauthenticated", text
+	}
+	return "unknown", text
 }
 
 func (o *OpenCode) Run(ctx context.Context, turn Turn, sink Sink) error {

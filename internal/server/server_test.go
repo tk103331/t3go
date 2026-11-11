@@ -2338,3 +2338,33 @@ func TestAgentCommandsLegacySSE(t *testing.T) {
 		t.Fatal("legacy SSE prompt missing")
 	}
 }
+
+func TestTerminalInput(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	e := newTestEnv(t)
+	project := e.project(t)
+	thread := e.thread(t, project.ID)
+	var session proto.TerminalSession
+	if code := e.request(t, http.MethodPost, "/api/v1/threads/"+thread.ID+"/terminal", map[string]any{}, e.token, &session); code != http.StatusOK {
+		t.Fatalf("terminal = %d", code)
+	}
+	if code := e.request(t, http.MethodPost, "/api/v1/terminals/"+session.ID+"/input",
+		map[string]any{"data": "exit\n"}, e.token, nil); code != http.StatusOK {
+		t.Fatalf("input = %d", code)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		var listed struct {
+			Sessions []proto.TerminalSession `json:"sessions"`
+		}
+		if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/terminals", nil, e.token, &listed); code == http.StatusOK {
+			for _, item := range listed.Sessions {
+				if item.ID == session.ID && item.Exited {
+					return
+				}
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("the shell did not exit after its input")
+}

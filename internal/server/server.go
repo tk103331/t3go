@@ -235,6 +235,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/threads/{id}/terminals", s.auth(s.handleCreateTerminal))
 	mux.HandleFunc("GET /api/v1/threads/{id}/terminals", s.auth(s.handleListTerminals))
 	mux.HandleFunc("DELETE /api/v1/terminals/{id}", s.auth(s.handleCloseTerminal))
+	mux.HandleFunc("POST /api/v1/terminals/{id}/input", s.auth(s.handleTerminalInput))
 	mux.HandleFunc("GET /api/v1/terminals/{id}/ws", s.auth(s.handleTerminalWS))
 	mux.HandleFunc("POST /api/v1/threads/{id}/branches", s.auth(s.handleSwitchBranch))
 	mux.HandleFunc("GET /api/v1/providers", s.auth(s.handleProviders))
@@ -2380,6 +2381,7 @@ func (s *Server) handleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
+	s.Service.Providers.Invalidate()
 	writeJSON(w, 200, map[string]any{"providers": s.Service.Providers.Snapshot(r.Context()), "models": s.Service.Providers.Models(r.Context())})
 }
 
