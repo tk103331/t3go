@@ -1663,7 +1663,7 @@ func TestUILinkedPullRequest(t *testing.T) {
 	script := `#!/bin/sh
 case "$1 $2" in
 "pr list") echo '[{"number":7,"title":"Add feature","url":"https://github.com/acme/repo/pull/7","state":"OPEN","isDraft":false,"baseRefName":"main","headRefName":"feature"}]' ;;
-"pr view") echo '{"number":7,"title":"Add feature","url":"https://github.com/acme/repo/pull/7","state":"OPEN","isDraft":false,"baseRefName":"main","headRefName":"feature","body":"Body","author":{"login":"tk"},"reviewDecision":"APPROVED","mergeable":"MERGEABLE","additions":3,"deletions":1,"changedFiles":2,"statusCheckRollup":[{"__typename":"CheckRun","name":"test","conclusion":"SUCCESS","detailsUrl":"https://ci/1"}],"reviews":[{"author":{"login":"reviewer"},"state":"APPROVED","body":"LGTM"}]}' ;;
+"pr view") echo '{"number":7,"title":"Add feature","url":"https://github.com/acme/repo/pull/7","state":"OPEN","isDraft":false,"baseRefName":"main","headRefName":"feature","body":"Body","author":{"login":"tk"},"reviewDecision":"APPROVED","mergeable":"MERGEABLE","additions":3,"deletions":1,"changedFiles":2,"statusCheckRollup":[{"__typename":"CheckRun","name":"test","conclusion":"SUCCESS","detailsUrl":"https://ci/1"}],"reviews":[{"author":{"login":"reviewer"},"state":"APPROVED","body":"LGTM"}],"comments":[{"author":{"login":"tk"},"body":"Please add tests","createdAt":"2026-11-10T10:00:00Z"}]}' ;;
 *) echo "$@" >> "$GH_LOG" ;;
 esac
 `
@@ -1706,6 +1706,30 @@ esac
 	app.Press("id:open-linked-pr-7")
 	app.WaitFor("id:pr-merge-squash", 10*time.Second)
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:test")) > 0 })
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:Please add tests")) > 0 })
+
+	steps := []struct{ note, button, want string }{
+		{note: "Looks good", button: "id:pr-review-approve", want: "pr review 7 --approve --body Looks good"},
+		{note: "Ship it", button: "id:pr-comment", want: "pr comment 7 --body Ship it"},
+	}
+	for _, step := range steps {
+		note, button, want := step.note, step.button, step.want
+		app.WaitUntil(10*time.Second, func() bool {
+			if app.Find("id:pr-note").Text == note {
+				return true
+			}
+			app.Clear("id:pr-note")
+			app.Type("id:pr-note", note)
+			app.Settle()
+			return app.Find("id:pr-note").Text == note
+		})
+		app.Press(button)
+		app.WaitUntil(10*time.Second, func() bool {
+			raw, err := os.ReadFile(logPath)
+			return err == nil && strings.Contains(string(raw), want)
+		})
+	}
+
 	app.Press("id:pr-merge-squash")
 	app.WaitUntil(10*time.Second, func() bool {
 		raw, err := os.ReadFile(logPath)

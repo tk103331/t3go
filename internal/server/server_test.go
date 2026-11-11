@@ -1467,7 +1467,7 @@ func fakeServerGH(t *testing.T) string {
 case "$1 $2" in
 "pr view")
   if [ -f "$PR_STATE" ]; then
-    echo '{"url":"https://github.com/acme/repo/pull/7","number":7,"title":"Add feature","baseRefName":"main","headRefName":"feature","state":"OPEN","isDraft":false,"body":"Body","author":{"login":"tk"},"reviewDecision":"APPROVED","mergeable":"MERGEABLE","additions":3,"deletions":1,"changedFiles":2,"statusCheckRollup":[{"__typename":"CheckRun","name":"test","conclusion":"SUCCESS","detailsUrl":"https://ci/1"}],"reviews":[{"author":{"login":"reviewer"},"state":"APPROVED","body":"LGTM","url":"https://github.com/acme/repo/pull/7#pullrequestreview-1"}]}'
+    echo '{"url":"https://github.com/acme/repo/pull/7","number":7,"title":"Add feature","baseRefName":"main","headRefName":"feature","state":"OPEN","isDraft":false,"body":"Body","author":{"login":"tk"},"reviewDecision":"APPROVED","mergeable":"MERGEABLE","additions":3,"deletions":1,"changedFiles":2,"statusCheckRollup":[{"__typename":"CheckRun","name":"test","conclusion":"SUCCESS","detailsUrl":"https://ci/1"}],"reviews":[{"author":{"login":"reviewer"},"state":"APPROVED","body":"LGTM","url":"https://github.com/acme/repo/pull/7#pullrequestreview-1"}],"comments":[{"author":{"login":"tk"},"body":"Please add tests","url":"https://github.com/acme/repo/pull/7#issuecomment-1","createdAt":"2026-11-10T10:00:00Z"}]}'
   else
     echo "no pull requests found" >&2
     exit 1
@@ -1480,7 +1480,7 @@ case "$1 $2" in
 "pr list")
   echo '[{"number":7,"title":"Add feature","url":"https://github.com/acme/repo/pull/7","state":"OPEN","isDraft":false,"baseRefName":"main","headRefName":"feature"}]'
   ;;
-"pr merge"|"pr ready"|"pr close"|"pr reopen")
+"pr merge"|"pr ready"|"pr close"|"pr reopen"|"pr review"|"pr comment")
   echo "ok"
   ;;
 *)
@@ -1953,7 +1953,8 @@ func TestWorkspaceFilesAndPullRequest(t *testing.T) {
 		t.Fatalf("pull request detail = %d", code)
 	}
 	if prDetail.PullRequest.Number != 7 || len(prDetail.Checks) != 1 || prDetail.Checks[0].Status != "success" ||
-		len(prDetail.Reviews) != 1 || prDetail.Reviews[0].Author != "reviewer" {
+		len(prDetail.Reviews) != 1 || prDetail.Reviews[0].Author != "reviewer" ||
+		len(prDetail.Comments) != 1 || prDetail.Comments[0].Body != "Please add tests" {
 		t.Fatalf("pull request detail = %#v", prDetail)
 	}
 	if code := e.request(t, http.MethodPost, detailPath+"/merge", map[string]any{"method": "squash"}, e.token, nil); code != http.StatusOK {
@@ -1961,6 +1962,18 @@ func TestWorkspaceFilesAndPullRequest(t *testing.T) {
 	}
 	if code := e.request(t, http.MethodPost, detailPath+"/action", map[string]any{"action": "close"}, e.token, nil); code != http.StatusOK {
 		t.Fatalf("pr action = %d", code)
+	}
+	if code := e.request(t, http.MethodPost, detailPath+"/review", map[string]any{"verdict": "approve", "body": "LGTM"}, e.token, nil); code != http.StatusOK {
+		t.Fatalf("pr review = %d", code)
+	}
+	if code := e.request(t, http.MethodPost, detailPath+"/comments", map[string]any{"body": "One more thing"}, e.token, nil); code != http.StatusOK {
+		t.Fatalf("pr comment = %d", code)
+	}
+	if code := e.request(t, http.MethodPost, detailPath+"/review", map[string]any{"verdict": "nope"}, e.token, nil); code != http.StatusBadRequest {
+		t.Fatalf("bad verdict = %d", code)
+	}
+	if code := e.request(t, http.MethodPost, detailPath+"/comments", map[string]any{"body": " "}, e.token, nil); code != http.StatusBadRequest {
+		t.Fatalf("empty comment = %d", code)
 	}
 
 	var graph struct {

@@ -85,6 +85,7 @@ type app struct {
 	prViewNumber    *core.Signal[int]
 	prViewBusy      *core.Signal[bool]
 	prDeleteBranch  *core.Signal[bool]
+	prNote          *core.Signal[string]
 	showBranch      *core.Signal[bool]
 	showBranches    *core.Signal[bool]
 	branchName      *core.Signal[string]
@@ -222,6 +223,7 @@ func newApp(cx *core.Scope) *app {
 		prViewNumber:    core.NewSignal(cx, 0),
 		prViewBusy:      core.NewSignal(cx, false),
 		prDeleteBranch:  core.NewSignal(cx, false),
+		prNote:          core.NewSignal(cx, ""),
 		showBranch:      core.NewSignal(cx, false),
 		showBranches:    core.NewSignal(cx, false),
 		branchName:      core.NewSignal(cx, ""),
@@ -875,6 +877,7 @@ func (a *app) selectThread(id string) {
 	a.prListDetail.Set("")
 	a.prView.Set(proto.PullRequestDetail{})
 	a.prViewNumber.Set(0)
+	a.prNote.Set("")
 	a.graph.Set(nil)
 	a.workingDiff.Set("")
 	a.workingFiles.Set(nil)
@@ -2127,6 +2130,56 @@ func (a *app) openPullRequest(number int) {
 func (a *app) closePullRequest() {
 	a.prViewNumber.Set(0)
 	a.prView.Set(proto.PullRequestDetail{})
+}
+
+// submitPRReview posts the note as an approval, comment or change request.
+func (a *app) submitPRReview(verdict string) {
+	id := a.selected.GetUntracked()
+	number := a.prViewNumber.GetUntracked()
+	note := strings.TrimSpace(a.prNote.GetUntracked())
+	if id == "" || number <= 0 {
+		return
+	}
+	if note == "" && verdict != "approve" {
+		a.connErr.Set("Write a note before submitting this review.")
+		return
+	}
+	a.prViewBusy.Set(true)
+	a.call(func(ctx context.Context, c *client.Client) error {
+		return c.ReviewPullRequest(ctx, id, number, verdict, note)
+	}, func(err error) {
+		a.prViewBusy.Set(false)
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
+			return
+		}
+		a.prNote.Set("")
+		a.openPullRequest(number)
+		a.loadPullRequests(id)
+	})
+}
+
+// submitPRComment posts the note as a conversation comment.
+func (a *app) submitPRComment() {
+	id := a.selected.GetUntracked()
+	number := a.prViewNumber.GetUntracked()
+	note := strings.TrimSpace(a.prNote.GetUntracked())
+	if id == "" || number <= 0 || note == "" {
+		return
+	}
+	a.prViewBusy.Set(true)
+	a.call(func(ctx context.Context, c *client.Client) error {
+		return c.CommentPullRequest(ctx, id, number, note)
+	}, func(err error) {
+		a.prViewBusy.Set(false)
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
+			return
+		}
+		a.prNote.Set("")
+		a.openPullRequest(number)
+		a.loadPullRequests(id)
+	})
 }
 
 // mergePullRequest merges the open pull request.

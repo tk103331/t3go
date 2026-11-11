@@ -710,7 +710,7 @@ func PullRequestDetails(ctx context.Context, dir string, number int) (proto.Pull
 		return proto.PullRequestDetail{}, ErrGHMissing
 	}
 	out, err := runGH(ctx, dir, "pr", "view", fmt.Sprint(number), "--json",
-		"number,title,url,state,isDraft,baseRefName,headRefName,body,author,reviewDecision,mergeable,additions,deletions,changedFiles,statusCheckRollup,reviews")
+		"number,title,url,state,isDraft,baseRefName,headRefName,body,author,reviewDecision,mergeable,additions,deletions,changedFiles,statusCheckRollup,reviews,comments")
 	if err != nil {
 		return proto.PullRequestDetail{}, err
 	}
@@ -740,6 +740,14 @@ func PullRequestDetails(ctx context.Context, dir string, number int) (proto.Pull
 			Body  string `json:"body"`
 			URL   string `json:"url"`
 		} `json:"reviews"`
+		Comments []struct {
+			Author struct {
+				Login string `json:"login"`
+			} `json:"author"`
+			Body      string `json:"body"`
+			URL       string `json:"url"`
+			CreatedAt string `json:"createdAt"`
+		} `json:"comments"`
 	}
 	if err := json.Unmarshal([]byte(out), &raw); err != nil {
 		return proto.PullRequestDetail{}, fmt.Errorf("read pull request: %w", err)
@@ -773,7 +781,47 @@ func PullRequestDetails(ctx context.Context, dir string, number int) (proto.Pull
 		detail.Reviews = append(detail.Reviews, proto.PullRequestReview{Author: review.Author.Login,
 			State: review.State, Body: review.Body, URL: review.URL})
 	}
+	for _, comment := range raw.Comments {
+		detail.Comments = append(detail.Comments, proto.PullRequestComment{Author: comment.Author.Login,
+			Body: comment.Body, URL: comment.URL, CreatedAt: comment.CreatedAt})
+	}
 	return detail, nil
+}
+
+// PullRequestReview submits a review: approve, request-changes or comment.
+func PullRequestReview(ctx context.Context, dir string, number int, verdict, body string) error {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return ErrGHMissing
+	}
+	var flag string
+	switch verdict {
+	case "approve":
+		flag = "--approve"
+	case "request-changes":
+		flag = "--request-changes"
+	case "comment":
+		flag = "--comment"
+	default:
+		return fmt.Errorf("unknown review verdict %q", verdict)
+	}
+	args := []string{"pr", "review", fmt.Sprint(number), flag}
+	if strings.TrimSpace(body) != "" {
+		args = append(args, "--body", body)
+	}
+	_, err := runGH(ctx, dir, args...)
+	return err
+}
+
+// CommentPullRequest adds a conversation comment to a pull request.
+func CommentPullRequest(ctx context.Context, dir string, number int, body string) error {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return ErrGHMissing
+	}
+	if strings.TrimSpace(body) == "" {
+		return errors.New("comment body is empty")
+	}
+	_, err := runGH(ctx, dir, "pr", "comment", fmt.Sprint(number), "--body", body)
+	return err
 }
 
 func stringField(values map[string]any, key string) string {

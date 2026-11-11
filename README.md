@@ -155,6 +155,11 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
 | `GET /api/v1/terminals/{id}/ws` | 终端输入/输出 WebSocket（`resize`、`input`） |
 | `GET /api/v1/threads/{id}/pull-request` | 读取当前分支打开的 PR（经 `gh`） |
 | `GET /api/v1/threads/{id}/pull-requests` | 列出当前分支的全部 PR |
+| `GET /api/v1/threads/{id}/pull-requests/{number}` | 读取 PR 详情、checks、reviews、comments |
+| `POST /api/v1/threads/{id}/pull-requests/{number}/merge` | 合并 PR（merge/squash/rebase，可删分支） |
+| `POST /api/v1/threads/{id}/pull-requests/{number}/action` | ready/draft/close/reopen |
+| `POST /api/v1/threads/{id}/pull-requests/{number}/review` | 提交 review（approve/request-changes/comment） |
+| `POST /api/v1/threads/{id}/pull-requests/{number}/comments` | 添加 PR 评论 |
 | `POST /api/v1/threads/{id}/git/pull` | fast-forward 当前分支 |
 | `GET /api/v1/providers` | provider 与模型 |
 | `GET/PATCH /api/v1/settings` | 环境默认设置 |

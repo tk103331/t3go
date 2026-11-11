@@ -453,6 +453,18 @@ func (c *Client) MergePullRequest(ctx context.Context, threadID string, number i
 	return c.do(ctx, http.MethodPost, path, map[string]any{"method": method, "deleteBranch": deleteBranch}, nil)
 }
 
+// ReviewPullRequest submits a review on a pull request.
+func (c *Client) ReviewPullRequest(ctx context.Context, threadID string, number int, verdict, body string) error {
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/pull-requests/" + fmt.Sprint(number) + "/review"
+	return c.do(ctx, http.MethodPost, path, map[string]string{"verdict": verdict, "body": body}, nil)
+}
+
+// CommentPullRequest adds a conversation comment to a pull request.
+func (c *Client) CommentPullRequest(ctx context.Context, threadID string, number int, body string) error {
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/pull-requests/" + fmt.Sprint(number) + "/comments"
+	return c.do(ctx, http.MethodPost, path, map[string]string{"body": body}, nil)
+}
+
 // PullRequestAction changes a pull request's state.
 func (c *Client) PullRequestAction(ctx context.Context, threadID string, number int, action string) error {
 	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/pull-requests/" + fmt.Sprint(number) + "/action"

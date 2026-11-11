@@ -439,16 +439,25 @@ type PullRequestReview struct {
 	URL    string `json:"url,omitempty"`
 }
 
+// PullRequestComment is one conversation comment on a pull request.
+type PullRequestComment struct {
+	Author    string `json:"author,omitempty"`
+	Body      string `json:"body,omitempty"`
+	URL       string `json:"url,omitempty"`
+	CreatedAt string `json:"createdAt,omitempty"`
+}
+
 // PullRequestDetail is a pull request with its checks and reviews.
 type PullRequestDetail struct {
-	PullRequest    PullRequest         `json:"pullRequest"`
-	Body           string              `json:"body,omitempty"`
-	Author         string              `json:"author,omitempty"`
-	Mergeable      string              `json:"mergeable,omitempty"`
-	ReviewDecision string              `json:"reviewDecision,omitempty"`
-	Additions      int                 `json:"additions,omitempty"`
-	Deletions      int                 `json:"deletions,omitempty"`
-	ChangedFiles   int                 `json:"changedFiles,omitempty"`
-	Checks         []PullRequestCheck  `json:"checks,omitempty"`
-	Reviews        []PullRequestReview `json:"reviews,omitempty"`
+	PullRequest    PullRequest          `json:"pullRequest"`
+	Body           string               `json:"body,omitempty"`
+	Author         string               `json:"author,omitempty"`
+	Mergeable      string               `json:"mergeable,omitempty"`
+	ReviewDecision string               `json:"reviewDecision,omitempty"`
+	Additions      int                  `json:"additions,omitempty"`
+	Deletions      int                  `json:"deletions,omitempty"`
+	ChangedFiles   int                  `json:"changedFiles,omitempty"`
+	Checks         []PullRequestCheck   `json:"checks,omitempty"`
+	Reviews        []PullRequestReview  `json:"reviews,omitempty"`
+	Comments       []PullRequestComment `json:"comments,omitempty"`
 }

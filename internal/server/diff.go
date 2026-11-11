@@ -173,3 +173,68 @@ func (s *Server) pullRequestAction(w http.ResponseWriter, r *http.Request, actio
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
+
+// handlePullRequestReview submits a review on a pull request.
+func (s *Server) handlePullRequestReview(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Verdict string `json:"verdict"`
+		Body    string `json:"body"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, 400, "pull request", err.Error())
+		return
+	}
+	if input.Verdict != "approve" && input.Verdict != "request-changes" && input.Verdict != "comment" {
+		writeError(w, 400, "pull request", "verdict must be approve, request-changes or comment")
+		return
+	}
+	t, number, ok := s.pullRequestTarget(w, r)
+	if !ok {
+		return
+	}
+	if err := git.PullRequestReview(r.Context(), s.Service.ThreadDir(r.Context(), t), number, input.Verdict, input.Body); err != nil {
+		writeError(w, statusFor(err), "pull request", err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+// handlePullRequestComment adds a conversation comment to a pull request.
+func (s *Server) handlePullRequestComment(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Body string `json:"body"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, 400, "pull request", err.Error())
+		return
+	}
+	if strings.TrimSpace(input.Body) == "" {
+		writeError(w, 400, "pull request", "comment body is empty")
+		return
+	}
+	t, number, ok := s.pullRequestTarget(w, r)
+	if !ok {
+		return
+	}
+	if err := git.CommentPullRequest(r.Context(), s.Service.ThreadDir(r.Context(), t), number, input.Body); err != nil {
+		writeError(w, statusFor(err), "pull request", err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+// pullRequestTarget resolves the thread and PR number of a pull request
+// request, writing the error itself when that fails.
+func (s *Server) pullRequestTarget(w http.ResponseWriter, r *http.Request) (proto.Thread, int, bool) {
+	t, err := s.Store.Thread(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), "thread", err.Error())
+		return proto.Thread{}, 0, false
+	}
+	number, err := strconv.Atoi(r.PathValue("number"))
+	if err != nil || number <= 0 {
+		writeError(w, 400, "pull request", "invalid number")
+		return proto.Thread{}, 0, false
+	}
+	return t, number, true
+}

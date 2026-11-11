@@ -561,6 +561,37 @@ func (a *app) rightPullRequestDetail(cx *core.Scope) core.Node {
 		}
 		fields = append(fields, core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: reviews})
 	}
+	if len(detail.Comments) > 0 {
+		fields = append(fields, ui.Text("Comments", 10.5, ui.Semibold, colors.Faint))
+		for _, comment := range detail.Comments {
+			label := comment.Author
+			if comment.CreatedAt != "" {
+				label += " · " + comment.CreatedAt
+			}
+			fields = append(fields, core.View{Style: core.Style{Direction: core.Column, Gap: 2,
+				Background: colors.Inset(), CornerRadius: 6, Padding: core.All(7)}, Children: []core.Node{
+				core.Text{Content: label, MaxLines: 1, Style: core.Style{FontSize: 10},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+				core.Text{Content: comment.Body, MaxLines: 6, Selectable: core.SelectableOn,
+					Style:     core.Style{FontSize: 11, LineHeight: 16},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+			}})
+		}
+	}
+	if strings.EqualFold(pr.State, "open") {
+		fields = append(fields, ui.Text("Review or comment", 10.5, ui.Semibold, colors.Faint),
+			ui.Input{Input: base.Input{Multiline: true, Value: a.prNote.Get, OnChange: a.prNote.Set,
+				Placeholder: "Leave a note…", Label: "Note", TestID: "pr-note"}},
+			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: []core.Node{
+				ui.Button{Text: "Approve", Icon: lucide.CircleCheck, Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+					TestID: "pr-review-approve", OnPress: func() { a.submitPRReview("approve") }},
+				ui.Button{Text: "Request changes", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+					TestID: "pr-review-request-changes", OnPress: func() { a.submitPRReview("request-changes") }},
+				ui.Button{Text: "Add comment", Icon: lucide.MessageCircle, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					TestID: "pr-comment", OnPress: a.submitPRComment},
+			}},
+		)
+	}
 	var actions []core.Node
 	if pr.URL != "" {
 		actions = append(actions, ui.Button{Text: "Open on GitHub", Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
