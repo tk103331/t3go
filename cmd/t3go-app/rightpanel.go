@@ -515,6 +515,28 @@ func (a *app) rightLinkedPRs(cx *core.Scope) core.Node {
 			Children: []core.Node{core.View{Style: core.Style{Direction: core.Column, Gap: 6}, Children: rows}}}}}
 }
 
+// sideAttachmentChips are the files the side chat's next question carries.
+func (a *app) sideAttachmentChips(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	var rows []core.Node
+	for _, file := range a.sideAttachments.Get() {
+		file := file
+		rows = append(rows, core.View{TestID: "side-attachment-" + file.Name,
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Symmetric(3, 6),
+				Background: colors.Inset(), CornerRadius: 6}, Children: []core.Node{
+				ui.Icon(lucide.Paperclip, 12, colors.Muted),
+				core.Text{Content: file.Name, MaxLines: 1, Style: core.Style{FontSize: 10.5, FlexGrow: 1, FlexShrink: 1},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+				core.Text{Content: humanSize(file.Size), Style: core.Style{FontSize: 9.5},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+				ui.IconButton{Icon: lucide.X, Label: "Remove " + file.Name, Size: 18, IconSize: 10,
+					TestID: "side-attachment-remove-" + file.ID, Tint: colors.Faint,
+					OnPress: func() { a.removeSideAttachment(file.ID) }},
+			}})
+	}
+	return core.View{Style: core.Style{Direction: core.Column, Gap: 3}, Children: rows}
+}
+
 // rightSideChat asks questions in a hidden thread with the current one's
 // context, without touching its transcript.
 func (a *app) rightSideChat(cx *core.Scope) core.Node {
@@ -592,8 +614,38 @@ func (a *app) rightSideChat(cx *core.Scope) core.Node {
 		ui.Button{Text: "Reset", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "side-reset",
 			OnPress: func() { a.resetSideChat(); a.sideFor.Set(""); a.openSideChat() }},
 	}}
-	var input core.Node = ui.Input{Input: base.Input{Multiline: true, Value: a.sideDraft.Get, OnChange: a.sideDraft.Set,
-		Placeholder: "Ask a side question…", Label: "Side question", TestID: "side-input"}}
+	var modelItems []core.Node
+	modelLabel := shortModel(thread.Model)
+	for _, model := range a.models.Get() {
+		model := model
+		label := model.Name
+		if model.Provider != thread.Provider {
+			label += " · " + model.Provider
+		}
+		if model.ID == thread.Model && model.Provider == thread.Provider {
+			modelLabel = shortModel(model.Name)
+		}
+		modelItems = append(modelItems, ui.MenuItem{Text: label, TestID: "side-model-" + model.ID,
+			Checked:  func() bool { return a.sideChat.Get().Model == model.ID && a.sideChat.Get().Provider == model.Provider },
+			OnSelect: func() { a.setSideModel(model) }})
+	}
+	var modelControl core.Node = ui.Text(modelLabel, 10.5, ui.Regular, colors.Faint)
+	if len(modelItems) > 0 {
+		modelControl = ui.Menu{TestID: "side-model", MaxHeight: 320,
+			Trigger:  ui.Button{Text: modelLabel, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Side chat model"},
+			Children: modelItems}
+	}
+	var permissionItems []core.Node
+	for _, permission := range []proto.PermissionMode{proto.PermissionSupervised, proto.PermissionAcceptEdits,
+		proto.PermissionAuto, proto.PermissionFullAccess} {
+		permission := permission
+		permissionItems = append(permissionItems, ui.MenuItem{Text: string(permission), TestID: "side-perm-" + string(permission),
+			Checked:  func() bool { return a.sideChat.Get().Permission == permission },
+			OnSelect: func() { a.setSidePermission(permission) }})
+	}
+	permissionControl := ui.Menu{TestID: "side-permission", MaxHeight: 240,
+		Trigger:  ui.Button{Text: string(thread.Permission), Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Side chat permission"},
+		Children: permissionItems}
 	var submit core.Node
 	if a.sideRunning.Get() {
 		submit = ui.Button{Text: "Stop", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "side-stop",
@@ -607,16 +659,27 @@ func (a *app) rightSideChat(cx *core.Scope) core.Node {
 			core.Text{Content: message, MaxLines: 3, Style: core.Style{FontSize: 10.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }}}}
 	}
+	composer := core.View{TestID: "side-composer", OnFileDrop: a.attachSidePaths,
+		Style: core.Style{Direction: core.Column, Gap: 5, Padding: core.Edges{Top: 6}}, Children: []core.Node{
+			core.Show{When: func() bool { return len(a.sideAttachments.Get()) > 0 }, Then: func(cx *core.Scope) core.Node {
+				return a.sideAttachmentChips(cx)
+			}},
+			ui.Input{Input: base.Input{Multiline: true, Value: a.sideDraft.Get, OnChange: a.sideDraft.Set,
+				Placeholder: "Ask a side question…", Label: "Side question", TestID: "side-input"}},
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
+				modelControl,
+				permissionControl,
+				ui.Spacer{},
+				ui.IconButton{Icon: lucide.Paperclip, Label: "Attach files", TestID: "side-attach", OnPress: a.pickSideAttachments},
+				submit,
+			}},
+		}}
 	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(10)},
 		Children: []core.Node{
 			head,
 			core.Scroll{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: rows}}},
-			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignEnd, Gap: 6,
-				Padding: core.Edges{Top: 6}}, Children: []core.Node{
-				core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{input}},
-				submit,
-			}},
+			composer,
 		}}
 }
 

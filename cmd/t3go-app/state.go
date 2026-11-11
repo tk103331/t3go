@@ -47,13 +47,14 @@ type app struct {
 	showArchived *core.Signal[bool]
 
 	// side chat
-	sideChat     *core.Signal[proto.Thread]
-	sideMessages *core.Signal[[]proto.Message]
-	sideRunning  *core.Signal[bool]
-	sideDraft    *core.Signal[string]
-	sideBusy     *core.Signal[bool]
-	sideErr      *core.Signal[string]
-	sideFor      *core.Signal[string]
+	sideChat        *core.Signal[proto.Thread]
+	sideMessages    *core.Signal[[]proto.Message]
+	sideRunning     *core.Signal[bool]
+	sideDraft       *core.Signal[string]
+	sideBusy        *core.Signal[bool]
+	sideErr         *core.Signal[string]
+	sideFor         *core.Signal[string]
+	sideAttachments *core.Signal[[]proto.Attachment]
 
 	// scroll handles for surfaces that draw their own bars
 	filesScroll *core.Ref
@@ -209,22 +210,23 @@ func newApp(cx *core.Scope) *app {
 		sideChat: core.NewSignalFunc(cx, proto.Thread{}, func(a, b proto.Thread) bool {
 			return a.ID == b.ID && a.Status == b.Status
 		}),
-		sideMessages:   sliceSignal[proto.Message](cx),
-		sideRunning:    core.NewSignal(cx, false),
-		sideDraft:      core.NewSignal(cx, ""),
-		sideBusy:       core.NewSignal(cx, false),
-		sideErr:        core.NewSignal(cx, ""),
-		sideFor:        core.NewSignal(cx, ""),
-		filesScroll:    &core.Ref{},
-		graphScroll:    &core.Ref{},
-		devices:        sliceSignal[proto.Device](cx),
-		deviceDetail:   core.NewSignal(cx, ""),
-		deviceSelected: core.NewSignal(cx, ""),
-		deviceBusy:     core.NewSignal(cx, false),
-		deviceErr:      core.NewSignal(cx, ""),
-		deviceImage:    sliceSignal[byte](cx),
-		deviceLive:     core.NewSignal(cx, true),
-		showDevices:    core.NewSignal(cx, false),
+		sideMessages:    sliceSignal[proto.Message](cx),
+		sideRunning:     core.NewSignal(cx, false),
+		sideDraft:       core.NewSignal(cx, ""),
+		sideBusy:        core.NewSignal(cx, false),
+		sideErr:         core.NewSignal(cx, ""),
+		sideFor:         core.NewSignal(cx, ""),
+		sideAttachments: sliceSignal[proto.Attachment](cx),
+		filesScroll:     &core.Ref{},
+		graphScroll:     &core.Ref{},
+		devices:         sliceSignal[proto.Device](cx),
+		deviceDetail:    core.NewSignal(cx, ""),
+		deviceSelected:  core.NewSignal(cx, ""),
+		deviceBusy:      core.NewSignal(cx, false),
+		deviceErr:       core.NewSignal(cx, ""),
+		deviceImage:     sliceSignal[byte](cx),
+		deviceLive:      core.NewSignal(cx, true),
+		showDevices:     core.NewSignal(cx, false),
 
 		selected:         core.NewSignal(cx, ""),
 		detail:           core.NewSignalFunc(cx, proto.ThreadDetail{}, func(proto.ThreadDetail, proto.ThreadDetail) bool { return false }),
@@ -575,11 +577,13 @@ func (a *app) openSideChat() {
 					running = true
 				}
 			}
+			drafts := a.attachmentDrafts.GetUntracked()
 			a.cx.Batch(func() {
 				a.sideChat.Set(thread)
 				a.sideMessages.Set(detail.Messages)
 				a.sideRunning.Set(running)
 				a.sideBusy.Set(false)
+				a.sideAttachments.Set(append([]proto.Attachment(nil), drafts[thread.ID]...))
 			})
 		})
 		return nil
@@ -598,6 +602,7 @@ func (a *app) resetSideChat() {
 	a.sideRunning.Set(false)
 	a.sideDraft.Set("")
 	a.sideErr.Set("")
+	a.sideAttachments.Set(nil)
 }
 
 // sendSideChat asks the side chat a question.
@@ -607,10 +612,15 @@ func (a *app) sendSideChat() {
 	if thread.ID == "" || text == "" || a.sideRunning.GetUntracked() {
 		return
 	}
+	attachments := a.sideAttachments.GetUntracked()
+	ids := make([]string, 0, len(attachments))
+	for _, attachment := range attachments {
+		ids = append(ids, attachment.ID)
+	}
 	a.sideBusy.Set(true)
 	a.sideErr.Set("")
 	a.call(func(ctx context.Context, c *client.Client) error {
-		run, err := c.Send(ctx, thread.ID, text)
+		run, err := c.SendWith(ctx, thread.ID, text, ids)
 		if err != nil {
 			return err
 		}
@@ -618,6 +628,8 @@ func (a *app) sendSideChat() {
 			a.sideDraft.Set("")
 			a.sideBusy.Set(false)
 			a.sideRunning.Set(run.Status == proto.RunRunning)
+			a.sideAttachments.Set(nil)
+			a.removeAttachmentDraft(thread.ID)
 		})
 		return nil
 	}, func(err error) {
@@ -637,6 +649,181 @@ func (a *app) stopSideChat() {
 	a.call(func(ctx context.Context, c *client.Client) error {
 		_, err := c.Stop(ctx, thread.ID)
 		return err
+	}, func(err error) {
+		if err != nil {
+			a.sideErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// pickSideAttachments opens the picker for the side chat's composer.
+func (a *app) pickSideAttachments() {
+	if a.client() == nil || a.sideChat.GetUntracked().ID == "" {
+		return
+	}
+	a.sideErr.Set("")
+	a.cx.PickFiles(core.PickFilesOptions{Multiple: true}, func(files []core.File, err error) {
+		if err != nil {
+			a.sideErr.Set(err.Error())
+			return
+		}
+		a.attachSideFiles(files)
+	})
+}
+
+// attachSidePaths takes files dropped on the side chat's composer.
+func (a *app) attachSidePaths(uris []string) {
+	files := make([]core.File, 0, len(uris))
+	for _, uri := range uris {
+		path := uri
+		if u, err := url.Parse(uri); err == nil {
+			if u.Scheme == "file" {
+				path = u.Path
+			} else if u.Scheme != "" {
+				continue
+			}
+		}
+		if unescaped, err := url.PathUnescape(path); err == nil {
+			path = unescaped
+		}
+		st, err := os.Stat(path)
+		if err != nil || st.IsDir() {
+			continue
+		}
+		files = append(files, core.File{Name: filepath.Base(path), MIME: mime.TypeByExtension(filepath.Ext(path)),
+			Size: st.Size(), Path: path})
+	}
+	a.attachSideFiles(files)
+}
+
+// attachSideFiles uploads files for the side chat's next question.
+func (a *app) attachSideFiles(files []core.File) {
+	c := a.client()
+	thread := a.sideChat.GetUntracked()
+	if c == nil || thread.ID == "" || len(files) == 0 {
+		return
+	}
+	a.sideErr.Set("")
+	for _, f := range files {
+		f := f
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			src, err := f.Open()
+			if err != nil {
+				a.cx.Post(func() { a.sideErr.Set("Could not read " + f.Name + ": " + err.Error()) })
+				return
+			}
+			attachment, uploadErr := c.Upload(ctx, f.Name, f.MIME, src)
+			_ = src.Close()
+			if f.Temporary && f.Path != "" {
+				_ = os.Remove(f.Path)
+			}
+			a.cx.Post(func() {
+				if uploadErr != nil {
+					a.sideErr.Set(friendlyError(uploadErr))
+					return
+				}
+				if a.sideChat.GetUntracked().ID == thread.ID {
+					a.sideAttachments.Set(append(a.sideAttachments.GetUntracked(), attachment))
+					a.saveSideAttachmentDraft()
+					return
+				}
+				a.addAttachmentDraft(thread.ID, attachment)
+			})
+		}()
+	}
+}
+
+// removeSideAttachment drops a staged file from the side chat.
+func (a *app) removeSideAttachment(id string) {
+	files := a.sideAttachments.GetUntracked()
+	next := make([]proto.Attachment, 0, len(files))
+	for _, attachment := range files {
+		if attachment.ID != id {
+			next = append(next, attachment)
+		}
+	}
+	a.sideAttachments.Set(next)
+	a.saveSideAttachmentDraft()
+}
+
+// saveSideAttachmentDraft stores the side chat's staged files.
+func (a *app) saveSideAttachmentDraft() {
+	thread := a.sideChat.GetUntracked()
+	if thread.ID == "" {
+		return
+	}
+	drafts := a.attachmentDrafts.GetUntracked()
+	next := make(map[string][]proto.Attachment, len(drafts)+1)
+	for key, value := range drafts {
+		next[key] = value
+	}
+	if files := a.sideAttachments.GetUntracked(); len(files) > 0 {
+		next[thread.ID] = append([]proto.Attachment(nil), files...)
+	} else {
+		delete(next, thread.ID)
+	}
+	a.attachmentDrafts.Set(next)
+	if raw, err := json.Marshal(next); err == nil {
+		_ = a.store.SetItem("attachmentDrafts", string(raw))
+	}
+}
+
+// removeAttachmentDraft forgets a thread's staged files.
+func (a *app) removeAttachmentDraft(threadID string) {
+	if threadID == "" {
+		return
+	}
+	drafts := a.attachmentDrafts.GetUntracked()
+	if _, ok := drafts[threadID]; !ok {
+		return
+	}
+	next := make(map[string][]proto.Attachment, len(drafts))
+	for key, value := range drafts {
+		if key != threadID {
+			next[key] = value
+		}
+	}
+	a.attachmentDrafts.Set(next)
+	if raw, err := json.Marshal(next); err == nil {
+		_ = a.store.SetItem("attachmentDrafts", string(raw))
+	}
+}
+
+// setSideModel changes the side chat's model.
+func (a *app) setSideModel(model proto.Model) {
+	thread := a.sideChat.GetUntracked()
+	if thread.ID == "" {
+		return
+	}
+	a.call(func(ctx context.Context, c *client.Client) error {
+		updated, err := c.UpdateThread(ctx, thread.ID, map[string]any{"model": model.ID, "provider": model.Provider})
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() { a.sideChat.Set(updated) })
+		return nil
+	}, func(err error) {
+		if err != nil {
+			a.sideErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// setSidePermission changes the side chat's permission mode.
+func (a *app) setSidePermission(permission proto.PermissionMode) {
+	thread := a.sideChat.GetUntracked()
+	if thread.ID == "" {
+		return
+	}
+	a.call(func(ctx context.Context, c *client.Client) error {
+		updated, err := c.UpdateThread(ctx, thread.ID, map[string]any{"permission": string(permission)})
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() { a.sideChat.Set(updated) })
+		return nil
 	}, func(err error) {
 		if err != nil {
 			a.sideErr.Set(friendlyError(err))

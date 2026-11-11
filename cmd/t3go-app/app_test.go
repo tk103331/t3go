@@ -2148,7 +2148,8 @@ func (sideRunner) Name() string { return "Side Fake" }
 
 func (sideRunner) Snapshot(context.Context) proto.Provider {
 	return proto.Provider{ID: "side-fake", Name: "Side Fake", Installed: true, Version: "1",
-		Models: []proto.Model{{ID: "side-fake-1", Name: "Side One", Provider: "side-fake", Default: true}}}
+		Models: []proto.Model{{ID: "side-fake-1", Name: "Side One", Provider: "side-fake", Default: true},
+			{ID: "side-fake-2", Name: "Side Two", Provider: "side-fake"}}}
 }
 
 func (sideRunner) Run(ctx context.Context, turn provider.Turn, sink provider.Sink) error {
@@ -2214,6 +2215,64 @@ func TestUISideChat(t *testing.T) {
 		}
 		return len(app.Query("text:side reply")) > 0
 	})
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:side-model-side-fake-2") {
+			return true
+		}
+		if app.Exists("id:side-model") {
+			app.Press("id:side-model")
+			app.Settle()
+		}
+		return app.Exists("id:side-model-side-fake-2")
+	})
+	app.Press("id:side-model-side-fake-2")
+	app.WaitUntil(10*time.Second, func() bool {
+		side, ok, err := srv.Store.SideChat(ctx, thread.ID)
+		return err == nil && ok && side.Model == "side-fake-2"
+	})
+
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:side-perm-supervised") {
+			return true
+		}
+		if app.Exists("id:side-permission") {
+			app.Press("id:side-permission")
+			app.Settle()
+		}
+		return app.Exists("id:side-perm-supervised")
+	})
+	app.Press("id:side-perm-supervised")
+	app.WaitUntil(10*time.Second, func() bool {
+		side, ok, err := srv.Store.SideChat(ctx, thread.ID)
+		return err == nil && ok && side.Permission == proto.PermissionSupervised
+	})
+
+	path := filepath.Join(t.TempDir(), "side-note.txt")
+	if err := os.WriteFile(path, []byte("attached"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app.DropFiles("id:side-composer", (&url.URL{Scheme: "file", Path: path}).String())
+	app.WaitFor("id:side-attachment-side-note.txt", 15*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Find("id:side-input").Text == "with a file" {
+			return true
+		}
+		app.Clear("id:side-input")
+		app.Type("id:side-input", "with a file")
+		app.Settle()
+		return app.Find("id:side-input").Text == "with a file"
+	})
+	app.WaitUntil(15*time.Second, func() bool {
+		if !app.Exists("id:side-attachment-side-note.txt") {
+			return true
+		}
+		if app.Exists("id:side-send") {
+			app.Press("id:side-send")
+			app.Settle()
+		}
+		return !app.Exists("id:side-attachment-side-note.txt")
+	})
+
 	if app.Exists("text:Side chat · Parent") {
 		t.Fatal("the side chat is listed in the sidebar")
 	}
