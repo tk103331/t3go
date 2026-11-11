@@ -418,6 +418,38 @@ func (c *Client) PullRequest(ctx context.Context, threadID string) (proto.PullRe
 	return *out.PullRequest, out.Detail, nil
 }
 
+// CreateBranch makes a branch and checks it out.
+func (c *Client) CreateBranch(ctx context.Context, threadID, name string) ([]proto.Branch, error) {
+	var out struct {
+		Branches []proto.Branch `json:"branches"`
+	}
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/branches"
+	err := c.do(ctx, http.MethodPost, path, map[string]any{"name": name, "create": true, "switch": true}, &out)
+	return out.Branches, err
+}
+
+// PullBranch fast-forwards the checkout from its upstream.
+func (c *Client) PullBranch(ctx context.Context, threadID string) (string, string, error) {
+	var out struct {
+		Status  string `json:"status"`
+		RefName string `json:"refName"`
+	}
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/git/pull"
+	err := c.do(ctx, http.MethodPost, path, map[string]any{}, &out)
+	return out.Status, out.RefName, err
+}
+
+// PullRequests lists the branch's pull requests.
+func (c *Client) PullRequests(ctx context.Context, threadID string) ([]proto.PullRequest, string, error) {
+	var out struct {
+		PullRequests []proto.PullRequest `json:"pullRequests"`
+		Detail       string              `json:"detail"`
+	}
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/pull-requests"
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out.PullRequests, out.Detail, err
+}
+
 // Branches lists the local branches of a thread's checkout.
 func (c *Client) Branches(ctx context.Context, threadID string) ([]proto.Branch, error) {
 	var out struct {

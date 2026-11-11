@@ -324,6 +324,7 @@ type PullRequest struct {
 	BaseBranch string `json:"baseBranch"`
 	HeadBranch string `json:"headBranch"`
 	State      string `json:"state"`
+	Draft      bool   `json:"draft,omitempty"`
 	// Existed is true when the branch already had one open.
 	Existed bool `json:"existed,omitempty"`
 }
@@ -667,4 +668,38 @@ func UntrackedPaths(ctx context.Context, dir string) map[string]bool {
 		}
 	}
 	return paths
+}
+
+// ListPullRequests lists the branch's pull requests, open and closed.
+func ListPullRequests(ctx context.Context, dir string) ([]PullRequest, error) {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return nil, ErrGHMissing
+	}
+	branch := Status(ctx, dir).Branch
+	if branch == "" {
+		return nil, errors.New("cannot list pull requests from a detached HEAD")
+	}
+	out, err := runGH(ctx, dir, "pr", "list", "--head", branch, "--state", "all", "--json",
+		"number,title,url,state,isDraft,baseRefName,headRefName")
+	if err != nil {
+		return nil, err
+	}
+	var raw []struct {
+		Number      int    `json:"number"`
+		Title       string `json:"title"`
+		URL         string `json:"url"`
+		State       string `json:"state"`
+		IsDraft     bool   `json:"isDraft"`
+		BaseRefName string `json:"baseRefName"`
+		HeadRefName string `json:"headRefName"`
+	}
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		return nil, fmt.Errorf("read pull requests: %w", err)
+	}
+	pulls := make([]PullRequest, 0, len(raw))
+	for _, pr := range raw {
+		pulls = append(pulls, PullRequest{Number: pr.Number, Title: pr.Title, URL: pr.URL, State: pr.State,
+			Draft: pr.IsDraft, BaseBranch: pr.BaseRefName, HeadBranch: pr.HeadRefName})
+	}
+	return pulls, nil
 }

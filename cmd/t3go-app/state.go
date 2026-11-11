@@ -79,6 +79,11 @@ type app struct {
 	diffDiscard     *core.Signal[string]
 	editingMessage  *core.Signal[proto.Message]
 	editDraft       *core.Signal[string]
+	pullRequests    *core.Signal[[]proto.PullRequest]
+	prListDetail    *core.Signal[string]
+	showBranch      *core.Signal[bool]
+	showBranches    *core.Signal[bool]
+	branchName      *core.Signal[string]
 	gitMessage      *core.Signal[string]
 	gitBusy         *core.Signal[bool]
 	gitNote         *core.Signal[string]
@@ -200,12 +205,17 @@ func newApp(cx *core.Scope) *app {
 		editingMessage: core.NewSignalFunc(cx, proto.Message{}, func(a, b proto.Message) bool {
 			return a.ID == b.ID
 		}),
-		editDraft:  core.NewSignal(cx, ""),
-		gitMessage: core.NewSignal(cx, ""),
-		gitBusy:    core.NewSignal(cx, false),
-		gitNote:    core.NewSignal(cx, ""),
-		gitPR:      core.NewSignal(cx, ""),
-		branches:   sliceSignal[proto.Branch](cx),
+		editDraft:    core.NewSignal(cx, ""),
+		pullRequests: sliceSignal[proto.PullRequest](cx),
+		prListDetail: core.NewSignal(cx, ""),
+		showBranch:   core.NewSignal(cx, false),
+		showBranches: core.NewSignal(cx, false),
+		branchName:   core.NewSignal(cx, ""),
+		gitMessage:   core.NewSignal(cx, ""),
+		gitBusy:      core.NewSignal(cx, false),
+		gitNote:      core.NewSignal(cx, ""),
+		gitPR:        core.NewSignal(cx, ""),
+		branches:     sliceSignal[proto.Branch](cx),
 		pendingDelete: core.NewSignalFunc(cx, itemTarget{}, func(a, b itemTarget) bool {
 			return a == b
 		}),
@@ -844,6 +854,8 @@ func (a *app) selectThread(id string) {
 	a.file.Set(proto.WorkspaceFile{})
 	a.pullRequest.Set(proto.PullRequest{})
 	a.prDetail.Set("")
+	a.pullRequests.Set(nil)
+	a.prListDetail.Set("")
 	a.graph.Set(nil)
 	a.workingDiff.Set("")
 	a.workingFiles.Set(nil)
@@ -856,6 +868,7 @@ func (a *app) selectThread(id string) {
 	}
 	a.refreshQueue()
 	a.loadDetail(id)
+	a.loadBranches(id)
 }
 
 func (a *app) loadDetail(id string) {
@@ -1755,6 +1768,8 @@ func (a *app) openSurface(name string) {
 		a.loadGraph(a.selected.GetUntracked())
 	case "terminal":
 		a.openTerminal()
+	case "linked":
+		a.loadPullRequests(a.selected.GetUntracked())
 	}
 }
 
@@ -1971,6 +1986,82 @@ func (a *app) stagePath(path string, stage bool) {
 		}
 		a.loadWorkingDiff(id)
 		a.loadDetail(id)
+	})
+}
+
+// openNewBranch asks for a branch name.
+func (a *app) openNewBranch() {
+	a.branchName.Set("")
+	a.showBranch.Set(true)
+}
+
+// createBranch makes and checks out a branch in the thread's checkout.
+func (a *app) createBranch() {
+	id := a.selected.GetUntracked()
+	name := strings.TrimSpace(a.branchName.GetUntracked())
+	if id == "" || name == "" {
+		return
+	}
+	a.call(func(ctx context.Context, c *client.Client) error {
+		branches, err := c.CreateBranch(ctx, id, name)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			a.branches.Set(branches)
+			a.showBranch.Set(false)
+			a.loadDetail(id)
+		})
+		return nil
+	}, func(err error) {
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// pullBranch fast-forwards the thread's checkout.
+func (a *app) pullBranch() {
+	id := a.selected.GetUntracked()
+	if id == "" {
+		return
+	}
+	a.call(func(ctx context.Context, c *client.Client) error {
+		_, _, err := c.PullBranch(ctx, id)
+		return err
+	}, func(err error) {
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
+			return
+		}
+		a.loadDetail(id)
+		a.loadBranches(id)
+		a.loadWorkingDiff(id)
+	})
+}
+
+// loadPullRequests lists the branch's pull requests.
+func (a *app) loadPullRequests(threadID string) {
+	if threadID == "" {
+		return
+	}
+	a.call(func(ctx context.Context, c *client.Client) error {
+		pulls, detail, err := c.PullRequests(ctx, threadID)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			if a.selected.GetUntracked() != threadID {
+				return
+			}
+			a.pullRequests.Set(pulls)
+			a.prListDetail.Set(detail)
+		})
+		return nil
+	}, func(err error) {
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
+		}
 	})
 }
 

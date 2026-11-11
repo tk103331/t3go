@@ -79,3 +79,39 @@ func (s *Server) gitPathsAction(w http.ResponseWriter, r *http.Request, stage bo
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
+
+// handleGitPull fast-forwards the checkout from its upstream.
+func (s *Server) handleGitPull(w http.ResponseWriter, r *http.Request) {
+	t, err := s.Store.Thread(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), "thread", err.Error())
+		return
+	}
+	dir := s.Service.ThreadDir(r.Context(), t)
+	status, ref, err := git.Pull(r.Context(), dir)
+	if err != nil {
+		writeError(w, statusFor(err), "git", err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"status": status, "refName": ref})
+}
+
+// handlePullRequests lists the branch's pull requests.
+func (s *Server) handlePullRequests(w http.ResponseWriter, r *http.Request) {
+	t, err := s.Store.Thread(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), "thread", err.Error())
+		return
+	}
+	pulls, err := git.ListPullRequests(r.Context(), s.Service.ThreadDir(r.Context(), t))
+	if err != nil {
+		writeJSON(w, 200, map[string]any{"pullRequests": []any{}, "detail": err.Error()})
+		return
+	}
+	items := make([]proto.PullRequest, 0, len(pulls))
+	for _, pr := range pulls {
+		items = append(items, proto.PullRequest{URL: pr.URL, Number: pr.Number, Title: pr.Title,
+			BaseBranch: pr.BaseBranch, HeadBranch: pr.HeadBranch, State: pr.State, Draft: pr.Draft})
+	}
+	writeJSON(w, 200, map[string]any{"pullRequests": items})
+}

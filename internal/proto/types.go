@@ -256,6 +256,7 @@ type PullRequest struct {
 	BaseBranch string `json:"baseBranch,omitempty"`
 	HeadBranch string `json:"headBranch,omitempty"`
 	State      string `json:"state,omitempty"`
+	Draft      bool   `json:"draft,omitempty"`
 }
 
 // Branch is one local or remote branch in a checkout.

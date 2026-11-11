@@ -698,7 +698,15 @@ func TestUIComposerAttachment(t *testing.T) {
 	app.Press("id:thread-" + thread.ID)
 	app.WaitFor("id:composer-drop", 10*time.Second)
 
-	app.Type("label:Message", "Read this")
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Find("label:Message").Text == "Read this" {
+			return true
+		}
+		app.Clear("label:Message")
+		app.Type("label:Message", "Read this")
+		app.Settle()
+		return app.Find("label:Message").Text == "Read this"
+	})
 	uri := (&url.URL{Scheme: "file", Path: path}).String()
 	app.DropFiles("id:composer-drop", uri)
 	app.WaitFor("text:note.txt", 10*time.Second)
@@ -993,8 +1001,16 @@ func TestUIGitDialog(t *testing.T) {
 	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
 	app.Press("id:thread-" + thread.ID)
 	app.WaitFor("id:open-diff", 10*time.Second)
-	app.Press("id:open-diff")
-	app.WaitFor("id:diff-dialog", 10*time.Second)
+	app.WaitUntil(15*time.Second, func() bool {
+		if app.Exists("id:diff-dialog") {
+			return true
+		}
+		if app.Exists("id:open-diff") {
+			app.Press("id:open-diff")
+			app.Settle()
+		}
+		return app.Exists("id:diff-dialog")
+	})
 	app.WaitFor("id:git-commit", 10*time.Second)
 
 	// Typing a message updates the dialog's body, not the dialog.
@@ -1399,6 +1415,9 @@ func TestUIRightPanel(t *testing.T) {
 	openPicker("surface-pr")
 	app.Press("id:surface-pr")
 	app.WaitFor("id:right-pr-refresh", 5*time.Second)
+	openPicker("surface-linked")
+	app.Press("id:surface-linked")
+	app.WaitFor("id:linked-pr-refresh", 5*time.Second)
 
 	app.WaitUntil(10*time.Second, func() bool {
 		if !app.Exists("id:right-panel") {
@@ -1575,4 +1594,63 @@ func TestUISettingsSections(t *testing.T) {
 	app.WaitFor("text:About T3Go", 5*time.Second)
 	app.Press("id:settings-nav-general")
 	app.WaitFor("id:settings-model", 5*time.Second)
+}
+
+// TestUIBranchToolbar switches and creates branches from the header.
+func TestUIBranchToolbar(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	cmd := exec.Command("git", "branch", "feature")
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("branch: %v\n%s", err, out)
+	}
+	project, err := srv.Service.CreateProject(ctx, "Repo", repo)
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Branches", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:branch-menu", 10*time.Second)
+
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:header-branch-feature") {
+			return true
+		}
+		if app.Exists("id:branch-menu") {
+			app.Press("id:branch-menu")
+			app.Settle()
+		}
+		return app.Exists("id:header-branch-feature")
+	})
+	app.Press("id:header-branch-feature")
+	app.WaitUntil(10*time.Second, func() bool { return git.Status(ctx, repo).Branch == "feature" })
+
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:branch-new") {
+			return true
+		}
+		if app.Exists("id:branch-menu") {
+			app.Press("id:branch-menu")
+			app.Settle()
+		}
+		return app.Exists("id:branch-new")
+	})
+	app.Press("id:branch-new")
+	app.WaitFor("id:new-branch-dialog", 5*time.Second)
+	app.Type("label:Branch name", "toolbar")
+	app.Press("id:confirm-new-branch")
+	app.WaitForGone("id:new-branch-dialog", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool { return git.Status(ctx, repo).Branch == "toolbar" })
 }

@@ -360,9 +360,6 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 		meta += " · " + d.Thread.Model
 	}
 	meta += " · " + string(d.Thread.Permission)
-	if g := d.Git; g != nil && g.Branch != "" {
-		meta += " · " + g.Branch
-	}
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, MinWidth: core.Pt(0)}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Column, MinWidth: core.Pt(0), FlexGrow: 1, Gap: 1}, Children: []core.Node{
 			core.Text{Content: d.Thread.Title, MaxLines: 1, Style: core.Style{FontSize: 13, FontWeight: ui.Semibold},
@@ -370,6 +367,7 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 			core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 11},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 		}},
+		a.branchMenu(cx, d),
 		ui.IconButton{Icon: lucide.Pencil, Label: "Rename thread", TestID: "rename-thread",
 			OnPress: func() { a.askRenameThread(d.Thread) }},
 		ui.IconButton{Icon: lucide.Trash, Label: "Delete thread", TestID: "delete-thread",
@@ -387,6 +385,19 @@ func (a *app) rightToggle() core.Node {
 	}
 	return ui.IconButton{Icon: lucide.PanelRight, Label: "Toggle right panel", TestID: "toggle-right-panel",
 		Selected: a.rightOpen.Get, OnPress: func() { a.setRightOpen(!a.rightOpen.GetUntracked()) }}
+}
+
+// branchMenu is the header's branch control.
+func (a *app) branchMenu(cx *core.Scope, detail proto.ThreadDetail) core.Node {
+	branch := detail.Thread.Branch
+	if detail.Git != nil && detail.Git.Branch != "" {
+		branch = detail.Git.Branch
+	}
+	if branch == "" {
+		branch = "detached"
+	}
+	return ui.Button{Text: branch, Icon: lucide.GitBranch, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+		Label: "Branch", TestID: "branch-menu", OnPress: func() { a.showBranches.Set(true) }}
 }
 
 func (a *app) content(cx *core.Scope) core.Node {
@@ -433,7 +444,8 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 
 func (a *app) dialogs(cx *core.Scope) core.Node {
 	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.runsDialog(cx),
-		a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx), a.approvalDialog(cx), a.discardDialog(cx), a.editMessageDialog(cx)}
+		a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx), a.approvalDialog(cx), a.discardDialog(cx),
+		a.editMessageDialog(cx), a.newBranchDialog(cx), a.branchesDialog(cx)}
 }
 
 // approvalDialog asks about the first tool call a supervised run is
@@ -755,6 +767,55 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 		}},
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 12, Padding: core.Edges{Right: 16}}, Children: fields}
+}
+
+// branchesDialog switches, creates or pulls the thread's branch.
+func (a *app) branchesDialog(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	var rows []core.Node
+	for _, ref := range a.branches.Get() {
+		if ref.Remote {
+			continue
+		}
+		ref := ref
+		label := ref.Name
+		if ref.Current {
+			label += "  ✓"
+		}
+		rows = append(rows, ui.Button{Text: label, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			TestID: "header-branch-" + ref.Name, Flex: 1, OnPress: func() {
+				a.showBranches.Set(false)
+				a.switchBranch(ref.Name)
+			}})
+	}
+	if len(rows) == 0 {
+		rows = append(rows, ui.Text("No local branches.", 11.5, ui.Regular, colors.Faint))
+	}
+	return ui.Dialog{Open: a.showBranches.Get, OnOpenChange: closeDialog(a.showBranches), Title: "Branches",
+		Description: "Switch this thread's checkout, or make a new branch.", TestID: "branches-dialog",
+		Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(300)}, Children: []core.Node{
+			core.View{Style: core.Style{Direction: core.Column, Gap: 3, Padding: core.Edges{Right: 12}}, Children: rows},
+		}}}, Footer: []core.Node{
+			ui.Button{Text: "Pull", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, TestID: "branch-pull",
+				OnPress: func() { a.showBranches.Set(false); a.pullBranch() }},
+			ui.Button{Text: "New branch…", Icon: lucide.GitBranch, Variant: ui.ButtonSecondary, TestID: "branch-new",
+				OnPress: func() { a.showBranches.Set(false); a.openNewBranch() }},
+			ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: func() { a.showBranches.Set(false) }},
+		}}
+}
+
+// newBranchDialog asks for a branch to create and check out.
+func (a *app) newBranchDialog(cx *core.Scope) core.Node {
+	return ui.Dialog{Open: a.showBranch.Get, OnOpenChange: closeDialog(a.showBranch), Title: "New branch",
+		Description: "Create a branch in this thread's checkout and switch to it.", TestID: "new-branch-dialog",
+		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
+			return ui.Input{Input: base.Input{Value: a.branchName.Get, OnChange: a.branchName.Set,
+				Placeholder: "t3go/<slug>", Label: "Branch name"}}
+		})}, Footer: []core.Node{
+			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showBranch.Set(false) }},
+			ui.Button{Text: "Create branch", Icon: lucide.GitBranch, Variant: ui.ButtonPrimary, TestID: "confirm-new-branch",
+				OnPress: a.createBranch},
+		}}
 }
 
 func (a *app) diffDialog(cx *core.Scope) core.Node {

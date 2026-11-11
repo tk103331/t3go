@@ -217,6 +217,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/threads/{id}/working-diff", s.auth(s.handleWorkingDiff))
 	mux.HandleFunc("POST /api/v1/threads/{id}/git/stage", s.auth(s.handleStageFiles))
 	mux.HandleFunc("POST /api/v1/threads/{id}/git/discard", s.auth(s.handleDiscardFiles))
+	mux.HandleFunc("POST /api/v1/threads/{id}/git/pull", s.auth(s.handleGitPull))
+	mux.HandleFunc("GET /api/v1/threads/{id}/pull-requests", s.auth(s.handlePullRequests))
 	mux.HandleFunc("GET /api/v1/threads/{id}/branches", s.auth(s.handleBranches))
 	mux.HandleFunc("GET /api/v1/threads/{id}/files", s.auth(s.handleThreadFiles))
 	mux.HandleFunc("GET /api/v1/threads/{id}/file", s.auth(s.handleThreadFile))
@@ -599,7 +601,9 @@ func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSwitchBranch(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name string `json:"name"`
+		Name   string `json:"name"`
+		Create bool   `json:"create"`
+		Switch *bool  `json:"switch"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		writeError(w, 400, "invalid", err.Error())
@@ -616,7 +620,16 @@ func (s *Server) handleSwitchBranch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dir := s.Service.ThreadDir(r.Context(), t)
-	if err := git.SwitchRef(r.Context(), dir, name); err != nil {
+	if in.Create {
+		switchRef := true
+		if in.Switch != nil {
+			switchRef = *in.Switch
+		}
+		if err := git.CreateRef(r.Context(), dir, name, switchRef); err != nil {
+			writeError(w, statusFor(err), "branches", err.Error())
+			return
+		}
+	} else if err := git.SwitchRef(r.Context(), dir, name); err != nil {
 		writeError(w, statusFor(err), "branches", err.Error())
 		return
 	}

@@ -144,6 +144,8 @@ func surfaceIcon(name string) func() *core.SVG {
 		return lucide.GitPullRequest
 	case "browser":
 		return lucide.Globe
+	case "linked":
+		return lucide.Link2
 	case "terminal":
 		return lucide.Terminal
 	}
@@ -165,6 +167,8 @@ func (a *app) rightBody(cx *core.Scope) core.Node {
 		return a.rightBrowser(cx)
 	case "terminal":
 		return a.rightTerminal(cx)
+	case "linked":
+		return a.rightLinkedPRs(cx)
 	}
 	return a.surfacePicker(cx)
 }
@@ -181,7 +185,7 @@ func (a *app) surfacePicker(cx *core.Scope) core.Node {
 		a.surfaceRow(cx, "diff", "Diff", lucide.GitCompare, "D", hasThread),
 		a.surfaceRow(cx, "graph", "Git graph", lucide.GitBranch, "G", hasThread),
 		a.surfaceRow(cx, "pr", "Pull request", lucide.GitPullRequest, "P", hasThread),
-		a.surfaceRow(cx, "linked", "Linked pull requests", lucide.Link2, "L", false),
+		a.surfaceRow(cx, "linked", "Linked pull requests", lucide.Link2, "L", hasThread),
 		a.surfaceRow(cx, "device", "Device", lucide.MonitorSmartphone, "M", false),
 		a.surfaceRow(cx, "chat", "Side chat", lucide.MessageCircleMore, "S", false),
 	}
@@ -420,6 +424,56 @@ func (a *app) rightDiff(cx *core.Scope) core.Node {
 		list,
 		body,
 	}}
+}
+
+// rightLinkedPRs lists the branch's pull requests.
+func (a *app) rightLinkedPRs(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	if a.selected.Get() == "" {
+		return a.rightNotice(cx, "Pick a thread to see its pull requests.")
+	}
+	pulls := a.pullRequests.Get()
+	detail := a.prListDetail.Get()
+	if strings.Contains(strings.ToLower(detail), "no pull requests") {
+		detail = ""
+	}
+	var rows []core.Node
+	for _, pr := range pulls {
+		pr := pr
+		meta := fmt.Sprintf("#%d · %s", pr.Number, strings.ToLower(pr.State))
+		if pr.Draft {
+			meta += " · draft"
+		}
+		rows = append(rows, core.View{Style: core.Style{Direction: core.Column, Gap: 3, Padding: core.Symmetric(7, 9),
+			Background: colors.Inset(), CornerRadius: 7}, Children: []core.Node{
+			core.Text{Content: pr.Title, MaxLines: 2, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, LineHeight: 16},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+				core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 10.5, FlexGrow: 1},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+				ui.Button{Text: "Open", Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					TestID: "open-linked-pr-" + fmt.Sprint(pr.Number), OnPress: func() { a.cx.OpenURL(pr.URL, nil) }},
+			}},
+			core.Text{Content: pr.HeadBranch + " → " + pr.BaseBranch, MaxLines: 1, Style: core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+		}})
+	}
+	if len(rows) == 0 {
+		rows = append(rows, ui.Text("No pull requests for this branch.", 11.5, ui.Regular, colors.Faint))
+	}
+	if detail != "" {
+		rows = append(rows, core.Text{Content: detail, MaxLines: 3, Style: core.Style{FontSize: 10.5},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
+	}
+	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
+		core.Text{Content: fmt.Sprintf("%d linked", len(pulls)), MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+		ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh pull requests", TestID: "linked-pr-refresh",
+			OnPress: func() { a.loadPullRequests(a.selected.GetUntracked()) }},
+	}}
+	return core.View{Style: core.Style{Direction: core.Column, Gap: 6, Padding: core.All(10), FlexGrow: 1, MinHeight: core.Pt(0)},
+		Children: []core.Node{head, a.rightError(cx), core.Scroll{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0)},
+			Children: []core.Node{core.View{Style: core.Style{Direction: core.Column, Gap: 6}, Children: rows}}}}}
 }
 
 // rightPullRequest shows the branch's open pull request, or offers one.

@@ -1477,6 +1477,9 @@ case "$1 $2" in
   touch "$PR_STATE"
   echo "https://github.com/acme/repo/pull/7"
   ;;
+"pr list")
+  echo '[{"number":7,"title":"Add feature","url":"https://github.com/acme/repo/pull/7","state":"OPEN","isDraft":false,"baseRefName":"main","headRefName":"feature"}]'
+  ;;
 *)
   echo "unexpected gh $*" >&2
   exit 2
@@ -1606,6 +1609,12 @@ func TestBranchEndpoints(t *testing.T) {
 	}
 	if code := e.request(t, http.MethodPost, path, map[string]string{"name": "--force"}, e.token, nil); code != http.StatusBadRequest {
 		t.Fatalf("bad branch = %d", code)
+	}
+	if code := e.request(t, http.MethodPost, path, map[string]any{"name": "toolbar", "create": true, "switch": true}, e.token, &list); code != http.StatusOK {
+		t.Fatalf("create branch = %d", code)
+	}
+	if len(list.Branches) == 0 || list.Branches[0].Name != "toolbar" || !list.Branches[0].Current {
+		t.Fatalf("created branches = %#v", list.Branches)
 	}
 }
 
@@ -1925,6 +1934,15 @@ func TestWorkspaceFilesAndPullRequest(t *testing.T) {
 	}
 	if prResult.PullRequest == nil || prResult.PullRequest.Number != 7 {
 		t.Fatalf("pull request = %#v", prResult)
+	}
+	var listResult struct {
+		PullRequests []proto.PullRequest `json:"pullRequests"`
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/pull-requests", nil, e.token, &listResult); code != http.StatusOK {
+		t.Fatalf("pull requests = %d", code)
+	}
+	if len(listResult.PullRequests) != 1 || listResult.PullRequests[0].Number != 7 {
+		t.Fatalf("pull requests = %#v", listResult.PullRequests)
 	}
 
 	var graph struct {
