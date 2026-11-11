@@ -445,7 +445,8 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 func (a *app) dialogs(cx *core.Scope) core.Node {
 	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.runsDialog(cx),
 		a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx), a.approvalDialog(cx), a.discardDialog(cx),
-		a.editMessageDialog(cx), a.newBranchDialog(cx), a.branchesDialog(cx), a.promptArgsDialog(cx)}
+		a.editMessageDialog(cx), a.newBranchDialog(cx), a.branchesDialog(cx), a.promptArgsDialog(cx),
+		a.devicesDialog(cx)}
 }
 
 // approvalDialog asks about the first tool call a supervised run is
@@ -851,6 +852,53 @@ func (a *app) branchesDialog(cx *core.Scope) core.Node {
 			ui.Button{Text: "New branch…", Icon: lucide.GitBranch, Variant: ui.ButtonSecondary, TestID: "branch-new",
 				OnPress: func() { a.showBranches.Set(false); a.openNewBranch() }},
 			ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: func() { a.showBranches.Set(false) }},
+		}}
+}
+
+// devicesDialog picks a simulator to show.
+func (a *app) devicesDialog(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	devices := a.devices.Get()
+	selected := a.deviceSelected.Get()
+	var rows []core.Node
+	for i, device := range devices {
+		device, i := device, i
+		label := device.Name
+		if device.ID == selected {
+			label += "  ✓"
+		}
+		rows = append(rows, base.Button{OnPress: func(core.PressEvent) {
+			a.showDevices.Set(false)
+			a.selectDevice(device)
+		}, TestID: fmt.Sprintf("device-%s-%d", device.ID, i), Label: device.Name,
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pct(100),
+				Padding: core.Symmetric(5, 7), CornerRadius: 6, Cursor: core.CursorDefault},
+			StyleFunc: func() core.Style {
+				return core.Style{Hover: &core.Style{Background: colors.Inset()}, Focus: ui.FocusRing(cx, -2)}
+			}, Children: []core.Node{
+				ui.Icon(lucide.MonitorSmartphone, 12, colors.Muted),
+				core.Text{Content: label, MaxLines: 1, Style: core.Style{FontSize: 11.5, FlexGrow: 1},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+				core.Text{Content: strings.ToLower(device.State), Style: core.Style{FontSize: 10},
+					StyleFunc: func() core.Style {
+						if device.State == "booted" {
+							return core.Style{Color: colors.Up()}
+						}
+						return core.Style{Color: colors.Faint()}
+					}},
+			}})
+	}
+	if len(rows) == 0 {
+		rows = append(rows, ui.Text("No simulators found.", 11.5, ui.Regular, colors.Faint))
+	}
+	return ui.Dialog{Open: a.showDevices.Get, OnOpenChange: closeDialog(a.showDevices), Title: "Devices",
+		Description: "Pick a simulator to see its screen.", TestID: "devices-dialog",
+		Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(300)}, Children: []core.Node{
+			core.View{Style: core.Style{Direction: core.Column, Gap: 2, Padding: core.Edges{Right: 12}}, Children: rows},
+		}}}, Footer: []core.Node{
+			ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, TestID: "devices-dialog-refresh",
+				OnPress: a.loadDevices},
+			ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: func() { a.showDevices.Set(false) }},
 		}}
 }
 

@@ -53,6 +53,7 @@ type app struct {
 	deviceBusy     *core.Signal[bool]
 	deviceErr      *core.Signal[string]
 	deviceShot     *core.Signal[int]
+	showDevices    *core.Signal[bool]
 
 	// the open thread
 	selected         *core.Signal[string]
@@ -196,6 +197,7 @@ func newApp(cx *core.Scope) *app {
 		deviceBusy:     core.NewSignal(cx, false),
 		deviceErr:      core.NewSignal(cx, ""),
 		deviceShot:     core.NewSignal(cx, 0),
+		showDevices:    core.NewSignal(cx, false),
 
 		selected:         core.NewSignal(cx, ""),
 		detail:           core.NewSignalFunc(cx, proto.ThreadDetail{}, func(proto.ThreadDetail, proto.ThreadDetail) bool { return false }),

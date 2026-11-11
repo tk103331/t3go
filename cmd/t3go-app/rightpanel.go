@@ -498,98 +498,73 @@ func (a *app) rightDevices(cx *core.Scope) core.Node {
 			selected = device
 		}
 	}
+	selector := "Choose a device"
+	if selected.Name != "" {
+		selector = selected.Name
+	}
 	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
-		Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
-		core.Text{Content: fmt.Sprintf("Devices · %d", len(devices)), MaxLines: 1,
-			Style:     core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
-			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+		Padding: core.Edges{Top: 4, Right: 10, Bottom: 4, Left: 10}}, Children: []core.Node{
+		ui.Button{Text: selector, Icon: lucide.MonitorSmartphone, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			Label: "Devices", TestID: "device-select", OnPress: func() { a.showDevices.Set(true) }},
+		core.Text{Content: strings.ToLower(selected.State), MaxLines: 1, Style: core.Style{FontSize: 10},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+		ui.Spacer{},
 		core.Show{When: func() bool { return a.deviceBusy.Get() }, Then: func(*core.Scope) core.Node {
 			return ui.Spinner{Size: 12, Label: "Working with the simulator"}
 		}},
 		ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh devices", TestID: "devices-refresh",
 			OnPress: a.loadDevices},
 	}}
-	var rows []core.Node
-	for _, device := range devices {
-		device := device
-		active := device.ID == selectedID
-		state := strings.ToLower(device.State)
-		dot := colors.Faint
-		if state == "booted" {
-			dot = colors.Up
-		}
-		rows = append(rows, base.Button{OnPress: func(core.PressEvent) { a.selectDevice(device) },
-			TestID: "device-" + device.ID, Label: device.Name,
-			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7, Width: core.Pct(100),
-				Padding: core.Symmetric(5, 7), CornerRadius: 6, Cursor: core.CursorDefault},
-			StyleFunc: func() core.Style {
-				style := core.Style{Hover: &core.Style{Background: colors.Inset()}}
-				if active {
-					style.Background = colors.Inset()
-				}
-				return style
-			}, Children: []core.Node{
-				ui.Icon(lucide.Circle, 8, dot),
-				core.View{Style: core.Style{Direction: core.Column, Gap: 1, FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-					core.Text{Content: device.Name, MaxLines: 1, Style: core.Style{FontSize: 11.5, FontWeight: ui.Medium},
-						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-					core.Text{Content: device.OS + " · " + state, MaxLines: 1, Style: core.Style{FontSize: 10},
-						StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-				}},
-			}})
+	body := []core.Node{head, a.rightError(cx),
+		core.Show{When: func() bool { return a.deviceErr.Get() != "" }, Then: func(*core.Scope) core.Node {
+			return core.View{Style: core.Style{Padding: core.Edges{Right: 10, Bottom: 4, Left: 10}}, Children: []core.Node{
+				core.Text{Content: a.deviceErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 10.5},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }}}}
+		}},
 	}
-	if len(rows) == 0 {
+	switch {
+	case len(devices) == 0:
 		detail := a.deviceDetail.Get()
 		if detail == "" {
 			detail = "No simulators found."
 		}
-		rows = append(rows, core.Text{Content: detail, MaxLines: 4, Style: core.Style{FontSize: 11},
-			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
-	}
-	var preview []core.Node
-	if selected.ID != "" {
-		title := selected.Name
-		preview = append(preview, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
-			Padding: core.Edges{Top: 4, Bottom: 2}}, Children: []core.Node{
-			core.Text{Content: title, MaxLines: 1, Style: core.Style{FontSize: 11.5, FontWeight: ui.Semibold, FlexGrow: 1},
-				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-			core.Text{Content: strings.ToLower(selected.State), MaxLines: 1, Style: core.Style{FontSize: 10},
-				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+		body = append(body, core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+			Padding: core.All(16)}, Children: []core.Node{core.Text{Content: detail, MaxLines: 6,
+			Style:     core.Style{FontSize: 11.5, TextAlign: core.TextAlignCenter},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }}}})
+	case selected.ID == "":
+		body = append(body, core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+			Children: []core.Node{ui.Text("Choose a simulator above.", 11.5, ui.Regular, colors.Faint)}})
+	case strings.ToLower(selected.State) == "booted":
+		body = append(body, core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0),
+			Padding: core.Edges{Top: 2, Right: 10, Bottom: 10, Left: 10}}, Children: []core.Node{
+			core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Background: colors.Inset(),
+				CornerRadius: 8, Overflow: core.Hidden}, Children: []core.Node{
+				core.Image{Source: core.ImageSource{URI: a.deviceScreenshotURL(selected.ID)},
+					ResizeMode: core.Contain, Label: selected.Name + " screen", TestID: "device-screen",
+					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0),
+						Width: core.Pct(100)}},
+			}},
+			core.View{Style: core.Style{Direction: core.Row, Gap: 4, Padding: core.Edges{Top: 6}}, Children: []core.Node{
+				ui.Button{Text: "Refresh screen", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					TestID: "device-refresh", OnPress: a.refreshDeviceShot},
+				ui.Spacer{},
+				ui.Button{Text: "Shut down", Icon: lucide.Power, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					TestID: "device-shutdown", OnPress: func() { a.shutdownDevice(selected.ID) }},
+			}},
 		}})
-		if selected.State == "booted" {
-			ratio := float32(0.46)
-			if strings.Contains(strings.ToLower(selected.Name), "ipad") {
-				ratio = 0.75
-			}
-			preview = append(preview, ui.Image{Source: core.ImageSource{URI: a.deviceScreenshotURL(selected.ID)},
-				ResizeMode: core.Contain, AspectRatio: ratio, TestID: "device-screen", Label: selected.Name + " screen",
-				Style: core.Style{CornerRadius: 8, Background: colors.Inset()}})
-			preview = append(preview, core.View{Style: core.Style{Direction: core.Row, Gap: 4, Padding: core.Edges{Top: 4}},
-				Children: []core.Node{
-					ui.Button{Text: "Refresh screen", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-						TestID: "device-refresh", OnPress: a.refreshDeviceShot},
-					ui.Button{Text: "Shut down", Icon: lucide.Power, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-						TestID: "device-shutdown", OnPress: func() { a.shutdownDevice(selected.ID) }},
-				}})
-		} else {
-			preview = append(preview, core.Text{Content: "Boot the simulator to see its screen.",
-				Style: core.Style{FontSize: 11}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-				ui.Button{Text: "Boot", Icon: lucide.Play, Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
-					TestID: "device-boot", OnPress: func() { a.bootDevice(selected.ID) }},
-			)
-		}
+	default:
+		body = append(body, core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+			Gap: 6, Padding: core.All(16)}, Children: []core.Node{
+			core.Text{Content: selected.Name, MaxLines: 1, Style: core.Style{FontSize: 12.5, FontWeight: ui.Semibold},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+			core.Text{Content: selected.OS + " · " + strings.ToLower(selected.State), Style: core.Style{FontSize: 10.5},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+			ui.Button{Text: "Boot", Icon: lucide.Play, Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+				TestID: "device-boot", OnPress: func() { a.bootDevice(selected.ID) }},
+		}})
 	}
-	return core.View{Style: core.Style{Direction: core.Column, Gap: 6, Padding: core.All(10), FlexGrow: 1, MinHeight: core.Pt(0)},
-		Children: []core.Node{head, a.rightError(cx),
-			core.Show{When: func() bool { return a.deviceErr.Get() != "" }, Then: func(*core.Scope) core.Node {
-				return core.Text{Content: a.deviceErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 10.5},
-					StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }}
-			}},
-			core.Scroll{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
-				core.View{Style: core.Style{Direction: core.Column, Gap: 3}, Children: rows},
-				core.View{Style: core.Style{Direction: core.Column, Gap: 5, Padding: core.Edges{Top: 6}}, Children: preview},
-			}},
-		}}
+	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0)}, Children: body}
 }
 
 // rightPullRequestDetail shows one pull request's checks, reviews and

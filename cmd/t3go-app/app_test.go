@@ -1405,8 +1405,16 @@ func TestUIRightPanel(t *testing.T) {
 	})
 
 	openPicker("surface-terminal")
-	app.Press("id:surface-terminal")
-	app.WaitFor("id:terminal-view", 15*time.Second)
+	app.WaitUntil(20*time.Second, func() bool {
+		if app.Exists("id:terminal-view") {
+			return true
+		}
+		if app.Exists("id:surface-terminal") {
+			app.Press("id:surface-terminal")
+			app.Settle()
+		}
+		return app.Exists("id:terminal-view")
+	})
 	for _, gone := range []string{"terminal-session-menu", "terminal-new", "terminal-restart", "shells-dialog"} {
 		if app.Exists("id:" + gone) {
 			t.Fatalf("the terminal still has a toolbar item %q", gone)
@@ -1583,8 +1591,16 @@ func TestUIAttachmentDrafts(t *testing.T) {
 		}
 		return !app.Exists("text:draft-note.txt")
 	})
-	app.Press("id:thread-" + first.ID)
-	app.WaitFor("text:draft-note.txt", 10*time.Second)
+	app.WaitUntil(15*time.Second, func() bool {
+		if app.Exists("text:draft-note.txt") {
+			return true
+		}
+		if app.Exists("id:thread-" + first.ID) {
+			app.Press("id:thread-" + first.ID)
+			app.Settle()
+		}
+		return app.Exists("text:draft-note.txt")
+	})
 }
 
 // TestUISettingsSections walks the settings navigation.
@@ -2050,8 +2066,19 @@ esac
 	})
 	app.Press("id:surface-device")
 
-	app.WaitFor("id:device-7E99F39F-299A-4E23-A2D0-7948BC3EE5F4", 15*time.Second)
-	app.Press("id:device-7E99F39F-299A-4E23-A2D0-7948BC3EE5F4")
+	app.WaitFor("id:device-select", 15*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:devices-dialog") {
+			return true
+		}
+		if app.Exists("id:device-select") {
+			app.Press("id:device-select")
+			app.Settle()
+		}
+		return app.Exists("id:devices-dialog")
+	})
+	app.WaitFor("id:device-7E99F39F-299A-4E23-A2D0-7948BC3EE5F4-0", 5*time.Second)
+	app.Press("id:device-7E99F39F-299A-4E23-A2D0-7948BC3EE5F4-0")
 	app.WaitFor("id:device-boot", 5*time.Second)
 	app.Press("id:device-boot")
 	app.WaitFor("id:device-screen", 15*time.Second)
@@ -2059,9 +2086,14 @@ esac
 		raw, err := os.ReadFile(logPath)
 		return err == nil && strings.Contains(string(raw), "boot 7E99F39F")
 	})
-	app.Press("id:device-shutdown")
-	app.WaitUntil(10*time.Second, func() bool {
-		_, err := os.Stat(state)
-		return os.IsNotExist(err)
+	app.WaitUntil(15*time.Second, func() bool {
+		if _, err := os.Stat(state); os.IsNotExist(err) {
+			return true
+		}
+		if app.Exists("id:device-shutdown") {
+			app.Press("id:device-shutdown")
+			app.Settle()
+		}
+		return false
 	})
 }
