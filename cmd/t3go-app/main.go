@@ -514,30 +514,43 @@ func (a *app) paletteDialog(cx *core.Scope) core.Node {
 func (a *app) newProjectDialog(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	return ui.Dialog{Open: a.showNewProject.Get, OnOpenChange: closeDialog(a.showNewProject), Title: "New project",
-		Description: "Register a directory the agent can work in.", Children: []core.Node{
-			ui.Input{Input: base.Input{Value: a.newProjectName.Get, OnChange: a.newProjectName.Set, Placeholder: "Name (optional)", Label: "Project name"}},
+		Description: "Register a directory the agent can work in. The folder must already exist.",
+		TestID:      "new-project-dialog", Style: core.Style{Width: core.Pt(520)}, Children: []core.Node{
+			ui.Input{Input: base.Input{Value: a.newProjectName.Get, OnChange: a.newProjectName.Set,
+				Placeholder: "Defaults to the folder's name", Label: "Project name"}},
 			core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{
 				core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-					ui.Input{Input: base.Input{Value: a.newProjectPath.Get, OnChange: a.newProjectPath.Set, Placeholder: "/path/to/project", Label: "Project path"}},
+					ui.Input{Input: base.Input{Value: a.newProjectPath.Get, OnChange: a.newProjectPath.Set,
+						Placeholder: "/path/to/project", Label: "Project path", SubmitBehavior: core.SubmitBehaviorSubmit,
+						OnSubmit: func(string) { a.createProject() }}},
 				}},
-				ui.Button{Text: "Browse…", Icon: lucide.FolderOpen, Variant: ui.ButtonSecondary, OnPress: a.browseProject},
+				ui.Button{Text: "Browse…", Icon: lucide.FolderOpen, Variant: ui.ButtonSecondary,
+					TestID: "browse-project", OnPress: a.browseProject},
 			}},
+			core.Text{Content: "The project's path is used for diffs, files, terminals and worktrees.",
+				Style:     core.Style{FontSize: 11},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 			core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node {
 				return ui.Text(a.connErr.Get(), 12, ui.Regular, colors.Danger)
 			}},
 		}, Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showNewProject.Set(false) }},
-			ui.Button{Text: "Add project", Icon: lucide.FolderPlus, Variant: ui.ButtonPrimary, OnPress: a.createProject},
+			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, TestID: "cancel-project",
+				OnPress: func() { a.showNewProject.Set(false) }},
+			ui.Button{Text: "Add project", Icon: lucide.FolderPlus, Variant: ui.ButtonPrimary,
+				TestID: "create-project", Disabled: func() bool { return a.projectBusy.Get() }, OnPress: a.createProject},
 		}}
 }
 
 func (a *app) newThreadDialog(cx *core.Scope) core.Node {
 	return ui.Dialog{Open: a.showNewThread.Get, OnOpenChange: closeDialog(a.showNewThread), Title: "New thread",
-		Description: "The agent runs in this project's directory, or in a fresh worktree.", TestID: "new-thread-dialog",
+		Description: "The agent runs in the project's directory, or in its own worktree.",
+		TestID:      "new-thread-dialog", Style: core.Style{Width: core.Pt(540)},
 		Children: []core.Node{core.Dynamic(a.newThreadBody)},
 		Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showNewThread.Set(false) }},
-			ui.Button{Text: "Create thread", Icon: lucide.MessageSquarePlus, Variant: ui.ButtonPrimary, TestID: "create-thread", OnPress: a.createThread},
+			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, TestID: "cancel-thread",
+				OnPress: func() { a.showNewThread.Set(false) }},
+			ui.Button{Text: "Create thread", Icon: lucide.MessageSquarePlus, Variant: ui.ButtonPrimary,
+				TestID: "create-thread", Disabled: func() bool { return a.threadBusy.Get() }, OnPress: a.createThread},
 		}}
 }
 
@@ -558,6 +571,7 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 			label += " (missing)"
 		}
 		providerButtons = append(providerButtons, ui.Button{Text: label, Variant: variant, Size: ui.SizeSmall,
+			TestID:   "new-thread-provider-" + p.ID,
 			Disabled: func() bool { return !p.Installed }, OnPress: func() {
 				a.newThreadProv.Set(p.ID)
 				for _, m := range a.models.Get() {
@@ -596,7 +610,8 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 		if p == a.newThreadPerm.Get() {
 			variant = ui.ButtonPrimary
 		}
-		permButtons = append(permButtons, ui.Button{Text: string(p), Variant: variant, Size: ui.SizeSmall, OnPress: func() { a.newThreadPerm.Set(p) }})
+		permButtons = append(permButtons, ui.Button{Text: string(p), Variant: variant, Size: ui.SizeSmall,
+			TestID: "new-thread-perm-" + string(p), OnPress: func() { a.newThreadPerm.Set(p) }})
 	}
 	worktree := "Off"
 	if a.newThreadWT.Get() {
@@ -614,13 +629,22 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 		projectButtons = append(projectButtons, ui.Button{Text: pr.Name, Variant: variant, Size: ui.SizeSmall,
 			TestID: "new-thread-project-" + pr.ID, OnPress: func() { a.newThreadProj.Set(pr.ID) }})
 	}
-	fields := []core.Node{
-		ui.Input{Input: base.Input{Value: a.newThreadTitle.Get, OnChange: a.newThreadTitle.Set, Placeholder: "What is this thread about? (optional)", Label: "Thread title"}},
+	projectPath := ""
+	for _, project := range projects {
+		if project.ID == projectID {
+			projectPath = project.Path
+		}
 	}
-	if len(projects) > 1 {
-		fields = append(fields,
-			ui.Text("Project", 11, ui.Semibold, colors.Muted),
-			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: projectButtons})
+	fields := []core.Node{
+		ui.Input{Input: base.Input{Value: a.newThreadTitle.Get, OnChange: a.newThreadTitle.Set,
+			Placeholder: "What is this thread about? (optional)", Label: "Thread title"}},
+		ui.Text("Project", 11, ui.Semibold, colors.Muted),
+		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: projectButtons},
+	}
+	if projectPath != "" {
+		fields = append(fields, core.Text{Content: projectPath, MaxLines: 1,
+			Style:     core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 	}
 	fields = append(fields,
 		ui.Text("Provider", 11, ui.Semibold, colors.Muted),
@@ -637,8 +661,15 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: permButtons},
 	)
 	if a.newThreadWT.Get() {
-		fields = append(fields, ui.Input{Input: base.Input{Value: a.newThreadBranch.Get, OnChange: a.newThreadBranch.Set,
-			Placeholder: "t3go/<slug>", Label: "Branch (optional)"}})
+		fields = append(fields,
+			ui.Input{Input: base.Input{Value: a.newThreadBranch.Get, OnChange: a.newThreadBranch.Set,
+				Placeholder: "t3go/<slug>", Label: "Branch (optional)", TestID: "new-thread-branch"}},
+			ui.Input{Input: base.Input{Value: a.newThreadBase.Get, OnChange: a.newThreadBase.Set,
+				Placeholder: "origin/main", Label: "Base ref (optional)", TestID: "new-thread-base"}},
+			core.Text{Content: "Empty uses the project's current HEAD. The branch defaults to t3go/ + the title.",
+				Style:     core.Style{FontSize: 10.5},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+		)
 	}
 	fields = append(fields, core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node {
 		return ui.Text(a.connErr.Get(), 12, ui.Regular, colors.Danger)
@@ -653,7 +684,8 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 		if !open {
 			a.closeSettings()
 		}
-	}, Title: "Settings", Description: "Defaults for new threads in this environment.", TestID: "settings-dialog",
+	}, Title: "Settings", Description: "Defaults for new threads in this environment.",
+		TestID: "settings-dialog", Style: core.Style{Width: core.Pt(780)},
 		Children: []core.Node{core.Dynamic(a.settingsBody)},
 		Footer: []core.Node{
 			ui.Button{Text: "Disconnect", Variant: ui.ButtonGhost, TestID: "disconnect", OnPress: func() { a.closeSettings(); a.disconnect() }},

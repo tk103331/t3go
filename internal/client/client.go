@@ -208,6 +208,7 @@ type CreateThreadInput struct {
 	Permission proto.PermissionMode `json:"permission,omitempty"`
 	Branch     string               `json:"branch,omitempty"`
 	Worktree   bool                 `json:"worktree,omitempty"`
+	BaseRef    string               `json:"baseRef,omitempty"`
 }
 
 // ThreadDetail returns a thread with its transcript and checkout state.

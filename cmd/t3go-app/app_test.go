@@ -2277,3 +2277,131 @@ func TestUISideChat(t *testing.T) {
 		t.Fatal("the side chat is listed in the sidebar")
 	}
 }
+
+// TestUINewProject validates the folder and names a project after it.
+func TestUINewProject(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	repo := gitRepo(t)
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:welcome-new-project", 15*time.Second)
+	app.Press("id:welcome-new-project")
+	app.WaitFor("id:new-project-dialog", 5*time.Second)
+
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Find("label:Project path").Text == "/definitely/not/here" {
+			return true
+		}
+		app.Clear("label:Project path")
+		app.Type("label:Project path", "/definitely/not/here")
+		app.Settle()
+		return app.Find("label:Project path").Text == "/definitely/not/here"
+	})
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("text:That directory does not exist.") {
+			return true
+		}
+		if app.Exists("id:create-project") {
+			app.Press("id:create-project")
+			app.Settle()
+		}
+		return app.Exists("text:That directory does not exist.")
+	})
+	if !app.Exists("id:new-project-dialog") {
+		t.Fatal("the dialog closed on an invalid path")
+	}
+
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Find("label:Project path").Text == repo {
+			return true
+		}
+		app.Clear("label:Project path")
+		app.Type("label:Project path", repo)
+		app.Settle()
+		return app.Find("label:Project path").Text == repo
+	})
+	ctx := context.Background()
+	app.WaitUntil(15*time.Second, func() bool {
+		projects, err := srv.Store.Projects(ctx)
+		if err == nil && len(projects) == 1 {
+			return true
+		}
+		if app.Exists("id:create-project") && app.Enabled("id:create-project") &&
+			app.Find("label:Project path").Text == repo {
+			app.Press("id:create-project")
+			app.Settle()
+			time.Sleep(150 * time.Millisecond)
+		}
+		return false
+	})
+	if app.Exists("id:new-project-dialog") {
+		app.Press("id:cancel-project")
+		app.Settle()
+	}
+	projects, err := srv.Store.Projects(ctx)
+	if err != nil || len(projects) != 1 || projects[0].Name != filepath.Base(repo) {
+		t.Fatalf("projects = %#v, %v", projects, err)
+	}
+}
+
+// TestUINewThreadOptions creates a worktree thread from the dialog.
+func TestUINewThreadOptions(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	srv.Service.Providers.Register(sideRunner{})
+	ctx := context.Background()
+	repo := gitRepo(t)
+	project, err := srv.Service.CreateProject(ctx, "Repo", repo)
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:new-thread", 15*time.Second)
+	app.Press("id:new-thread")
+	app.WaitFor("id:new-thread-dialog", 5*time.Second)
+	app.Press("id:new-thread-project-" + project.ID)
+	app.Press("id:new-thread-provider-side-fake")
+	app.Press("id:new-thread-perm-auto")
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:new-thread-branch") {
+			return true
+		}
+		if app.Exists("id:toggle-worktree") {
+			app.Press("id:toggle-worktree")
+			app.Settle()
+		}
+		return app.Exists("id:new-thread-branch")
+	})
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Find("id:new-thread-branch").Text == "t3go/test" {
+			return true
+		}
+		app.Clear("id:new-thread-branch")
+		app.Type("id:new-thread-branch", "t3go/test")
+		app.Settle()
+		return app.Find("id:new-thread-branch").Text == "t3go/test"
+	})
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Find("id:new-thread-base").Text == "HEAD" {
+			return true
+		}
+		app.Clear("id:new-thread-base")
+		app.Type("id:new-thread-base", "HEAD")
+		app.Settle()
+		return app.Find("id:new-thread-base").Text == "HEAD"
+	})
+	app.Press("id:create-thread")
+	app.WaitUntil(15*time.Second, func() bool {
+		threads, err := srv.Store.Threads(ctx, project.ID, false)
+		if err != nil || len(threads) == 0 {
+			return false
+		}
+		created := threads[0]
+		return created.Branch == "t3go/test" && created.WorktreePath != "" &&
+			created.Provider == "side-fake" && created.Permission == proto.PermissionAuto
+	})
+}

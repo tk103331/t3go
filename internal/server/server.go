@@ -489,6 +489,7 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 		Permission proto.PermissionMode `json:"permission"`
 		Branch     string               `json:"branch"`
 		Worktree   bool                 `json:"worktree"`
+		BaseRef    string               `json:"baseRef"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		writeError(w, 400, "invalid", err.Error())
@@ -496,7 +497,7 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := s.Service.CreateThread(r.Context(), orchestrator.CreateThreadInput{
 		ProjectID: in.ProjectID, Title: in.Title, Provider: in.Provider, Model: in.Model,
-		Permission: in.Permission, Branch: in.Branch, Worktree: in.Worktree,
+		Permission: in.Permission, Branch: in.Branch, Worktree: in.Worktree, BaseRef: in.BaseRef,
 	})
 	if err != nil {
 		writeError(w, statusFor(err), "thread", err.Error())

@@ -129,12 +129,15 @@ type app struct {
 
 	newProjectName *core.Signal[string]
 	newProjectPath *core.Signal[string]
+	projectBusy    *core.Signal[bool]
 
 	newThreadTitle  *core.Signal[string]
 	newThreadProv   *core.Signal[string]
 	newThreadModel  *core.Signal[string]
 	newThreadPerm   *core.Signal[proto.PermissionMode]
 	newThreadWT     *core.Signal[bool]
+	newThreadBase   *core.Signal[string]
+	threadBusy      *core.Signal[bool]
 	newThreadProj   *core.Signal[string]
 	newThreadBranch *core.Signal[string]
 
@@ -291,12 +294,15 @@ func newApp(cx *core.Scope) *app {
 
 		newProjectName: core.NewSignal(cx, ""),
 		newProjectPath: core.NewSignal(cx, ""),
+		projectBusy:    core.NewSignal(cx, false),
 
 		newThreadTitle:  core.NewSignal(cx, ""),
 		newThreadProv:   core.NewSignal(cx, ""),
 		newThreadModel:  core.NewSignal(cx, ""),
 		newThreadPerm:   core.NewSignal(cx, proto.PermissionFullAccess),
 		newThreadWT:     core.NewSignal(cx, false),
+		newThreadBase:   core.NewSignal(cx, ""),
+		threadBusy:      core.NewSignal(cx, false),
 		newThreadProj:   core.NewSignal(cx, ""),
 		newThreadBranch: core.NewSignal(cx, ""),
 
@@ -3070,15 +3076,41 @@ func (a *app) loadDiff(threadID, runID string) {
 }
 
 func (a *app) createProject() {
+	if a.projectBusy.GetUntracked() {
+		return
+	}
 	path := strings.TrimSpace(a.newProjectPath.GetUntracked())
 	name := strings.TrimSpace(a.newProjectName.GetUntracked())
 	if path == "" {
+		a.connErr.Set("Choose the project's directory.")
 		return
 	}
+	if info, err := os.Stat(path); err != nil {
+		a.connErr.Set("That directory does not exist.")
+		return
+	} else if !info.IsDir() {
+		a.connErr.Set("That path is not a directory.")
+		return
+	}
+	if name == "" {
+		name = filepath.Base(filepath.Clean(path))
+		if name == "." || name == string(filepath.Separator) {
+			name = "Project"
+		}
+	}
+	for _, project := range a.projects.GetUntracked() {
+		if filepath.Clean(project.Path) == filepath.Clean(path) {
+			a.connErr.Set("That directory is already a project.")
+			return
+		}
+	}
+	a.connErr.Set("")
+	a.projectBusy.Set(true)
 	a.call(func(ctx context.Context, c *client.Client) error {
 		_, err := c.CreateProject(ctx, name, path)
 		return err
 	}, func(err error) {
+		a.projectBusy.Set(false)
 		if err != nil {
 			a.connErr.Set(friendlyError(err))
 			return
@@ -3106,12 +3138,31 @@ func (a *app) browseProject() {
 }
 
 func (a *app) createThread() {
+	if a.threadBusy.GetUntracked() {
+		return
+	}
 	projectID := a.newThreadProj.GetUntracked()
 	if projectID == "" {
 		projectID = a.currentProject()
 	}
 	if projectID == "" {
 		a.connErr.Set("Add a project first.")
+		return
+	}
+	provider := a.newThreadProv.GetUntracked()
+	model := a.newThreadModel.GetUntracked()
+	if provider == "" || model == "" {
+		a.connErr.Set("Choose a provider and a model.")
+		return
+	}
+	installed := false
+	for _, p := range a.providers.GetUntracked() {
+		if p.ID == provider {
+			installed = p.Installed
+		}
+	}
+	if !installed {
+		a.connErr.Set("Install " + provider + " before creating a thread with it.")
 		return
 	}
 	in := client.CreateThreadInput{
@@ -3122,13 +3173,16 @@ func (a *app) createThread() {
 		Permission: a.newThreadPerm.GetUntracked(),
 		Branch:     strings.TrimSpace(a.newThreadBranch.GetUntracked()),
 		Worktree:   a.newThreadWT.GetUntracked(),
+		BaseRef:    strings.TrimSpace(a.newThreadBase.GetUntracked()),
 	}
 	var created proto.Thread
+	a.threadBusy.Set(true)
 	a.call(func(ctx context.Context, c *client.Client) error {
 		t, err := c.CreateThread(ctx, in)
 		created = t
 		return err
 	}, func(err error) {
+		a.threadBusy.Set(false)
 		if err != nil {
 			a.connErr.Set(friendlyError(err))
 			return
@@ -3175,6 +3229,7 @@ func (a *app) openNewThread() {
 	a.connErr.Set("")
 	a.newThreadTitle.Set("")
 	a.newThreadBranch.Set("")
+	a.newThreadBase.Set("")
 	a.newThreadWT.Set(false)
 	a.newThreadProj.Set(a.currentProject())
 	settings := a.settings.GetUntracked()
