@@ -115,6 +115,9 @@ func (a *app) settingsProviders(cx *core.Scope) core.Node {
 			if model.Default {
 				label += " · default"
 			}
+			if model.ContextWindow > 0 {
+				label += " · " + humanTokens(int64(model.ContextWindow))
+			}
 			labels = append(labels, core.View{Style: core.Style{Padding: core.Symmetric(2, 7), Background: colors.Inset(),
 				CornerRadius: 5}, Children: []core.Node{core.Text{Content: label, Style: core.Style{FontSize: 10.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }}}})

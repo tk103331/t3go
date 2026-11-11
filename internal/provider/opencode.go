@@ -38,7 +38,8 @@ func (*OpenCode) Snapshot(ctx context.Context) proto.Provider {
 		if i := strings.LastIndex(id, "/"); i >= 0 && i+1 < len(id) {
 			name = id[i+1:]
 		}
-		p.Models = append(p.Models, proto.Model{ID: id, Name: name, Provider: "opencode", Default: len(p.Models) == 0})
+		p.Models = append(p.Models, proto.Model{ID: id, Name: name, Provider: "opencode",
+			Default: len(p.Models) == 0, ContextWindow: ContextWindow(id)})
 	}
 	if len(p.Models) == 0 {
 		p.Error = "no models; run `opencode auth login`"

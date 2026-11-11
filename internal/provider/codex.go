@@ -16,9 +16,9 @@ func (*Codex) Name() string { return "Codex" }
 
 // codexModels are Codex's current models, from its catalog.
 var codexModels = []proto.Model{
-	{ID: "gpt-6.1-sol", Name: "GPT-6.1 Sol", Provider: "codex", Default: true},
-	{ID: "gpt-6-astra", Name: "GPT-6 Astra", Provider: "codex"},
-	{ID: "gpt-6-luna", Name: "GPT-6 Luna", Provider: "codex"},
+	{ID: "gpt-6.1-sol", Name: "GPT-6.1 Sol", Provider: "codex", Default: true, ContextWindow: 400_000},
+	{ID: "gpt-6-astra", Name: "GPT-6 Astra", Provider: "codex", ContextWindow: 400_000},
+	{ID: "gpt-6-luna", Name: "GPT-6 Luna", Provider: "codex", ContextWindow: 400_000},
 }
 
 func (*Codex) Snapshot(ctx context.Context) proto.Provider {
@@ -81,11 +81,12 @@ func (c *Codex) Run(ctx context.Context, turn Turn, sink Sink) error {
 
 // codexStream decodes Codex's JSONL exec output.
 type codexStream struct {
-	sink      Sink
-	failText  string
-	gotText   bool
-	started   map[string]bool
-	lastAgent string
+	sink          Sink
+	failText      string
+	gotText       bool
+	started       map[string]bool
+	lastAgent     string
+	contextWindow int64
 }
 
 func newCodexStream(sink Sink) *codexStream {
@@ -167,12 +168,17 @@ func (s *codexStream) line(line []byte) {
 				s.sink.Notice("Plan updated")
 			}
 		}
+	case "token_count":
+		if window := int64(jsonNumber(jsonMap(ev, "info"), "model_context_window")); window > 0 {
+			s.contextWindow = window
+		}
 	case "turn.completed":
 		u := jsonMap(ev, "usage")
 		s.sink.Usage(proto.Usage{
-			InputTokens:  int64(jsonNumber(u, "input_tokens") + jsonNumber(u, "cached_input_tokens")),
-			OutputTokens: int64(jsonNumber(u, "output_tokens") + jsonNumber(u, "reasoning_output_tokens")),
-			TotalTokens:  int64(jsonNumber(u, "input_tokens") + jsonNumber(u, "cached_input_tokens") + jsonNumber(u, "output_tokens") + jsonNumber(u, "reasoning_output_tokens")),
+			InputTokens:   int64(jsonNumber(u, "input_tokens") + jsonNumber(u, "cached_input_tokens")),
+			OutputTokens:  int64(jsonNumber(u, "output_tokens") + jsonNumber(u, "reasoning_output_tokens")),
+			TotalTokens:   int64(jsonNumber(u, "input_tokens") + jsonNumber(u, "cached_input_tokens") + jsonNumber(u, "output_tokens") + jsonNumber(u, "reasoning_output_tokens")),
+			ContextWindow: s.contextWindow,
 		})
 	case "turn.failed":
 		s.failText = jsonString(ev, "message")

@@ -1692,15 +1692,26 @@ esac
 	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
 	app.Press("id:thread-" + thread.ID)
 	app.WaitFor("id:toggle-right-panel", 10*time.Second)
-	if !app.Exists("id:right-panel") {
-		app.Press("id:toggle-right-panel")
-	}
-	app.WaitFor("id:surface-add", 5*time.Second)
-	if !app.Exists("id:surface-linked") {
-		app.Press("id:surface-add")
-		app.Settle()
-	}
-	app.WaitFor("id:surface-linked", 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:surface-add") {
+			return true
+		}
+		if app.Exists("id:toggle-right-panel") {
+			app.Press("id:toggle-right-panel")
+			app.Settle()
+		}
+		return app.Exists("id:surface-add")
+	})
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:surface-linked") {
+			return true
+		}
+		if app.Exists("id:surface-add") {
+			app.Press("id:surface-add")
+			app.Settle()
+		}
+		return app.Exists("id:surface-linked")
+	})
 	app.Press("id:surface-linked")
 	app.WaitFor("id:open-linked-pr-7", 10*time.Second)
 	app.Press("id:open-linked-pr-7")
@@ -1808,4 +1819,21 @@ done
 	app.WaitUntil(5*time.Second, func() bool {
 		return app.Find("label:Message").Text == "/mcp__fake__summarize release notes brief"
 	})
+}
+
+// TestContextUsagePrefersReportedWindow checks the composer's remaining
+// context uses the provider's window, then the catalog, then the name.
+func TestContextUsagePrefersReportedWindow(t *testing.T) {
+	runs := []proto.Run{{Usage: &proto.Usage{InputTokens: 1_000, OutputTokens: 500, ContextWindow: 1_000_000}}}
+	models := []proto.Model{{ID: "claude-sonnet-5-5", ContextWindow: 200_000}}
+	if used, limit := contextUsage("claude-sonnet-5-5", runs, models); used != 1_500 || limit != 1_000_000 {
+		t.Fatalf("reported window: used=%d limit=%d", used, limit)
+	}
+	runs = []proto.Run{{Usage: &proto.Usage{InputTokens: 1_000, OutputTokens: 500}}}
+	if _, limit := contextUsage("claude-sonnet-5-5", runs, models); limit != 200_000 {
+		t.Fatalf("catalog window = %d", limit)
+	}
+	if _, limit := contextUsage("gemini-3-pro", nil, nil); limit != 1_000_000 {
+		t.Fatalf("fallback window = %d", limit)
+	}
 }

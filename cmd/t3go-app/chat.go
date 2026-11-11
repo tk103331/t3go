@@ -192,7 +192,7 @@ func (a *app) composerControls(cx *core.Scope) core.Node {
 		planVariant = ui.ButtonPrimary
 	}
 	contextLabel := ""
-	if used, limit := contextUsage(thread.Model, a.detail.Get().Runs); used > 0 {
+	if used, limit := contextUsage(thread.Model, a.detail.Get().Runs, a.models.Get()); used > 0 {
 		remaining := limit - used
 		if remaining < 0 {
 			remaining = 0
@@ -210,7 +210,7 @@ func (a *app) composerControls(cx *core.Scope) core.Node {
 	if contextLabel != "" {
 		children = append(children, core.Text{Content: contextLabel, MaxLines: 1, Style: core.Style{FontSize: 10},
 			StyleFunc: func() core.Style {
-				if used, limit := contextUsage(thread.Model, a.detail.Get().Runs); used*10 >= limit*9 {
+				if used, limit := contextUsage(thread.Model, a.detail.Get().Runs, a.models.Get()); used*10 >= limit*9 {
 					return core.Style{Color: colors.Danger()}
 				}
 				return core.Style{Color: colors.Faint()}
@@ -232,14 +232,19 @@ func shortModel(name string) string {
 
 // contextUsage estimates the last turn's context use and the model's
 // context window.
-func contextUsage(model string, runs []proto.Run) (used, limit int64) {
+func contextUsage(model string, runs []proto.Run, models []proto.Model) (used, limit int64) {
 	limit = 200_000
-	name := strings.ToLower(model)
-	switch {
+	switch name := strings.ToLower(model); {
 	case strings.Contains(name, "gemini"):
 		limit = 1_000_000
-	case strings.Contains(name, "gpt-5"), strings.Contains(name, "codex"):
+	case strings.Contains(name, "gpt-5"), strings.Contains(name, "gpt-6"), strings.Contains(name, "codex"):
 		limit = 400_000
+	}
+	for _, m := range models {
+		if m.ID == model && m.ContextWindow > 0 {
+			limit = int64(m.ContextWindow)
+			break
+		}
 	}
 	for i := len(runs) - 1; i >= 0; i-- {
 		if runs[i].Usage == nil {
@@ -249,6 +254,9 @@ func contextUsage(model string, runs []proto.Run) (used, limit int64) {
 		used = usage.TotalTokens
 		if used == 0 {
 			used = usage.InputTokens + usage.OutputTokens
+		}
+		if usage.ContextWindow > 0 {
+			limit = usage.ContextWindow
 		}
 		break
 	}

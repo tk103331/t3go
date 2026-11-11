@@ -4,6 +4,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -178,4 +179,19 @@ func FindModel(providers []proto.Provider, providerID, modelID string) (proto.Mo
 		}
 	}
 	return proto.Model{}, false
+}
+
+// ContextWindow guesses a model's window from its id when the provider
+// catalog has no explicit value.
+func ContextWindow(model string) int {
+	name := strings.ToLower(model)
+	switch {
+	case strings.Contains(name, "gemini"):
+		return 1_000_000
+	case strings.Contains(name, "gpt-5"), strings.Contains(name, "gpt-6"), strings.Contains(name, "codex"):
+		return 400_000
+	case strings.Contains(name, "claude"):
+		return 200_000
+	}
+	return 0
 }

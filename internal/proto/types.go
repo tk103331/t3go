@@ -124,6 +124,8 @@ type Usage struct {
 	OutputTokens int64   `json:"outputTokens,omitempty"`
 	TotalTokens  int64   `json:"totalTokens,omitempty"`
 	CostUSD      float64 `json:"costUsd,omitempty"`
+	// ContextWindow is the model's window when the provider reported it.
+	ContextWindow int64 `json:"contextWindow,omitempty"`
 }
 
 // Run is one turn: a user prompt and the work it caused.
@@ -149,6 +151,8 @@ type Model struct {
 	Provider string `json:"provider"`
 	Default  bool   `json:"default,omitempty"`
 	Custom   bool   `json:"custom,omitempty"`
+	// ContextWindow is how many tokens the model can hold, 0 when unknown.
+	ContextWindow int `json:"contextWindow,omitempty"`
 }
 
 // Provider is an agent CLI the server can run.

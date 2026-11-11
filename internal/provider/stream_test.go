@@ -249,3 +249,26 @@ func TestTextOf(t *testing.T) {
 		})
 	}
 }
+
+func TestClaudeStreamReportsContextWindow(t *testing.T) {
+	sink := newRecordingSink()
+	s := newClaudeStream(sink, "")
+	feed(t, s.line,
+		`{"type":"result","subtype":"success","usage":{"input_tokens":10,"output_tokens":2},"modelUsage":{"claude-sonnet-5-5":{"inputTokens":10,"outputTokens":2,"contextWindow":200000}}}`,
+	)
+	if len(sink.usages) != 1 || sink.usages[0].ContextWindow != 200_000 {
+		t.Fatalf("usages = %#v", sink.usages)
+	}
+}
+
+func TestCodexStreamReportsContextWindow(t *testing.T) {
+	sink := newRecordingSink()
+	s := newCodexStream(sink)
+	feed(t, s.line,
+		`{"type":"token_count","info":{"model_context_window":258400}}`,
+		`{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}`,
+	)
+	if len(sink.usages) != 1 || sink.usages[0].ContextWindow != 258400 {
+		t.Fatalf("usages = %#v", sink.usages)
+	}
+}

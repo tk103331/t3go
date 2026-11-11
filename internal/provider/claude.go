@@ -25,10 +25,10 @@ func (*Claude) Name() string { return "Claude Code" }
 
 // claudeModels are Claude Code's current models, from its catalog.
 var claudeModels = []proto.Model{
-	{ID: "claude-opus-5-5", Name: "Claude Opus 5.5", Provider: "claude"},
-	{ID: "claude-sonnet-5-5", Name: "Claude Sonnet 5.5", Provider: "claude", Default: true},
-	{ID: "claude-fable-5-1", Name: "Claude Fable 5.1", Provider: "claude"},
-	{ID: "claude-haiku-5-5", Name: "Claude Haiku 5.5", Provider: "claude"},
+	{ID: "claude-opus-5-5", Name: "Claude Opus 5.5", Provider: "claude", ContextWindow: 200_000},
+	{ID: "claude-sonnet-5-5", Name: "Claude Sonnet 5.5", Provider: "claude", Default: true, ContextWindow: 200_000},
+	{ID: "claude-fable-5-1", Name: "Claude Fable 5.1", Provider: "claude", ContextWindow: 200_000},
+	{ID: "claude-haiku-5-5", Name: "Claude Haiku 5.5", Provider: "claude", ContextWindow: 200_000},
 }
 
 func (*Claude) Snapshot(ctx context.Context) proto.Provider {
@@ -258,7 +258,23 @@ func (s *claudeStream) usage(ev, u map[string]any) {
 		CostUSD:      jsonNumber(ev, "total_cost_usd"),
 	}
 	usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+	usage.ContextWindow = claudeContextWindow(ev)
 	s.sink.Usage(usage)
+}
+
+// claudeContextWindow reads the model's window from the result's
+// modelUsage map, which newer Claude Code versions report per model.
+func claudeContextWindow(ev map[string]any) int64 {
+	for _, value := range jsonMap(ev, "modelUsage") {
+		entry, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		if window := int64(jsonNumber(entry, "contextWindow")); window > 0 {
+			return window
+		}
+	}
+	return 0
 }
 
 // textOf flattens a tool result, which Claude sends as a string or a list
