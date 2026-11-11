@@ -11,10 +11,14 @@ require (
 
 require (
 	github.com/alecthomas/chroma/v2 v2.27.0 // indirect
+	github.com/andybalholm/brotli v1.2.6 // indirect
 	github.com/creack/pty v1.1.24 // indirect
 	github.com/dlclark/regexp2/v2 v2.11.0 // indirect
+	github.com/dop251/goja v0.0.0-20261027234916-5f913d1693d9 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/ebitengine/purego v0.11.2 // indirect
+	github.com/evanw/esbuild v0.28.2 // indirect
+	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
@@ -32,3 +36,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
+
+tool github.com/oneo-me/nsgo/cmd/nsgo

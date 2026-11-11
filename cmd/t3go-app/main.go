@@ -88,8 +88,12 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 			core.Show{When: a.rightOpen.Get, Then: func(cx *core.Scope) core.Node { return a.rightRail(cx) }},
 		}}
 	}
-	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0),
-		Overflow: core.Hidden, Direction: core.Column, Background: colors.Background()}, Children: []core.Node{
+	style := core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0),
+		Overflow: core.Hidden, Direction: core.Column, Background: colors.Background()}
+	if ui.Touch(cx) {
+		style.PaddingEnv = core.EnvAll(core.EnvSafeArea)
+	}
+	return core.View{Style: style, Children: []core.Node{
 		core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node { return a.errorBanner(cx) }},
 		core.Show{When: a.offline.Get, Then: func(*core.Scope) core.Node { return a.offlineBanner(cx) }},
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0),

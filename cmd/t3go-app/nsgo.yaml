@@ -1,0 +1,13 @@
+name: T3Go
+id: dev.nsgo.t3go
+version: 0.1.0
+
+dev:
+  target: ios_simulator
+  hot_reload: true
+  fps: false
+
+build:
+  output: dist
+  open: false
+  targets: [ios_simulator]
