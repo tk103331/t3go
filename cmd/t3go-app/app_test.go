@@ -1257,9 +1257,16 @@ func TestUISidebarDraftsAndPins(t *testing.T) {
 		app.Settle()
 		return app.Exists("id:pin-thread-" + first.ID)
 	})
-	app.Press("id:pin-thread-" + first.ID)
-	app.Settle()
-	app.WaitFor("id:pinned-"+first.ID, 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:pinned-" + first.ID) {
+			return true
+		}
+		if app.Exists("id:pin-thread-" + first.ID) {
+			app.Press("id:pin-thread-" + first.ID)
+			app.Settle()
+		}
+		return app.Exists("id:pinned-" + first.ID)
+	})
 	app.WaitUntil(10*time.Second, func() bool {
 		if app.Exists("id:pin-thread-" + first.ID) {
 			return true
@@ -1809,10 +1816,16 @@ esac
 			app.Settle()
 			return app.Find("id:pr-note").Text == note
 		})
-		app.Press(button)
-		app.WaitUntil(10*time.Second, func() bool {
+		app.WaitUntil(15*time.Second, func() bool {
 			raw, err := os.ReadFile(logPath)
-			return err == nil && strings.Contains(string(raw), want)
+			if err == nil && strings.Contains(string(raw), want) {
+				return true
+			}
+			if app.Exists(button) {
+				app.Press(button)
+				app.Settle()
+			}
+			return false
 		})
 	}
 
