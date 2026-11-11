@@ -1467,7 +1467,7 @@ func fakeServerGH(t *testing.T) string {
 case "$1 $2" in
 "pr view")
   if [ -f "$PR_STATE" ]; then
-    echo '{"url":"https://github.com/acme/repo/pull/7","number":7,"title":"Add feature","baseRefName":"main","headRefName":"feature","state":"OPEN"}'
+    echo '{"url":"https://github.com/acme/repo/pull/7","number":7,"title":"Add feature","baseRefName":"main","headRefName":"feature","state":"OPEN","isDraft":false,"body":"Body","author":{"login":"tk"},"reviewDecision":"APPROVED","mergeable":"MERGEABLE","additions":3,"deletions":1,"changedFiles":2,"statusCheckRollup":[{"__typename":"CheckRun","name":"test","conclusion":"SUCCESS","detailsUrl":"https://ci/1"}],"reviews":[{"author":{"login":"reviewer"},"state":"APPROVED","body":"LGTM","url":"https://github.com/acme/repo/pull/7#pullrequestreview-1"}]}'
   else
     echo "no pull requests found" >&2
     exit 1
@@ -1479,6 +1479,9 @@ case "$1 $2" in
   ;;
 "pr list")
   echo '[{"number":7,"title":"Add feature","url":"https://github.com/acme/repo/pull/7","state":"OPEN","isDraft":false,"baseRefName":"main","headRefName":"feature"}]'
+  ;;
+"pr merge"|"pr ready"|"pr close"|"pr reopen")
+  echo "ok"
   ;;
 *)
   echo "unexpected gh $*" >&2
@@ -1944,6 +1947,21 @@ func TestWorkspaceFilesAndPullRequest(t *testing.T) {
 	if len(listResult.PullRequests) != 1 || listResult.PullRequests[0].Number != 7 {
 		t.Fatalf("pull requests = %#v", listResult.PullRequests)
 	}
+	var prDetail proto.PullRequestDetail
+	detailPath := "/api/v1/threads/" + thread.ID + "/pull-requests/7"
+	if code := e.request(t, http.MethodGet, detailPath, nil, e.token, &prDetail); code != http.StatusOK {
+		t.Fatalf("pull request detail = %d", code)
+	}
+	if prDetail.PullRequest.Number != 7 || len(prDetail.Checks) != 1 || prDetail.Checks[0].Status != "success" ||
+		len(prDetail.Reviews) != 1 || prDetail.Reviews[0].Author != "reviewer" {
+		t.Fatalf("pull request detail = %#v", prDetail)
+	}
+	if code := e.request(t, http.MethodPost, detailPath+"/merge", map[string]any{"method": "squash"}, e.token, nil); code != http.StatusOK {
+		t.Fatalf("merge = %d", code)
+	}
+	if code := e.request(t, http.MethodPost, detailPath+"/action", map[string]any{"action": "close"}, e.token, nil); code != http.StatusOK {
+		t.Fatalf("pr action = %d", code)
+	}
 
 	var graph struct {
 		Commits []proto.GraphCommit `json:"commits"`
@@ -2168,7 +2186,7 @@ func TestAgentCommands(t *testing.T) {
 while IFS= read -r line; do
 case "$line" in
 *'"method":"initialize"'*) printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"prompts":{}},"serverInfo":{"name":"fake","version":"1"}}}';;
-*'"method":"prompts/list"'*) printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"prompts":[{"name":"summarize","description":"Summarize with MCP"}]}}';;
+*'"method":"prompts/list"'*) printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"prompts":[{"name":"summarize","description":"Summarize with MCP","arguments":[{"name":"topic","description":"What to summarize","required":true},{"name":"style"}]}]}}';;
 esac
 done
 `
@@ -2222,7 +2240,8 @@ done
 			audit = command.Description == "Audit a change"
 		}
 		if command.Name == "mcp__fake__summarize" && command.Source == "mcp" && command.Kind == "prompt" {
-			prompt = command.Description == "Summarize with MCP"
+			prompt = command.Description == "Summarize with MCP" && len(command.Arguments) == 2 &&
+				command.Arguments[0].Name == "topic" && command.Arguments[0].Required && !command.Arguments[1].Required
 		}
 		if command.Name == "mcp__remote__inspect" && command.Source == "mcp" {
 			remotePrompt = command.Description == "Inspect with remote MCP"
@@ -2248,5 +2267,61 @@ done
 	}
 	if !codexPrompt {
 		t.Fatalf("codex MCP prompt missing")
+	}
+}
+
+func TestAgentCommandsLegacySSE(t *testing.T) {
+	messages := make(chan []byte, 8)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/sse":
+			w.Header().Set("Content-Type", "text/event-stream")
+			flusher, _ := w.(http.Flusher)
+			_, _ = w.Write([]byte("event: endpoint\ndata: /messages\n\n"))
+			if flusher != nil {
+				flusher.Flush()
+			}
+			for {
+				select {
+				case message := <-messages:
+					_, _ = w.Write([]byte("event: message\ndata: " + string(message) + "\n\n"))
+					if flusher != nil {
+						flusher.Flush()
+					}
+				case <-r.Context().Done():
+					return
+				}
+			}
+		case "/messages":
+			var request struct {
+				ID     int    `json:"id"`
+				Method string `json:"method"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&request)
+			switch request.Method {
+			case "initialize":
+				messages <- []byte(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"prompts":{}},"serverInfo":{"name":"sse","version":"1"}}}`)
+			case "prompts/list":
+				messages <- []byte(`{"jsonrpc":"2.0","id":2,"result":{"prompts":[{"name":"legacy","description":"Legacy SSE prompt"}]}}`)
+			}
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, ".mcp.json"),
+		[]byte(`{"mcpServers":{"legacy":{"type":"sse","url":"`+server.URL+`/sse"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, command := range discoverMCPPromptsAt(repo, t.TempDir()) {
+		if command.Name == "mcp__legacy__legacy" && command.Description == "Legacy SSE prompt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("legacy SSE prompt missing")
 	}
 }

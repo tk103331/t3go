@@ -439,6 +439,26 @@ func (c *Client) PullBranch(ctx context.Context, threadID string) (string, strin
 	return out.Status, out.RefName, err
 }
 
+// PullRequestDetail reads one pull request's checks and reviews.
+func (c *Client) PullRequestDetail(ctx context.Context, threadID string, number int) (proto.PullRequestDetail, error) {
+	var out proto.PullRequestDetail
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/pull-requests/" + fmt.Sprint(number)
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out, err
+}
+
+// MergePullRequest merges a pull request.
+func (c *Client) MergePullRequest(ctx context.Context, threadID string, number int, method string, deleteBranch bool) error {
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/pull-requests/" + fmt.Sprint(number) + "/merge"
+	return c.do(ctx, http.MethodPost, path, map[string]any{"method": method, "deleteBranch": deleteBranch}, nil)
+}
+
+// PullRequestAction changes a pull request's state.
+func (c *Client) PullRequestAction(ctx context.Context, threadID string, number int, action string) error {
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/pull-requests/" + fmt.Sprint(number) + "/action"
+	return c.do(ctx, http.MethodPost, path, map[string]string{"action": action}, nil)
+}
+
 // PullRequests lists the branch's pull requests.
 func (c *Client) PullRequests(ctx context.Context, threadID string) ([]proto.PullRequest, string, error) {
 	var out struct {

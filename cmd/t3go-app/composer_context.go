@@ -48,7 +48,7 @@ func (a *app) composerSuggestions(cx *core.Scope) core.Node {
 			}
 			rows = append(rows, a.suggestionRow(cx, lucide.Sparkles, "/"+command.Name, detail,
 				"agent-command-"+command.Source+"-"+command.Name, func() {
-					a.setDraft("/" + command.Name + " ")
+					a.pickAgentCommand(command)
 				}))
 		}
 		if len(rows) == 0 {

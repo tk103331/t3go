@@ -432,6 +432,9 @@ func (a *app) rightLinkedPRs(cx *core.Scope) core.Node {
 	if a.selected.Get() == "" {
 		return a.rightNotice(cx, "Pick a thread to see its pull requests.")
 	}
+	if a.prViewNumber.Get() > 0 {
+		return a.rightPullRequestDetail(cx)
+	}
 	pulls := a.pullRequests.Get()
 	detail := a.prListDetail.Get()
 	if strings.Contains(strings.ToLower(detail), "no pull requests") {
@@ -446,13 +449,17 @@ func (a *app) rightLinkedPRs(cx *core.Scope) core.Node {
 		}
 		rows = append(rows, core.View{Style: core.Style{Direction: core.Column, Gap: 3, Padding: core.Symmetric(7, 9),
 			Background: colors.Inset(), CornerRadius: 7}, Children: []core.Node{
-			core.Text{Content: pr.Title, MaxLines: 2, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, LineHeight: 16},
-				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
+				core.Text{Content: pr.Title, MaxLines: 2, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, LineHeight: 16, FlexGrow: 1},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+				ui.IconButton{Icon: lucide.ChevronRight, Label: "Details", TestID: "open-linked-pr-" + fmt.Sprint(pr.Number),
+					OnPress: func() { a.openPullRequest(pr.Number) }},
+			}},
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 				core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 10.5, FlexGrow: 1},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 				ui.Button{Text: "Open", Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-					TestID: "open-linked-pr-" + fmt.Sprint(pr.Number), OnPress: func() { a.cx.OpenURL(pr.URL, nil) }},
+					TestID: "open-linked-pr-url-" + fmt.Sprint(pr.Number), OnPress: func() { a.cx.OpenURL(pr.URL, nil) }},
 			}},
 			core.Text{Content: pr.HeadBranch + " → " + pr.BaseBranch, MaxLines: 1, Style: core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
@@ -474,6 +481,122 @@ func (a *app) rightLinkedPRs(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 6, Padding: core.All(10), FlexGrow: 1, MinHeight: core.Pt(0)},
 		Children: []core.Node{head, a.rightError(cx), core.Scroll{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0)},
 			Children: []core.Node{core.View{Style: core.Style{Direction: core.Column, Gap: 6}, Children: rows}}}}}
+}
+
+// rightPullRequestDetail shows one pull request's checks, reviews and
+// merge actions.
+func (a *app) rightPullRequestDetail(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	detail := a.prView.Get()
+	pr := detail.PullRequest
+	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 3, Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
+		ui.IconButton{Icon: lucide.ChevronLeft, Label: "All pull requests", TestID: "pr-back", OnPress: a.closePullRequest},
+		core.Text{Content: fmt.Sprintf("#%d", pr.Number), MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+		core.Show{When: a.prViewBusy.Get, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 13, Label: "Loading pull request"} }},
+		ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh pull request", TestID: "pr-detail-refresh",
+			OnPress: func() { a.openPullRequest(pr.Number) }},
+	}}
+	var fields []core.Node
+	fields = append(fields, head,
+		core.Text{Content: pr.Title, MaxLines: 3, Style: core.Style{FontSize: 13, FontWeight: ui.Semibold, LineHeight: 18},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+	)
+	meta := strings.ToLower(pr.State)
+	if pr.Draft {
+		meta += " · draft"
+	}
+	if detail.Mergeable != "" {
+		meta += " · " + strings.ToLower(detail.Mergeable)
+	}
+	if detail.ReviewDecision != "" {
+		meta += " · " + strings.ToLower(detail.ReviewDecision)
+	}
+	fields = append(fields, core.Text{Content: meta, Style: core.Style{FontSize: 11},
+		StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }})
+	fields = append(fields, core.Text{Content: fmt.Sprintf("%s → %s · +%d −%d · %d files",
+		pr.HeadBranch, pr.BaseBranch, detail.Additions, detail.Deletions, detail.ChangedFiles),
+		MaxLines: 2, Style: core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
+		StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
+	if detail.Author != "" {
+		fields = append(fields, core.Text{Content: "by " + detail.Author, Style: core.Style{FontSize: 11},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }})
+	}
+	if detail.Body != "" {
+		fields = append(fields, core.View{Style: core.Style{Background: colors.Inset(), CornerRadius: 6, Padding: core.All(8)},
+			Children: []core.Node{core.Text{Content: detail.Body, MaxLines: 8, Selectable: core.SelectableOn,
+				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }}}})
+	}
+	if len(detail.Checks) > 0 {
+		fields = append(fields, ui.Text("Checks", 10.5, ui.Semibold, colors.Faint))
+		var checks []core.Node
+		for _, check := range detail.Checks {
+			color := colors.Muted
+			switch check.Status {
+			case "success":
+				color = colors.Up
+			case "failure":
+				color = colors.Danger
+			case "pending":
+				color = colors.Accent
+			}
+			label := check.Name
+			if check.Description != "" {
+				label += " · " + check.Description
+			}
+			checks = append(checks, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5},
+				Children: []core.Node{ui.Icon(lucide.CircleCheck, 11, color),
+					core.Text{Content: label, MaxLines: 1, Style: core.Style{FontSize: 10.5, FlexGrow: 1},
+						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }}}})
+		}
+		fields = append(fields, core.View{Style: core.Style{Direction: core.Column, Gap: 2}, Children: checks})
+	}
+	if len(detail.Reviews) > 0 {
+		fields = append(fields, ui.Text("Reviews", 10.5, ui.Semibold, colors.Faint))
+		var reviews []core.Node
+		for _, review := range detail.Reviews {
+			label := review.Author + " · " + strings.ToLower(review.State)
+			reviews = append(reviews, core.Text{Content: label, MaxLines: 1, Style: core.Style{FontSize: 10.5},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }})
+		}
+		fields = append(fields, core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: reviews})
+	}
+	var actions []core.Node
+	if pr.URL != "" {
+		actions = append(actions, ui.Button{Text: "Open on GitHub", Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			TestID: "pr-open-url", OnPress: func() { a.cx.OpenURL(pr.URL, nil) }})
+	}
+	if strings.EqualFold(pr.State, "open") {
+		if pr.Draft {
+			actions = append(actions, ui.Button{Text: "Ready", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+				TestID: "pr-action-ready", OnPress: func() { a.changePullRequestState("ready") }})
+		} else if detail.Mergeable == "MERGEABLE" || detail.Mergeable == "" {
+			for _, method := range []string{"merge", "squash", "rebase"} {
+				method := method
+				actions = append(actions, ui.Button{Text: strings.Title(method), Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+					TestID: "pr-merge-" + method, OnPress: func() { a.mergePullRequest(method) }})
+			}
+		}
+		actions = append(actions, ui.Button{Text: "Close", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			TestID: "pr-action-close", OnPress: func() { a.changePullRequestState("close") }})
+	} else {
+		actions = append(actions, ui.Button{Text: "Reopen", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+			TestID: "pr-action-reopen", OnPress: func() { a.changePullRequestState("reopen") }})
+	}
+	if len(actions) > 0 {
+		fields = append(fields, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4, Padding: core.Edges{Top: 4}}, Children: actions})
+	}
+	if strings.EqualFold(pr.State, "open") {
+		deleteLabel := "Keep branch"
+		if a.prDeleteBranch.Get() {
+			deleteLabel = "Delete branch"
+		}
+		fields = append(fields, ui.Button{Text: deleteLabel, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			TestID: "pr-delete-branch", OnPress: func() { a.prDeleteBranch.Set(!a.prDeleteBranch.GetUntracked()) }})
+	}
+	return core.View{Style: core.Style{Direction: core.Column, Gap: 8, Padding: core.All(10), FlexGrow: 1, MinHeight: core.Pt(0)},
+		Children: []core.Node{core.Scroll{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
+			core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: fields}}}}}
 }
 
 // rightPullRequest shows the branch's open pull request, or offers one.

@@ -81,9 +81,17 @@ type app struct {
 	editDraft       *core.Signal[string]
 	pullRequests    *core.Signal[[]proto.PullRequest]
 	prListDetail    *core.Signal[string]
+	prView          *core.Signal[proto.PullRequestDetail]
+	prViewNumber    *core.Signal[int]
+	prViewBusy      *core.Signal[bool]
+	prDeleteBranch  *core.Signal[bool]
 	showBranch      *core.Signal[bool]
 	showBranches    *core.Signal[bool]
 	branchName      *core.Signal[string]
+	promptName      *core.Signal[string]
+	promptArgValues *core.Signal[promptArgsState]
+	showPromptArgs  *core.Signal[bool]
+	promptArgsDefs  []proto.AgentCommandArgument
 	gitMessage      *core.Signal[string]
 	gitBusy         *core.Signal[bool]
 	gitNote         *core.Signal[string]
@@ -208,14 +216,23 @@ func newApp(cx *core.Scope) *app {
 		editDraft:    core.NewSignal(cx, ""),
 		pullRequests: sliceSignal[proto.PullRequest](cx),
 		prListDetail: core.NewSignal(cx, ""),
-		showBranch:   core.NewSignal(cx, false),
-		showBranches: core.NewSignal(cx, false),
-		branchName:   core.NewSignal(cx, ""),
-		gitMessage:   core.NewSignal(cx, ""),
-		gitBusy:      core.NewSignal(cx, false),
-		gitNote:      core.NewSignal(cx, ""),
-		gitPR:        core.NewSignal(cx, ""),
-		branches:     sliceSignal[proto.Branch](cx),
+		prView: core.NewSignalFunc(cx, proto.PullRequestDetail{}, func(a, b proto.PullRequestDetail) bool {
+			return a.PullRequest.Number == b.PullRequest.Number && a.PullRequest.State == b.PullRequest.State
+		}),
+		prViewNumber:    core.NewSignal(cx, 0),
+		prViewBusy:      core.NewSignal(cx, false),
+		prDeleteBranch:  core.NewSignal(cx, false),
+		showBranch:      core.NewSignal(cx, false),
+		showBranches:    core.NewSignal(cx, false),
+		branchName:      core.NewSignal(cx, ""),
+		promptName:      core.NewSignal(cx, ""),
+		promptArgValues: core.NewSignal(cx, promptArgsState{}),
+		showPromptArgs:  core.NewSignal(cx, false),
+		gitMessage:      core.NewSignal(cx, ""),
+		gitBusy:         core.NewSignal(cx, false),
+		gitNote:         core.NewSignal(cx, ""),
+		gitPR:           core.NewSignal(cx, ""),
+		branches:        sliceSignal[proto.Branch](cx),
 		pendingDelete: core.NewSignalFunc(cx, itemTarget{}, func(a, b itemTarget) bool {
 			return a == b
 		}),
@@ -856,6 +873,8 @@ func (a *app) selectThread(id string) {
 	a.prDetail.Set("")
 	a.pullRequests.Set(nil)
 	a.prListDetail.Set("")
+	a.prView.Set(proto.PullRequestDetail{})
+	a.prViewNumber.Set(0)
 	a.graph.Set(nil)
 	a.workingDiff.Set("")
 	a.workingFiles.Set(nil)
@@ -1989,6 +2008,44 @@ func (a *app) stagePath(path string, stage bool) {
 	})
 }
 
+// promptArgsState holds the values typed for a prompt's arguments.
+type promptArgsState struct {
+	Values [8]string
+	Count  int
+}
+
+// pickAgentCommand inserts a skill or custom command, asking for a
+// prompt's arguments first.
+func (a *app) pickAgentCommand(command proto.AgentCommand) {
+	if command.Kind != "prompt" || len(command.Arguments) == 0 {
+		a.setDraft("/" + command.Name + " ")
+		return
+	}
+	a.promptName.Set(command.Name)
+	a.promptArgsDefs = command.Arguments
+	count := len(command.Arguments)
+	if count > len(promptArgsState{}.Values) {
+		count = len(promptArgsState{}.Values)
+	}
+	a.promptArgValues.Set(promptArgsState{Count: count})
+	a.showPromptArgs.Set(true)
+}
+
+// submitPromptArgs inserts the prompt with the arguments that were typed.
+func (a *app) submitPromptArgs() {
+	state := a.promptArgValues.GetUntracked()
+	parts := []string{"/" + a.promptName.GetUntracked()}
+	for index := 0; index < state.Count && index < len(state.Values); index++ {
+		value := strings.TrimSpace(state.Values[index])
+		if value == "" {
+			continue
+		}
+		parts = append(parts, value)
+	}
+	a.setDraft(strings.Join(parts, " "))
+	a.showPromptArgs.Set(false)
+}
+
 // openNewBranch asks for a branch name.
 func (a *app) openNewBranch() {
 	a.branchName.Set("")
@@ -2037,6 +2094,80 @@ func (a *app) pullBranch() {
 		a.loadDetail(id)
 		a.loadBranches(id)
 		a.loadWorkingDiff(id)
+	})
+}
+
+// openPullRequest shows one pull request's detail.
+func (a *app) openPullRequest(number int) {
+	id := a.selected.GetUntracked()
+	if id == "" || number <= 0 {
+		return
+	}
+	a.prViewNumber.Set(number)
+	a.prViewBusy.Set(true)
+	a.call(func(ctx context.Context, c *client.Client) error {
+		detail, err := c.PullRequestDetail(ctx, id, number)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			a.prViewBusy.Set(false)
+			a.prView.Set(detail)
+		})
+		return nil
+	}, func(err error) {
+		a.prViewBusy.Set(false)
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// closePullRequest returns to the pull request list.
+func (a *app) closePullRequest() {
+	a.prViewNumber.Set(0)
+	a.prView.Set(proto.PullRequestDetail{})
+}
+
+// mergePullRequest merges the open pull request.
+func (a *app) mergePullRequest(method string) {
+	id := a.selected.GetUntracked()
+	number := a.prViewNumber.GetUntracked()
+	if id == "" || number <= 0 {
+		return
+	}
+	a.prViewBusy.Set(true)
+	a.call(func(ctx context.Context, c *client.Client) error {
+		return c.MergePullRequest(ctx, id, number, method, a.prDeleteBranch.GetUntracked())
+	}, func(err error) {
+		a.prViewBusy.Set(false)
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
+			return
+		}
+		a.openPullRequest(number)
+		a.loadPullRequests(id)
+	})
+}
+
+// changePullRequestState readies, drafts, closes or reopens the PR.
+func (a *app) changePullRequestState(action string) {
+	id := a.selected.GetUntracked()
+	number := a.prViewNumber.GetUntracked()
+	if id == "" || number <= 0 {
+		return
+	}
+	a.prViewBusy.Set(true)
+	a.call(func(ctx context.Context, c *client.Client) error {
+		return c.PullRequestAction(ctx, id, number, action)
+	}, func(err error) {
+		a.prViewBusy.Set(false)
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
+			return
+		}
+		a.openPullRequest(number)
+		a.loadPullRequests(id)
 	})
 }
 

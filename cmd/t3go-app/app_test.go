@@ -1654,3 +1654,134 @@ func TestUIBranchToolbar(t *testing.T) {
 	app.WaitForGone("id:new-branch-dialog", 10*time.Second)
 	app.WaitUntil(10*time.Second, func() bool { return git.Status(ctx, repo).Branch == "toolbar" })
 }
+
+// TestUILinkedPullRequest opens a linked pull request, reads its checks
+// and merges it through a fake gh.
+func TestUILinkedPullRequest(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "gh.log")
+	script := `#!/bin/sh
+case "$1 $2" in
+"pr list") echo '[{"number":7,"title":"Add feature","url":"https://github.com/acme/repo/pull/7","state":"OPEN","isDraft":false,"baseRefName":"main","headRefName":"feature"}]' ;;
+"pr view") echo '{"number":7,"title":"Add feature","url":"https://github.com/acme/repo/pull/7","state":"OPEN","isDraft":false,"baseRefName":"main","headRefName":"feature","body":"Body","author":{"login":"tk"},"reviewDecision":"APPROVED","mergeable":"MERGEABLE","additions":3,"deletions":1,"changedFiles":2,"statusCheckRollup":[{"__typename":"CheckRun","name":"test","conclusion":"SUCCESS","detailsUrl":"https://ci/1"}],"reviews":[{"author":{"login":"reviewer"},"state":"APPROVED","body":"LGTM"}]}' ;;
+*) echo "$@" >> "$GH_LOG" ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GH_LOG", logPath)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Repo", gitRepo(t))
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "PR", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1300, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:toggle-right-panel", 10*time.Second)
+	if !app.Exists("id:right-panel") {
+		app.Press("id:toggle-right-panel")
+	}
+	app.WaitFor("id:surface-add", 5*time.Second)
+	if !app.Exists("id:surface-linked") {
+		app.Press("id:surface-add")
+		app.Settle()
+	}
+	app.WaitFor("id:surface-linked", 5*time.Second)
+	app.Press("id:surface-linked")
+	app.WaitFor("id:open-linked-pr-7", 10*time.Second)
+	app.Press("id:open-linked-pr-7")
+	app.WaitFor("id:pr-merge-squash", 10*time.Second)
+	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:test")) > 0 })
+	app.Press("id:pr-merge-squash")
+	app.WaitUntil(10*time.Second, func() bool {
+		raw, err := os.ReadFile(logPath)
+		return err == nil && strings.Contains(string(raw), "pr merge 7 --squash")
+	})
+}
+
+// TestUIMCPPromptArguments asks for an MCP prompt's arguments before
+// inserting it into the composer.
+func TestUIMCPPromptArguments(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	mcp := filepath.Join(repo, "mcp.sh")
+	script := `#!/bin/sh
+while IFS= read -r line; do
+case "$line" in
+*'"method":"initialize"'*) printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"prompts":{}},"serverInfo":{"name":"fake","version":"1"}}}';;
+*'"method":"prompts/list"'*) printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"prompts":[{"name":"summarize","description":"Summarize with MCP","arguments":[{"name":"topic","description":"What to summarize","required":true},{"name":"style"}]}]}}';;
+esac
+done
+`
+	if err := os.WriteFile(mcp, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".mcp.json"),
+		[]byte(`{"mcpServers":{"fake":{"command":"`+mcp+`"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project, err := srv.Service.CreateProject(ctx, "Repo", repo)
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Prompts", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:composer-drop", 10*time.Second)
+
+	app.WaitUntil(20*time.Second, func() bool {
+		if app.Exists("id:agent-command-mcp-mcp__fake__summarize") {
+			return true
+		}
+		if !strings.Contains(app.Find("label:Message").Text, "/mcp") {
+			app.Clear("label:Message")
+			app.Type("label:Message", "/mcp")
+			app.Settle()
+		}
+		return app.Exists("id:agent-command-mcp-mcp__fake__summarize")
+	})
+	app.Press("id:agent-command-mcp-mcp__fake__summarize")
+	app.WaitFor("id:prompt-args-dialog", 10*time.Second)
+
+	for label, want := range map[string]string{"id:prompt-arg-topic": "release notes", "id:prompt-arg-style": "brief"} {
+		label, want := label, want
+		app.WaitUntil(10*time.Second, func() bool {
+			if app.Find(label).Text == want {
+				return true
+			}
+			app.Clear(label)
+			app.Type(label, want)
+			app.Settle()
+			return app.Find(label).Text == want
+		})
+	}
+	app.Press("id:confirm-prompt-args")
+	app.WaitForGone("id:prompt-args-dialog", 10*time.Second)
+	app.WaitUntil(5*time.Second, func() bool {
+		return app.Find("label:Message").Text == "/mcp__fake__summarize release notes brief"
+	})
+}

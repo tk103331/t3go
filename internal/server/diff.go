@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/tk/t3go/internal/git"
@@ -114,4 +115,61 @@ func (s *Server) handlePullRequests(w http.ResponseWriter, r *http.Request) {
 			BaseBranch: pr.BaseBranch, HeadBranch: pr.HeadBranch, State: pr.State, Draft: pr.Draft})
 	}
 	writeJSON(w, 200, map[string]any{"pullRequests": items})
+}
+
+// handlePullRequestDetail reads one pull request's checks and reviews.
+func (s *Server) handlePullRequestDetail(w http.ResponseWriter, r *http.Request) {
+	t, err := s.Store.Thread(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), "thread", err.Error())
+		return
+	}
+	number, err := strconv.Atoi(r.PathValue("number"))
+	if err != nil || number <= 0 {
+		writeError(w, 400, "pull request", "invalid number")
+		return
+	}
+	detail, err := git.PullRequestDetails(r.Context(), s.Service.ThreadDir(r.Context(), t), number)
+	if err != nil {
+		writeError(w, statusFor(err), "pull request", err.Error())
+		return
+	}
+	writeJSON(w, 200, detail)
+}
+
+// handlePullRequestMerge merges a pull request.
+func (s *Server) handlePullRequestMerge(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Method       string `json:"method"`
+		DeleteBranch bool   `json:"deleteBranch"`
+	}
+	_ = decodeJSON(r, &input)
+	s.pullRequestAction(w, r, "merge", input.Method, input.DeleteBranch)
+}
+
+// handlePullRequestAction readies, drafts, closes or reopens a pull request.
+func (s *Server) handlePullRequestAction(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Action string `json:"action"`
+	}
+	_ = decodeJSON(r, &input)
+	s.pullRequestAction(w, r, input.Action, "", false)
+}
+
+func (s *Server) pullRequestAction(w http.ResponseWriter, r *http.Request, action, method string, deleteBranch bool) {
+	t, err := s.Store.Thread(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), "thread", err.Error())
+		return
+	}
+	number, err := strconv.Atoi(r.PathValue("number"))
+	if err != nil || number <= 0 {
+		writeError(w, 400, "pull request", "invalid number")
+		return
+	}
+	if err := git.PullRequestAction(r.Context(), s.Service.ThreadDir(r.Context(), t), number, action, method, deleteBranch); err != nil {
+		writeError(w, statusFor(err), "pull request", err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
 }

@@ -703,3 +703,126 @@ func ListPullRequests(ctx context.Context, dir string) ([]PullRequest, error) {
 	}
 	return pulls, nil
 }
+
+// PullRequestDetails reads one pull request's checks, reviews and state.
+func PullRequestDetails(ctx context.Context, dir string, number int) (proto.PullRequestDetail, error) {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return proto.PullRequestDetail{}, ErrGHMissing
+	}
+	out, err := runGH(ctx, dir, "pr", "view", fmt.Sprint(number), "--json",
+		"number,title,url,state,isDraft,baseRefName,headRefName,body,author,reviewDecision,mergeable,additions,deletions,changedFiles,statusCheckRollup,reviews")
+	if err != nil {
+		return proto.PullRequestDetail{}, err
+	}
+	var raw struct {
+		Number      int    `json:"number"`
+		Title       string `json:"title"`
+		URL         string `json:"url"`
+		State       string `json:"state"`
+		IsDraft     bool   `json:"isDraft"`
+		BaseRefName string `json:"baseRefName"`
+		HeadRefName string `json:"headRefName"`
+		Body        string `json:"body"`
+		Author      struct {
+			Login string `json:"login"`
+		} `json:"author"`
+		ReviewDecision    string           `json:"reviewDecision"`
+		Mergeable         string           `json:"mergeable"`
+		Additions         int              `json:"additions"`
+		Deletions         int              `json:"deletions"`
+		ChangedFiles      int              `json:"changedFiles"`
+		StatusCheckRollup []map[string]any `json:"statusCheckRollup"`
+		Reviews           []struct {
+			Author struct {
+				Login string `json:"login"`
+			} `json:"author"`
+			State string `json:"state"`
+			Body  string `json:"body"`
+			URL   string `json:"url"`
+		} `json:"reviews"`
+	}
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		return proto.PullRequestDetail{}, fmt.Errorf("read pull request: %w", err)
+	}
+	detail := proto.PullRequestDetail{
+		PullRequest: proto.PullRequest{Number: raw.Number, Title: raw.Title, URL: raw.URL, State: raw.State,
+			Draft: raw.IsDraft, BaseBranch: raw.BaseRefName, HeadBranch: raw.HeadRefName},
+		Body: raw.Body, Author: raw.Author.Login, Mergeable: raw.Mergeable, ReviewDecision: raw.ReviewDecision,
+		Additions: raw.Additions, Deletions: raw.Deletions, ChangedFiles: raw.ChangedFiles,
+	}
+	for _, check := range raw.StatusCheckRollup {
+		name := stringField(check, "name")
+		if name == "" {
+			name = stringField(check, "context")
+		}
+		status := stringField(check, "conclusion")
+		if status == "" {
+			status = stringField(check, "state")
+		}
+		if status == "" {
+			status = stringField(check, "status")
+		}
+		url := stringField(check, "detailsUrl")
+		if url == "" {
+			url = stringField(check, "targetUrl")
+		}
+		detail.Checks = append(detail.Checks, proto.PullRequestCheck{Name: name, Status: checkStatus(status),
+			Description: stringField(check, "description"), URL: url, Required: boolField(check, "isRequired")})
+	}
+	for _, review := range raw.Reviews {
+		detail.Reviews = append(detail.Reviews, proto.PullRequestReview{Author: review.Author.Login,
+			State: review.State, Body: review.Body, URL: review.URL})
+	}
+	return detail, nil
+}
+
+func stringField(values map[string]any, key string) string {
+	value, _ := values[key].(string)
+	return value
+}
+
+func boolField(values map[string]any, key string) bool {
+	value, _ := values[key].(bool)
+	return value
+}
+
+// checkStatus normalizes GitHub's check states for the UI.
+func checkStatus(status string) string {
+	switch strings.ToLower(status) {
+	case "success", "passing", "completed":
+		return "success"
+	case "failure", "failed", "error", "timed_out", "cancelled", "action_required":
+		return "failure"
+	case "skipped", "neutral":
+		return "neutral"
+	case "pending", "queued", "in_progress", "expected":
+		return "pending"
+	}
+	return strings.ToLower(status)
+}
+
+// PullRequestAction merges or changes the state of a pull request.
+func PullRequestAction(ctx context.Context, dir string, number int, action, method string, deleteBranch bool) error {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return ErrGHMissing
+	}
+	var args []string
+	switch action {
+	case "merge":
+		if method != "merge" && method != "squash" && method != "rebase" {
+			method = "merge"
+		}
+		args = []string{"pr", "merge", fmt.Sprint(number), "--" + method}
+		if deleteBranch {
+			args = append(args, "--delete-branch")
+		}
+	case "ready", "close", "reopen":
+		args = []string{"pr", action, fmt.Sprint(number)}
+	case "draft":
+		args = []string{"pr", "ready", fmt.Sprint(number), "--undo"}
+	default:
+		return fmt.Errorf("unknown pull request action %q", action)
+	}
+	_, err := runGH(ctx, dir, args...)
+	return err
+}

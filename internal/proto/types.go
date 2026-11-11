@@ -224,11 +224,19 @@ type WorkingDiff struct {
 
 // AgentCommand is a workspace skill or custom command an agent CLI can run.
 type AgentCommand struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Kind        string                 `json:"kind"`
+	Source      string                 `json:"source"`
+	Path        string                 `json:"path,omitempty"`
+	Arguments   []AgentCommandArgument `json:"arguments,omitempty"`
+}
+
+// AgentCommandArgument is one argument an agent command accepts.
+type AgentCommandArgument struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	Kind        string `json:"kind"`
-	Source      string `json:"source"`
-	Path        string `json:"path,omitempty"`
+	Required    bool   `json:"required,omitempty"`
 }
 
 // WorkspaceEntry is a directory or file in a thread's checkout.
@@ -413,3 +421,34 @@ const (
 	WSPing        = "ping"
 	WSPong        = "pong"
 )
+
+// PullRequestCheck is one CI check on a pull request.
+type PullRequestCheck struct {
+	Name        string `json:"name"`
+	Status      string `json:"status"`
+	Description string `json:"description,omitempty"`
+	URL         string `json:"url,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
+// PullRequestReview is one review on a pull request.
+type PullRequestReview struct {
+	Author string `json:"author,omitempty"`
+	State  string `json:"state,omitempty"`
+	Body   string `json:"body,omitempty"`
+	URL    string `json:"url,omitempty"`
+}
+
+// PullRequestDetail is a pull request with its checks and reviews.
+type PullRequestDetail struct {
+	PullRequest    PullRequest         `json:"pullRequest"`
+	Body           string              `json:"body,omitempty"`
+	Author         string              `json:"author,omitempty"`
+	Mergeable      string              `json:"mergeable,omitempty"`
+	ReviewDecision string              `json:"reviewDecision,omitempty"`
+	Additions      int                 `json:"additions,omitempty"`
+	Deletions      int                 `json:"deletions,omitempty"`
+	ChangedFiles   int                 `json:"changedFiles,omitempty"`
+	Checks         []PullRequestCheck  `json:"checks,omitempty"`
+	Reviews        []PullRequestReview `json:"reviews,omitempty"`
+}

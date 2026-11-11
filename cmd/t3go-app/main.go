@@ -445,7 +445,7 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 func (a *app) dialogs(cx *core.Scope) core.Node {
 	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.runsDialog(cx),
 		a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx), a.approvalDialog(cx), a.discardDialog(cx),
-		a.editMessageDialog(cx), a.newBranchDialog(cx), a.branchesDialog(cx)}
+		a.editMessageDialog(cx), a.newBranchDialog(cx), a.branchesDialog(cx), a.promptArgsDialog(cx)}
 }
 
 // approvalDialog asks about the first tool call a supervised run is
@@ -767,6 +767,56 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 		}},
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 12, Padding: core.Edges{Right: 16}}, Children: fields}
+}
+
+// promptArgsDialog asks for the arguments of an MCP prompt.
+func (a *app) promptArgsDialog(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	defs := a.promptArgsDefs
+	var rows []core.Node
+	for index, arg := range defs {
+		index, arg := index, arg
+		label := arg.Name
+		if arg.Required {
+			label += " *"
+		}
+		placeholder := arg.Description
+		if placeholder == "" {
+			placeholder = "Value"
+		}
+		rows = append(rows, core.Dynamic(func(cx *core.Scope) core.Node {
+			return ui.Input{Input: base.Input{
+				Value: func() string {
+					state := a.promptArgValues.Get()
+					if index < len(state.Values) {
+						return state.Values[index]
+					}
+					return ""
+				},
+				OnChange: func(value string) {
+					state := a.promptArgValues.GetUntracked()
+					if index < len(state.Values) {
+						state.Values[index] = value
+						a.promptArgValues.Set(state)
+					}
+				},
+				Placeholder: placeholder, Label: label, TestID: "prompt-arg-" + arg.Name,
+			}}
+		}))
+	}
+	if len(rows) == 0 {
+		rows = append(rows, ui.Text("This prompt takes no arguments.", 11.5, ui.Regular, colors.Faint))
+	}
+	name := a.promptName.Get()
+	return ui.Dialog{Open: a.showPromptArgs.Get, OnOpenChange: closeDialog(a.showPromptArgs),
+		Title: "Run " + name, Description: "Fill in the prompt's arguments; empty ones are skipped.",
+		TestID: "prompt-args-dialog", Children: []core.Node{
+			core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: rows},
+		}, Footer: []core.Node{
+			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showPromptArgs.Set(false) }},
+			ui.Button{Text: "Insert", Variant: ui.ButtonPrimary, TestID: "confirm-prompt-args",
+				OnPress: a.submitPromptArgs},
+		}}
 }
 
 // branchesDialog switches, creates or pulls the thread's branch.
