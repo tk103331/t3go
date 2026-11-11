@@ -2157,8 +2157,30 @@ done
 	if err := os.WriteFile(mcp, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Method string `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		w.Header().Set("Content-Type", "application/json")
+		switch request.Method {
+		case "initialize":
+			w.Header().Set("Mcp-Session-Id", "sess-1")
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"prompts":{}},"serverInfo":{"name":"remote","version":"1"}}}`))
+		case "prompts/list":
+			if r.Header.Get("Mcp-Session-Id") != "sess-1" {
+				w.WriteHeader(400)
+				return
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"prompts\":[{\"name\":\"inspect\",\"description\":\"Inspect with remote MCP\"}]}}\n\n"))
+		default:
+			w.WriteHeader(202)
+		}
+	}))
+	t.Cleanup(remote.Close)
 	if err := os.WriteFile(filepath.Join(repo, ".mcp.json"),
-		[]byte(`{"mcpServers":{"fake":{"command":"`+mcp+`"}}}`), 0o644); err != nil {
+		[]byte(`{"mcpServers":{"fake":{"command":"`+mcp+`"},"remote":{"type":"http","url":"`+remote.URL+`"}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var project proto.Project
@@ -2173,7 +2195,7 @@ done
 	if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID+"/commands", nil, e.token, &result); code != http.StatusOK {
 		t.Fatalf("commands = %d", code)
 	}
-	var review, audit, prompt bool
+	var review, audit, prompt, remotePrompt bool
 	for _, command := range result.Commands {
 		if command.Name == "review" && command.Source == "claude" && command.Kind == "command" {
 			review = command.Description == "Review the change"
@@ -2184,8 +2206,11 @@ done
 		if command.Name == "mcp__fake__summarize" && command.Source == "mcp" && command.Kind == "prompt" {
 			prompt = command.Description == "Summarize with MCP"
 		}
+		if command.Name == "mcp__remote__inspect" && command.Source == "mcp" {
+			remotePrompt = command.Description == "Inspect with remote MCP"
+		}
 	}
-	if !review || !audit || !prompt {
+	if !review || !audit || !prompt || !remotePrompt {
 		t.Fatalf("commands = %#v", result.Commands)
 	}
 

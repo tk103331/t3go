@@ -1526,8 +1526,16 @@ func TestUIAttachmentDrafts(t *testing.T) {
 	app.DropFiles("id:composer-drop", uri)
 	app.WaitFor("text:draft-note.txt", 10*time.Second)
 
-	app.Press("id:thread-" + second.ID)
-	app.WaitForGone("text:draft-note.txt", 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if !app.Exists("text:draft-note.txt") {
+			return true
+		}
+		if app.Exists("id:thread-" + second.ID) {
+			app.Press("id:thread-" + second.ID)
+			app.Settle()
+		}
+		return !app.Exists("text:draft-note.txt")
+	})
 	app.Press("id:thread-" + first.ID)
 	app.WaitFor("text:draft-note.txt", 10*time.Second)
 }

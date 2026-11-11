@@ -148,7 +148,7 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
 | `GET /api/v1/threads/{id}/file?path=` | 读取文件内容（文本预览，含 MIME，二进制标记） |
 | `GET /api/v1/threads/{id}/raw?path=` | 直接读取文件字节，用于图片和外部打开 |
 | `GET /api/v1/threads/{id}/graph` | 所有分支/远程/标签的提交图（含父子关系与 refs） |
-| `GET /api/v1/threads/{id}/commands` | 工作区与用户目录中的 Claude/Codex/OpenCode Skills、自定义命令，以及本地（含 Codex TOML 配置）MCP servers 的 prompts |
+| `GET /api/v1/threads/{id}/commands` | 工作区与用户目录中的 Claude/Codex/OpenCode Skills、自定义命令，以及本地（含 Codex TOML 配置）与远程 HTTP（JSON/SSE）MCP servers 的 prompts |
 | `POST /api/v1/threads/{id}/terminal` | 启动或复用线程 checkout 中的登录 shell |
 | `GET/POST /api/v1/threads/{id}/terminals` | 列出 / 新建线程的终端会话 |
 | `DELETE /api/v1/terminals/{id}` | 结束一个终端会话 |
