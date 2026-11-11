@@ -1282,6 +1282,25 @@ func TestTerminalScrollbarStyles(t *testing.T) {
 	}
 }
 
+// TestTerminalThemes checks the terminal follows the app's appearance.
+func TestTerminalThemes(t *testing.T) {
+	dark := terminalPageFor("ws://terminal", true)
+	light := terminalPageFor("ws://terminal", false)
+	for _, want := range []string{`"background":"#1e1e1e"`, `"foreground":"#d4d4d4"`, "rgba(255,255,255,.28)"} {
+		if !strings.Contains(dark, want) {
+			t.Fatalf("dark terminal is missing %q", want)
+		}
+	}
+	for _, want := range []string{`"background":"#ffffff"`, `"foreground":"#24292f"`, "rgba(0,0,0,.25)"} {
+		if !strings.Contains(light, want) {
+			t.Fatalf("light terminal is missing %q", want)
+		}
+	}
+	if strings.Contains(light, "#1e1e1e") {
+		t.Fatal("the light terminal still uses the dark background")
+	}
+}
+
 // TestUIRightPanel opens the surfaces rail, browses a file, reads the
 // diff and finds the pull request surface.
 func TestUIRightPanel(t *testing.T) {
