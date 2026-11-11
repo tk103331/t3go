@@ -92,7 +92,6 @@ type app struct {
 	promptName      *core.Signal[string]
 	promptArgValues *core.Signal[promptArgsState]
 	showPromptArgs  *core.Signal[bool]
-	showShells      *core.Signal[bool]
 	promptArgsDefs  []proto.AgentCommandArgument
 	gitMessage      *core.Signal[string]
 	gitBusy         *core.Signal[bool]
@@ -231,12 +230,12 @@ func newApp(cx *core.Scope) *app {
 		promptName:      core.NewSignal(cx, ""),
 		promptArgValues: core.NewSignal(cx, promptArgsState{}),
 		showPromptArgs:  core.NewSignal(cx, false),
-		showShells:      core.NewSignal(cx, false),
-		gitMessage:      core.NewSignal(cx, ""),
-		gitBusy:         core.NewSignal(cx, false),
-		gitNote:         core.NewSignal(cx, ""),
-		gitPR:           core.NewSignal(cx, ""),
-		branches:        sliceSignal[proto.Branch](cx),
+
+		gitMessage: core.NewSignal(cx, ""),
+		gitBusy:    core.NewSignal(cx, false),
+		gitNote:    core.NewSignal(cx, ""),
+		gitPR:      core.NewSignal(cx, ""),
+		branches:   sliceSignal[proto.Branch](cx),
 		pendingDelete: core.NewSignalFunc(cx, itemTarget{}, func(a, b itemTarget) bool {
 			return a == b
 		}),
@@ -906,7 +905,7 @@ func (a *app) selectThread(id string) {
 	a.workingFiles.Set(nil)
 	a.terminalSession.Set(proto.TerminalSession{})
 	a.terminals.Set(nil)
-	a.showShells.Set(false)
+
 	a.terminalErr.Set("")
 	a.rightErr.Set("")
 	if surface := a.surface.GetUntracked(); surface != "" {
@@ -1748,42 +1747,6 @@ func (a *app) newTerminal() {
 }
 
 // selectTerminal makes one shell tab active.
-func (a *app) selectTerminal(session proto.TerminalSession) {
-	a.terminalSession.Set(session)
-}
-
-// closeTerminalTab ends one shell and moves to the next tab.
-func (a *app) closeTerminalTab(session proto.TerminalSession) {
-	id := a.selected.GetUntracked()
-	if id == "" {
-		return
-	}
-	a.call(func(ctx context.Context, c *client.Client) error {
-		_ = c.CloseTerminal(ctx, session.ID)
-		a.cx.Post(func() {
-			list := a.terminals.GetUntracked()
-			next := make([]proto.TerminalSession, 0, len(list))
-			for _, item := range list {
-				if item.ID != session.ID {
-					next = append(next, item)
-				}
-			}
-			active := a.terminalSession.GetUntracked()
-			if active.ID == session.ID {
-				if len(next) > 0 {
-					active = next[len(next)-1]
-				} else {
-					active = proto.TerminalSession{}
-				}
-			}
-			a.cx.Batch(func() {
-				a.terminals.Set(next)
-				a.terminalSession.Set(active)
-			})
-		})
-		return nil
-	}, nil)
-}
 
 // restartTerminal closes the active shell and starts a fresh one in its
 // place.

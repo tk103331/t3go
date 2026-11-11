@@ -712,42 +712,7 @@ func (a *app) rightTerminal(cx *core.Scope) core.Node {
 	}
 	sessions := a.terminals.Get()
 	session := a.terminalSession.Get()
-	var lead core.Node
-	if session.ID != "" {
-		label := shellName(session)
-		if len(sessions) > 1 {
-			label += fmt.Sprintf(" · %d", len(sessions))
-		}
-		lead = ui.Button{Text: label, Icon: lucide.Terminal, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-			Label: "Shells", TestID: "terminal-session-menu", OnPress: func() { a.showShells.Set(true) }}
-	} else {
-		lead = core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-			ui.Icon(lucide.Terminal, 13, colors.Muted),
-			core.Text{Content: "Terminal", Style: core.Style{FontSize: 11.5, FontWeight: ui.Semibold},
-				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-		}}
-	}
-	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
-		Padding: core.Edges{Top: 4, Right: 10, Bottom: 4, Left: 10}}, Children: []core.Node{
-		lead,
-		ui.Spacer{},
-		core.Show{When: func() bool { return a.terminalBusy.Get() }, Then: func(*core.Scope) core.Node {
-			return ui.Spinner{Size: 12, Label: "Starting terminal"}
-		}},
-		core.Show{When: func() bool { return session.ID != "" }, Then: func(*core.Scope) core.Node {
-			return ui.IconButton{Icon: lucide.X, Label: "Close shell", TestID: "terminal-close",
-				OnPress: func() {
-					if active := a.terminalSession.GetUntracked(); active.ID != "" {
-						a.closeTerminalTab(active)
-					}
-				}}
-		}},
-		ui.IconButton{Icon: lucide.Plus, Label: "New terminal", TestID: "terminal-new", OnPress: a.newTerminal},
-		ui.IconButton{Icon: lucide.RotateCcw, Label: "Restart terminal", TestID: "terminal-restart",
-			Disabled: func() bool { return a.terminalSession.Get().ID == "" },
-			OnPress:  a.restartTerminal},
-	}}
-	body := []core.Node{head}
+	body := []core.Node{}
 	if message := a.terminalErr.Get(); message != "" {
 		body = append(body, core.View{Style: core.Style{Padding: core.Symmetric(6, 10)}, Children: []core.Node{
 			core.Text{Content: message, MaxLines: 3, Style: core.Style{FontSize: 11.5},
@@ -766,7 +731,7 @@ func (a *app) rightTerminal(cx *core.Scope) core.Node {
 	switch {
 	case session.ID != "":
 		body = append(body, core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0),
-			Padding: core.Edges{Right: 8, Bottom: 8, Left: 8}}, Children: []core.Node{
+			Padding: core.Edges{Top: 6, Right: 8, Bottom: 8, Left: 8}}, Children: []core.Node{
 			core.WebView{TestID: "terminal-view", Style: ui.FillRest,
 				SourceFunc: func() core.WebSource { return core.WebHTML(a.terminalHTML(session.ID), "") },
 				OnMessage: func(data string) {
@@ -788,18 +753,6 @@ func (a *app) rightTerminal(cx *core.Scope) core.Node {
 	}
 	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Overflow: core.Hidden},
 		Children: body}
-}
-
-// shellName is a shell's tab label without the path.
-func shellName(session proto.TerminalSession) string {
-	name := filepath.Base(session.Shell)
-	if name == "" || name == "." || name == "/" {
-		name = session.Title
-	}
-	if name == "" {
-		name = "shell"
-	}
-	return name
 }
 
 // rightBrowser shows a web page with its address bar.

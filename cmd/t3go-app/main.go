@@ -445,8 +445,7 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 func (a *app) dialogs(cx *core.Scope) core.Node {
 	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.runsDialog(cx),
 		a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx), a.approvalDialog(cx), a.discardDialog(cx),
-		a.editMessageDialog(cx), a.newBranchDialog(cx), a.branchesDialog(cx), a.promptArgsDialog(cx),
-		a.shellsDialog(cx)}
+		a.editMessageDialog(cx), a.newBranchDialog(cx), a.branchesDialog(cx), a.promptArgsDialog(cx)}
 }
 
 // approvalDialog asks about the first tool call a supervised run is
@@ -852,46 +851,6 @@ func (a *app) branchesDialog(cx *core.Scope) core.Node {
 			ui.Button{Text: "New branch…", Icon: lucide.GitBranch, Variant: ui.ButtonSecondary, TestID: "branch-new",
 				OnPress: func() { a.showBranches.Set(false); a.openNewBranch() }},
 			ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: func() { a.showBranches.Set(false) }},
-		}}
-}
-
-// shellsDialog switches between a thread's terminal sessions.
-func (a *app) shellsDialog(cx *core.Scope) core.Node {
-	colors := ui.ColorsOf(cx)
-	sessions := a.terminals.Get()
-	active := a.terminalSession.Get().ID
-	var rows []core.Node
-	for i, session := range sessions {
-		session, i := session, i
-		label := shellName(session)
-		if session.Title != "" {
-			label += " · " + session.Title
-		}
-		if session.Exited {
-			label += " · exited"
-		}
-		if session.ID == active {
-			label += "  ✓"
-		}
-		rows = append(rows, ui.Button{Text: label, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-			TestID: fmt.Sprintf("shell-option-%d", i), Flex: 1, OnPress: func() {
-				a.showShells.Set(false)
-				a.selectTerminal(session)
-			}})
-	}
-	if len(rows) == 0 {
-		rows = append(rows, ui.Text("No shells open.", 11.5, ui.Regular, colors.Faint))
-	}
-	return ui.Dialog{Open: a.showShells.Get, OnOpenChange: closeDialog(a.showShells), Title: "Shells",
-		Description: "Switch the terminal's shell, or open another one.", TestID: "shells-dialog",
-		Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(280)}, Children: []core.Node{
-			core.View{Style: core.Style{Direction: core.Column, Gap: 3, Padding: core.Edges{Right: 12}}, Children: rows},
-		}}}, Footer: []core.Node{
-			ui.Button{Text: "Restart", Icon: lucide.RotateCcw, Variant: ui.ButtonGhost, TestID: "shell-restart",
-				OnPress: func() { a.showShells.Set(false); a.restartTerminal() }},
-			ui.Button{Text: "New shell", Icon: lucide.Plus, Variant: ui.ButtonSecondary, TestID: "shell-new",
-				OnPress: func() { a.showShells.Set(false); a.newTerminal() }},
-			ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: func() { a.showShells.Set(false) }},
 		}}
 }
 
