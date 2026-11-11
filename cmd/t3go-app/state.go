@@ -92,6 +92,7 @@ type app struct {
 	promptName      *core.Signal[string]
 	promptArgValues *core.Signal[promptArgsState]
 	showPromptArgs  *core.Signal[bool]
+	showShells      *core.Signal[bool]
 	promptArgsDefs  []proto.AgentCommandArgument
 	gitMessage      *core.Signal[string]
 	gitBusy         *core.Signal[bool]
@@ -230,6 +231,7 @@ func newApp(cx *core.Scope) *app {
 		promptName:      core.NewSignal(cx, ""),
 		promptArgValues: core.NewSignal(cx, promptArgsState{}),
 		showPromptArgs:  core.NewSignal(cx, false),
+		showShells:      core.NewSignal(cx, false),
 		gitMessage:      core.NewSignal(cx, ""),
 		gitBusy:         core.NewSignal(cx, false),
 		gitNote:         core.NewSignal(cx, ""),
@@ -904,6 +906,7 @@ func (a *app) selectThread(id string) {
 	a.workingFiles.Set(nil)
 	a.terminalSession.Set(proto.TerminalSession{})
 	a.terminals.Set(nil)
+	a.showShells.Set(false)
 	a.terminalErr.Set("")
 	a.rightErr.Set("")
 	if surface := a.surface.GetUntracked(); surface != "" {

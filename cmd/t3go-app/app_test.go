@@ -1407,18 +1407,32 @@ func TestUIRightPanel(t *testing.T) {
 	openPicker("surface-terminal")
 	app.Press("id:surface-terminal")
 	app.WaitFor("id:terminal-view", 15*time.Second)
-	app.WaitFor("id:terminal-tab-0", 5*time.Second)
+	app.WaitFor("id:terminal-session-menu", 5*time.Second)
 	app.WaitUntil(15*time.Second, func() bool {
-		if app.Exists("id:terminal-tab-1") {
+		if len(srv.Terminals.List(thread.ID)) > 1 {
 			return true
 		}
 		if app.Exists("id:terminal-new") {
 			app.Press("id:terminal-new")
 			app.Settle()
 		}
-		return app.Exists("id:terminal-tab-1")
+		return len(srv.Terminals.List(thread.ID)) > 1
 	})
 	app.WaitFor("id:terminal-view", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:shells-dialog") {
+			return true
+		}
+		if app.Exists("id:terminal-session-menu") {
+			app.Press("id:terminal-session-menu")
+			app.Settle()
+		}
+		return app.Exists("id:shells-dialog")
+	})
+	app.WaitFor("id:shell-option-0", 5*time.Second)
+	app.WaitFor("id:shell-option-1", 5*time.Second)
+	app.Press("id:shell-option-0")
+	app.WaitForGone("id:shells-dialog", 5*time.Second)
 
 	openPicker("surface-diff")
 	app.Press("id:surface-diff")
