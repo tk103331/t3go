@@ -467,10 +467,32 @@ func (c *Client) ShutdownDevice(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, path, map[string]any{}, nil)
 }
 
-// DeviceScreenshotURL is where the device surface loads a simulator's screen.
-func (c *Client) DeviceScreenshotURL(id string, nonce int) string {
-	return c.BaseURL + "/api/v1/devices/" + url.PathEscape(id) + "/screenshot?token=" +
-		url.QueryEscape(c.Token) + "&t=" + fmt.Sprint(nonce)
+// DeviceScreenshot reads a simulator's current screen as PNG bytes.
+func (c *Client) DeviceScreenshot(ctx context.Context, id string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.BaseURL+"/api/v1/devices/"+url.PathEscape(id)+"/screenshot", nil)
+	if err != nil {
+		return nil, err
+	}
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	h := c.HTTP
+	if h == nil {
+		h = &http.Client{}
+	}
+	resp, err := h.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, ErrUnauthorized
+	}
+	if resp.StatusCode >= 400 {
+		return nil, &APIError{Status: resp.StatusCode, Code: "device", Message: "could not read the device screen"}
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 }
 
 // PullRequestDetail reads one pull request's checks and reviews.

@@ -19,7 +19,7 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - Web 客户端：同一份 NSGo 代码用 `GOOS=js GOARCH=wasm` 构建，由 `t3go serve --web` 直接提供
 - `t3go` CLI：`serve`、`pair`、`doctor`、`version`
 - 交互式权限审批：supervised 模式下 Claude Code 通过本地 MCP 询问 T3Go 客户端，允许/拒绝工具调用
-- NSGo 客户端：连接页、项目/线程侧栏（线程预览与相对时间、运行/失败/未读状态、每线程草稿与 Draft 标记、固定线程、搜索、可折叠项目并记住状态）、右侧 Surfaces 面板（可拖动宽度、多 Tab；Browser 内嵌网页；Linked pull requests；Device 列出 iOS 模拟器、启动/关闭并预览截图；Side chat 隐藏线程继承主线程近况、独立问答；文件浏览与预览：Markdown 渲染、图片、JSON/文本、代码语法高亮（Chroma）、二进制外开；文件列表、文件内容、终端与 Git graph 均有可拖动滚动条；带行号和颜色标记的代码 Diff（文件列表、stage/discard、split view）、Git graph、Pull request；内置终端（PTY/ConPTY + xterm.js，无额外工具栏、明暗主题跟随、滚动条、退出提示与一键重启、重开回放）；Device/Side chat 预留）、聊天流（日期分隔、消息时间与复制、代码块复制、编辑/重试/分叉、run 用量页脚、思考/工具卡片与工具变更文件摘要、聊天内相对图片）、Composer 上下文（`@file` 提及与文件 chip、工作区 Skills/自定义命令、MCP prompts（含参数输入）与斜杠命令、粘贴图片/文件、图片附件缩略图、每线程附件草稿、内联 model/permission/plan 选择、plan 完成提示、上下文余量（provider 报告的窗口优先，其次模型目录））、新建/重命名/删除项目与线程、新建线程可选项目与 worktree 分支、线程归档与筛选、命令面板与快捷键、记住侧栏宽度与显隐、设置（General/Providers/Worktrees/Shortcuts/About 分区；环境名、默认 provider/model/权限、主题、provider 状态、登录状态与模型、一键安装/登录命令（在终端中执行）、worktree 列表）、运行历史与逐次 diff、顶部分支工具栏（切换/新建/pull）、Changes 对话框（提交/推送/PR/切分支）、运行中排队发送、附件（选择或拖入文件并随消息发送）、语音听写、审批对话框、断线重连提示、窄屏布局、错误提示条
+- NSGo 客户端：连接页、项目/线程侧栏（线程预览与相对时间、运行/失败/未读状态、每线程草稿与 Draft 标记、固定线程、搜索、可折叠项目并记住状态）、右侧 Surfaces 面板（可拖动宽度、多 Tab；Browser 内嵌网页；Linked pull requests；Device 列出 iOS 模拟器与 Android 模拟器、启动/关闭并自动刷新截图（可暂停）；Side chat 隐藏线程继承主线程近况、独立问答；文件浏览与预览：Markdown 渲染、图片、JSON/文本、代码语法高亮（Chroma）、二进制外开；文件列表、文件内容、终端与 Git graph 均有可拖动滚动条；带行号和颜色标记的代码 Diff（文件列表、stage/discard、split view）、Git graph、Pull request；内置终端（PTY/ConPTY + xterm.js，无额外工具栏、明暗主题跟随、滚动条、退出提示与一键重启、重开回放）；Device/Side chat 预留）、聊天流（日期分隔、消息时间与复制、代码块复制、编辑/重试/分叉、run 用量页脚、思考/工具卡片与工具变更文件摘要、聊天内相对图片）、Composer 上下文（`@file` 提及与文件 chip、工作区 Skills/自定义命令、MCP prompts（含参数输入）与斜杠命令、粘贴图片/文件、图片附件缩略图、每线程附件草稿、内联 model/permission/plan 选择、plan 完成提示、上下文余量（provider 报告的窗口优先，其次模型目录））、新建/重命名/删除项目与线程、新建线程可选项目与 worktree 分支、线程归档与筛选、命令面板与快捷键、记住侧栏宽度与显隐、设置（General/Providers/Worktrees/Shortcuts/About 分区；环境名、默认 provider/model/权限、主题、provider 状态、登录状态与模型、一键安装/登录命令（在终端中执行）、worktree 列表）、运行历史与逐次 diff、顶部分支工具栏（切换/新建/pull）、Changes 对话框（提交/推送/PR/切分支）、运行中排队发送、附件（选择或拖入文件并随消息发送）、语音听写、审批对话框、断线重连提示、窄屏布局、错误提示条
 - 测试：store、orchestrator（fake provider）、provider 流解析、HTTP/SSE/WS、Go 客户端、NSGo UI 集成
 
 尚未实现（有意留到后续）：
@@ -157,9 +157,9 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
 | `GET /api/v1/threads/{id}/pull-request` | 读取当前分支打开的 PR（经 `gh`） |
 | `POST /api/v1/threads/{id}/side-chat` | 创建或复用线程的隐藏 side chat |
 | `GET /api/v1/devices` | 列出本机可用的 iOS 模拟器 |
-| `POST /api/v1/devices/{id}/boot` | 启动模拟器 |
+| `POST /api/v1/devices/{id}/boot` | 启动 iOS 模拟器或 Android AVD |
 | `POST /api/v1/devices/{id}/shutdown` | 关闭模拟器 |
-| `GET /api/v1/devices/{id}/screenshot` | 读取模拟器当前画面（PNG） |
+| `GET /api/v1/devices/{id}/screenshot` | 读取模拟器当前画面（PNG，iOS/Android） |
 | `GET /api/v1/threads/{id}/pull-requests` | 列出当前分支的全部 PR |
 | `GET /api/v1/threads/{id}/pull-requests/{number}` | 读取 PR 详情、checks、reviews、comments |
 | `POST /api/v1/threads/{id}/pull-requests/{number}/merge` | 合并 PR（merge/squash/rebase，可删分支） |

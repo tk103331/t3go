@@ -2053,7 +2053,7 @@ list)
   ;;
 boot) touch "$DEVICE_STATE"; echo "boot $3" >> "$DEVICE_LOG" ;;
 shutdown) rm -f "$DEVICE_STATE"; echo "shutdown $3" >> "$DEVICE_LOG" ;;
-io) printf 'PNGDATA' > "$5" ;;
+io) echo io >> "$DEVICE_LOG"; printf 'PNGDATA' > "$5" ;;
 esac
 `
 	if err := os.WriteFile(filepath.Join(dir, "xcrun"), []byte(script), 0o755); err != nil {
@@ -2117,6 +2117,17 @@ esac
 		raw, err := os.ReadFile(logPath)
 		return err == nil && strings.Contains(string(raw), "boot 7E99F39F")
 	})
+	app.WaitUntil(15*time.Second, func() bool {
+		raw, err := os.ReadFile(logPath)
+		if err == nil && strings.Count(string(raw), "io") >= 2 {
+			return true
+		}
+		app.Advance(2100 * time.Millisecond)
+		app.Settle()
+		return false
+	})
+	app.WaitFor("id:device-live", 5*time.Second)
+	app.Press("id:device-live")
 	app.WaitUntil(15*time.Second, func() bool {
 		if _, err := os.Stat(state); os.IsNotExist(err) {
 			return true

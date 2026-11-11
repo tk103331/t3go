@@ -65,7 +65,9 @@ type app struct {
 	deviceSelected *core.Signal[string]
 	deviceBusy     *core.Signal[bool]
 	deviceErr      *core.Signal[string]
-	deviceShot     *core.Signal[int]
+	deviceImage    *core.Signal[[]byte]
+	deviceLive     *core.Signal[bool]
+	deviceTimer    func() bool
 	showDevices    *core.Signal[bool]
 
 	// the open thread
@@ -220,7 +222,8 @@ func newApp(cx *core.Scope) *app {
 		deviceSelected: core.NewSignal(cx, ""),
 		deviceBusy:     core.NewSignal(cx, false),
 		deviceErr:      core.NewSignal(cx, ""),
-		deviceShot:     core.NewSignal(cx, 0),
+		deviceImage:    sliceSignal[byte](cx),
+		deviceLive:     core.NewSignal(cx, true),
 		showDevices:    core.NewSignal(cx, false),
 
 		selected:         core.NewSignal(cx, ""),
@@ -2509,7 +2512,8 @@ func (a *app) loadDevices() {
 				a.deviceSelected.Set(next.ID)
 			}
 			if len(devices) > 0 {
-				a.deviceShot.Set(a.deviceShot.GetUntracked() + 1)
+				a.loadDeviceShot()
+				a.scheduleDeviceShot()
 			}
 		})
 		return nil
@@ -2524,7 +2528,36 @@ func (a *app) loadDevices() {
 func (a *app) selectDevice(device proto.Device) {
 	a.deviceSelected.Set(device.ID)
 	a.deviceErr.Set("")
-	a.deviceShot.Set(a.deviceShot.GetUntracked() + 1)
+	a.deviceImage.Set(nil)
+	if strings.ToLower(device.State) == "booted" {
+		a.loadDeviceShot()
+	}
+	a.scheduleDeviceShot()
+}
+
+// loadDeviceShot reads the selected simulator's screen.
+func (a *app) loadDeviceShot() {
+	id := a.deviceSelected.GetUntracked()
+	if id == "" {
+		return
+	}
+	a.call(func(ctx context.Context, c *client.Client) error {
+		shot, err := c.DeviceScreenshot(ctx, id)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			if a.deviceSelected.GetUntracked() == id {
+				a.deviceImage.Set(shot)
+				a.deviceErr.Set("")
+			}
+		})
+		return nil
+	}, func(err error) {
+		if err != nil {
+			a.deviceErr.Set(friendlyError(err))
+		}
+	})
 }
 
 // bootDevice starts a simulator and refreshes its screen.
@@ -2568,16 +2601,51 @@ func (a *app) shutdownDevice(id string) {
 
 // refreshDeviceShot reloads a booted simulator's screen.
 func (a *app) refreshDeviceShot() {
-	a.deviceShot.Set(a.deviceShot.GetUntracked() + 1)
+	a.loadDeviceShot()
+	a.scheduleDeviceShot()
 }
 
-// deviceScreenshotURL is where the device image loads from.
-func (a *app) deviceScreenshotURL(id string) string {
-	c := a.client()
-	if c == nil {
-		return ""
+// setDeviceLive turns the automatic screen refresh on or off.
+func (a *app) setDeviceLive(live bool) {
+	a.deviceLive.Set(live)
+	if a.deviceTimer != nil {
+		a.deviceTimer()
+		a.deviceTimer = nil
 	}
-	return c.DeviceScreenshotURL(id, a.deviceShot.GetUntracked())
+	if live {
+		a.loadDeviceShot()
+		a.scheduleDeviceShot()
+	}
+}
+
+// scheduleDeviceShot reloads a booted simulator's screen every few seconds
+// while the surface is open.
+func (a *app) scheduleDeviceShot() {
+	if a.deviceTimer != nil {
+		a.deviceTimer()
+		a.deviceTimer = nil
+	}
+	if !a.deviceLive.GetUntracked() {
+		return
+	}
+	a.deviceTimer = a.cx.AfterFunc(2*time.Second, func() {
+		a.deviceTimer = nil
+		if a.surface.GetUntracked() != "device" || !a.rightOpen.GetUntracked() {
+			return
+		}
+		id := a.deviceSelected.GetUntracked()
+		booted := false
+		for _, device := range a.devices.GetUntracked() {
+			if device.ID == id && device.State == "booted" {
+				booted = true
+			}
+		}
+		if id == "" || !booted {
+			return
+		}
+		a.loadDeviceShot()
+		a.scheduleDeviceShot()
+	})
 }
 
 // loadPullRequests lists the branch's pull requests.

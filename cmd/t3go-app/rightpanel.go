@@ -645,6 +645,17 @@ func (a *app) rightDevices(cx *core.Scope) core.Node {
 		core.Show{When: func() bool { return a.deviceBusy.Get() }, Then: func(*core.Scope) core.Node {
 			return ui.Spinner{Size: 12, Label: "Working with the simulator"}
 		}},
+		ui.IconButton{IconFunc: func() *core.SVG {
+			if a.deviceLive.Get() {
+				return lucide.Pause()
+			}
+			return lucide.Play()
+		}, LabelFunc: func() string {
+			if a.deviceLive.Get() {
+				return "Pause live screen"
+			}
+			return "Resume live screen"
+		}, TestID: "device-live", OnPress: func() { a.setDeviceLive(!a.deviceLive.GetUntracked()) }},
 		ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh devices", TestID: "devices-refresh",
 			OnPress: a.loadDevices},
 	}}
@@ -673,7 +684,7 @@ func (a *app) rightDevices(cx *core.Scope) core.Node {
 			Padding: core.Edges{Top: 2, Right: 10, Bottom: 10, Left: 10}}, Children: []core.Node{
 			core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Background: colors.Inset(),
 				CornerRadius: 8, Overflow: core.Hidden}, Children: []core.Node{
-				core.Image{Source: core.ImageSource{URI: a.deviceScreenshotURL(selected.ID)},
+				core.Image{Source: core.ImageSource{Data: a.deviceImage.Get()},
 					ResizeMode: core.Contain, Label: selected.Name + " screen", TestID: "device-screen",
 					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0),
 						Width: core.Pct(100)}},
