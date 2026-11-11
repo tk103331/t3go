@@ -8,8 +8,11 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/oneo-me/nsgo/base"
 	basediff "github.com/oneo-me/nsgo/base/diff"
+	"github.com/oneo-me/nsgo/base/textview"
+	tvhighlight "github.com/oneo-me/nsgo/base/textview/highlight"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
@@ -240,6 +243,18 @@ func (a *app) surfaceRow(cx *core.Scope, name, label string, icon func() *core.S
 		}}
 }
 
+// scrollWithBar puts a permanent bar over a scroll view.
+func (a *app) scrollWithBar(cx *core.Scope, ref *core.Ref, testID string, scroll core.Scroll) core.Node {
+	scroll.Ref = ref
+	scroll.HideIndicator = true
+	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
+		scroll,
+		ui.Scrollbar{Scroll: func() *core.Ref { return ref },
+			Mode:  func() base.ScrollbarMode { return base.ScrollbarAlways },
+			Label: "Scroll", TestID: testID},
+	}}
+}
+
 // rightFiles browses the thread's checkout and previews one file.
 func (a *app) rightFiles(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
@@ -284,13 +299,21 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 			if strings.EqualFold(filepath.Ext(selected), ".json") {
 				content = prettyFileJSON(content)
 			}
-			body = core.Text{Content: content, Selectable: core.SelectableOn,
-				Style:     core.Style{FontSize: 11.5, LineHeight: 16, FontFamily: "Menlo, monospace"},
-				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }}
+			if language := codeLanguage(selected); language != "" && len(content) < 400_000 {
+				body = core.View{TestID: "file-code", Style: core.Style{FlexGrow: 1}, Children: []core.Node{
+					ui.TextView{Document: textview.Document{Blocks: []textview.Block{
+						textview.CodeBlock{Language: language, Code: strings.TrimSuffix(content, "\n")}}},
+						Selectable: true, Highlighter: tvhighlight.New(cx)},
+				}}
+			} else {
+				body = core.Text{Content: content, Selectable: core.SelectableOn,
+					Style:     core.Style{FontSize: 11.5, LineHeight: 16, FontFamily: "Menlo, monospace"},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }}
+			}
 		}
 		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(10)}, Children: []core.Node{
 			head,
-			core.Scroll{Style: ui.FillRest, Children: []core.Node{body}},
+			a.scrollWithBar(cx, a.filesScroll, "files-scrollbar", core.Scroll{Style: ui.FillRest, Children: []core.Node{body}}),
 		}}
 	}
 	path := a.filesPath.Get()
@@ -351,7 +374,8 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 			return ui.Spinner{Size: 14, Label: "Loading files"}
 		}},
 		a.rightError(cx),
-		core.Scroll{Style: ui.FillRest, Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: rows}}},
+		a.scrollWithBar(cx, a.filesScroll, "files-list-scrollbar",
+			core.Scroll{Style: ui.FillRest, Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: rows}}}),
 	}}
 }
 
@@ -912,7 +936,7 @@ func (a *app) rightGraph(cx *core.Scope) core.Node {
 	}
 	commits := a.graph.Get()
 	view := commitgraph.View{Label: "Commits", TestID: "git-graph", Empty: ui.Text("No commits yet.", 12, ui.Regular, colors.Faint),
-		Style: ui.FillRest,
+		Style: ui.FillRest, Ref: a.graphScroll,
 		Commits: func() []commitgraph.Commit {
 			list := a.graph.Get()
 			out := make([]commitgraph.Commit, 0, len(list))
@@ -942,7 +966,12 @@ func (a *app) rightGraph(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(10)}, Children: []core.Node{
 		head,
 		a.rightError(cx),
-		core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Overflow: core.Hidden}, Children: []core.Node{view}},
+		core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Overflow: core.Hidden}, Children: []core.Node{
+			view,
+			ui.Scrollbar{Scroll: func() *core.Ref { return a.graphScroll },
+				Mode:  func() base.ScrollbarMode { return base.ScrollbarAlways },
+				Label: "Scroll commits", TestID: "git-graph-scrollbar"},
+		}},
 	}}
 }
 
@@ -1025,6 +1054,18 @@ func fileKind(path, mimeType string) string {
 		return "image"
 	}
 	return "text"
+}
+
+// codeLanguage names a file's lexer for highlighting, empty for plain text.
+func codeLanguage(path string) string {
+	lexer := lexers.Match(filepath.Base(path))
+	if lexer == nil {
+		return ""
+	}
+	if config := lexer.Config(); config != nil {
+		return config.Name
+	}
+	return ""
 }
 
 // markdownPreview points relative images at the checkout's raw file URL,

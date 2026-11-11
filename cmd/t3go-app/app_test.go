@@ -1274,6 +1274,14 @@ func TestUISidebarDraftsAndPins(t *testing.T) {
 	app.WaitForGone("id:pinned-"+first.ID, 5*time.Second)
 }
 
+// TestTerminalScrollbarStyles checks the embedded terminal styles its
+// scrollback bar.
+func TestTerminalScrollbarStyles(t *testing.T) {
+	if !strings.Contains(terminalPage, "xterm-viewport::-webkit-scrollbar") {
+		t.Fatal("the terminal page does not style its scrollbar")
+	}
+}
+
 // TestUIRightPanel opens the surfaces rail, browses a file, reads the
 // diff and finds the pull request surface.
 func TestUIRightPanel(t *testing.T) {
@@ -1368,8 +1376,11 @@ func TestUIRightPanel(t *testing.T) {
 	app.Press("id:surface-files")
 	app.WaitFor("id:surface-tab-files", 5*time.Second)
 	app.WaitFor("id:file-src", 5*time.Second)
+	app.WaitFor("id:files-list-scrollbar", 5*time.Second)
 	pressUntil("id:file-src", "id:file-src/app.go")
 	pressUntil("id:file-src/app.go", "text:package main")
+	app.WaitFor("id:file-code", 5*time.Second)
+	app.WaitFor("id:files-scrollbar", 5*time.Second)
 	pressUntil("id:file-back", "id:file-src/app.go")
 	pressUntil("id:files-up", "id:file-README.md")
 	pressUntil("id:file-README.md", "text:Preview title")
@@ -1447,6 +1458,7 @@ func TestUIRightPanel(t *testing.T) {
 	openPicker("surface-graph")
 	app.Press("id:surface-graph")
 	app.WaitFor("id:git-graph", 5*time.Second)
+	app.WaitFor("id:git-graph-scrollbar", 5*time.Second)
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:initial")) > 0 })
 	openPicker("surface-pr")
 	app.Press("id:surface-pr")

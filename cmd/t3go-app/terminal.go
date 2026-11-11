@@ -41,7 +41,13 @@ const terminalPage = `<!doctype html>
 <style>
   html,body{margin:0;padding:0;height:100%;background:#1e1e1e;overflow:hidden}
   #term{position:absolute;top:4px;right:2px;bottom:2px;left:6px}
-  .xterm .xterm-viewport{background:#1e1e1e !important}
+  .xterm .xterm-viewport{background:#1e1e1e !important;scrollbar-width:thin;
+    scrollbar-color:rgba(255,255,255,.28) transparent}
+  .xterm .xterm-viewport::-webkit-scrollbar{width:10px}
+  .xterm .xterm-viewport::-webkit-scrollbar-track{background:transparent}
+  .xterm .xterm-viewport::-webkit-scrollbar-thumb{background:rgba(255,255,255,.28);
+    border:2px solid #1e1e1e;border-radius:5px}
+  .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.45)}
 </style>
 </head>
 <body>

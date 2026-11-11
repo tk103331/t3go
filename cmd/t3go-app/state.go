@@ -46,6 +46,10 @@ type app struct {
 
 	showArchived *core.Signal[bool]
 
+	// scroll handles for surfaces that draw their own bars
+	filesScroll *core.Ref
+	graphScroll *core.Ref
+
 	// simulators
 	devices        *core.Signal[[]proto.Device]
 	deviceDetail   *core.Signal[string]
@@ -191,6 +195,8 @@ func newApp(cx *core.Scope) *app {
 		settings:  core.NewSignal(cx, proto.DefaultSettings()),
 
 		showArchived:   core.NewSignal(cx, false),
+		filesScroll:    &core.Ref{},
+		graphScroll:    &core.Ref{},
 		devices:        sliceSignal[proto.Device](cx),
 		deviceDetail:   core.NewSignal(cx, ""),
 		deviceSelected: core.NewSignal(cx, ""),
