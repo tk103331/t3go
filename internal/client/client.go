@@ -446,6 +446,16 @@ func (c *Client) PullBranch(ctx context.Context, threadID string) (string, strin
 	return out.Status, out.RefName, err
 }
 
+// PreviewServers lists the local development servers on the machine.
+func (c *Client) PreviewServers(ctx context.Context) ([]proto.PreviewServer, string, error) {
+	var out struct {
+		Servers []proto.PreviewServer `json:"servers"`
+		Detail  string                `json:"detail"`
+	}
+	err := c.do(ctx, http.MethodGet, "/api/v1/preview/servers", nil, &out)
+	return out.Servers, out.Detail, err
+}
+
 // Devices lists the environment's simulators.
 func (c *Client) Devices(ctx context.Context) ([]proto.Device, string, error) {
 	var out struct {

@@ -177,6 +177,15 @@ type Provider struct {
 	LoginCommand    string `json:"loginCommand,omitempty"`
 }
 
+// PreviewServer is a listening local server the app can open.
+type PreviewServer struct {
+	Port    int    `json:"port"`
+	PID     int    `json:"pid,omitempty"`
+	Process string `json:"process,omitempty"`
+	Address string `json:"address,omitempty"`
+	URL     string `json:"url"`
+}
+
 // Device is a simulator or emulator the environment can drive.
 type Device struct {
 	ID       string `json:"id"`

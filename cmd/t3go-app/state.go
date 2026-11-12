@@ -60,6 +60,12 @@ type app struct {
 	filesScroll *core.Ref
 	graphScroll *core.Ref
 
+	// local preview servers
+	previewServers *core.Signal[[]proto.PreviewServer]
+	previewDetail  *core.Signal[string]
+	previewErr     *core.Signal[string]
+	previewBusy    *core.Signal[bool]
+
 	// simulators
 	devices        *core.Signal[[]proto.Device]
 	deviceDetail   *core.Signal[string]
@@ -222,6 +228,10 @@ func newApp(cx *core.Scope) *app {
 		sideAttachments: sliceSignal[proto.Attachment](cx),
 		filesScroll:     &core.Ref{},
 		graphScroll:     &core.Ref{},
+		previewServers:  sliceSignal[proto.PreviewServer](cx),
+		previewDetail:   core.NewSignal(cx, ""),
+		previewErr:      core.NewSignal(cx, ""),
+		previewBusy:     core.NewSignal(cx, false),
 		devices:         sliceSignal[proto.Device](cx),
 		deviceDetail:    core.NewSignal(cx, ""),
 		deviceSelected:  core.NewSignal(cx, ""),
@@ -2240,6 +2250,8 @@ func (a *app) openSurface(name string) {
 		a.openTerminal()
 	case "linked":
 		a.loadPullRequests(a.selected.GetUntracked())
+	case "preview":
+		a.loadPreviewServers()
 	case "device":
 		a.loadDevices()
 	case "chat":
@@ -2674,6 +2686,40 @@ func (a *app) changePullRequestState(action string) {
 		a.openPullRequest(number)
 		a.loadPullRequests(id)
 	})
+}
+
+// loadPreviewServers lists local development servers to open.
+func (a *app) loadPreviewServers() {
+	a.previewBusy.Set(true)
+	a.previewErr.Set("")
+	a.call(func(ctx context.Context, c *client.Client) error {
+		servers, detail, err := c.PreviewServers(ctx)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			a.previewServers.Set(servers)
+			a.previewDetail.Set(detail)
+			a.previewBusy.Set(false)
+		})
+		return nil
+	}, func(err error) {
+		a.previewBusy.Set(false)
+		if err != nil {
+			a.previewErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// openPreviewServer opens a local server in the browser surface.
+func (a *app) openPreviewServer(url string) {
+	if url == "" {
+		return
+	}
+	a.browserURL.Set(url)
+	a.browserInput.Set(url)
+	a.browserNote.Set("")
+	a.openSurface("browser")
 }
 
 // loadDevices lists the environment's simulators.

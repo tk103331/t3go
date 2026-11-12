@@ -173,7 +173,7 @@ func (a *app) composerControls(cx *core.Scope) core.Node {
 			},
 			OnSelect: func() { a.setThreadModel(model) }})
 	}
-	touch := ui.Touch(cx)
+	touch := ui.Touch(cx) && cx.Env().Window().Width < 520
 	var model core.Node = ui.Text(modelLabel, 10.5, ui.Regular, colors.Faint)
 	if len(modelItems) > 0 {
 		trigger := ui.Button{Text: modelLabel, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Model"}

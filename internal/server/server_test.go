@@ -2509,3 +2509,25 @@ func TestSideChatContextAndVisibility(t *testing.T) {
 		t.Fatal("the side chat did not run")
 	}
 }
+
+func TestPreviewServers(t *testing.T) {
+	dir := t.TempDir()
+	script := `#!/bin/sh
+printf 'p123\ncnode\nn127.0.0.1:3000\np456\ncadmin\nn*:80\n'
+`
+	if err := os.WriteFile(filepath.Join(dir, "lsof"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	e := newTestEnv(t)
+	var out struct {
+		Servers []proto.PreviewServer `json:"servers"`
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/preview/servers", nil, e.token, &out); code != http.StatusOK {
+		t.Fatalf("preview servers = %d", code)
+	}
+	if len(out.Servers) != 1 || out.Servers[0].Port != 3000 || out.Servers[0].Process != "node" ||
+		out.Servers[0].URL != "http://localhost:3000" {
+		t.Fatalf("servers = %#v", out.Servers)
+	}
+}

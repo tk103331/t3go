@@ -1155,9 +1155,17 @@ func TestUITranscriptChrome(t *testing.T) {
 	app.WaitFor("id:branch-message-msg_reply", 5*time.Second)
 	app.Press("id:edit-message-msg_user")
 	app.WaitFor("id:edit-message-dialog", 5*time.Second)
-	app.Press("id:cancel-edit-message")
-	app.WaitForGone("id:edit-message-dialog", 5*time.Second)
-	app.WaitFor("id:composer-permission", 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if !app.Exists("id:edit-message-dialog") {
+			return true
+		}
+		if app.Exists("id:cancel-edit-message") {
+			app.Press("id:cancel-edit-message")
+			app.Settle()
+		}
+		return !app.Exists("id:edit-message-dialog")
+	})
+	app.WaitFor("id:composer-permission", 10*time.Second)
 	app.WaitFor("text:198.5k left", 5*time.Second)
 	app.WaitFor("text:Copy code", 5*time.Second)
 	app.WaitUntil(10*time.Second, func() bool {
@@ -1469,8 +1477,16 @@ func TestUIRightPanel(t *testing.T) {
 	app.WaitFor("id:code-diff", 5*time.Second)
 	app.Press("id:diff-stage-README.md")
 	app.WaitUntil(10*time.Second, func() bool { return git.StagedPaths(ctx, repo)["README.md"] })
-	app.Press("id:diff-discard-pic.png")
-	app.WaitFor("id:discard-dialog", 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:discard-dialog") {
+			return true
+		}
+		if app.Exists("id:diff-discard-pic.png") {
+			app.Press("id:diff-discard-pic.png")
+			app.Settle()
+		}
+		return app.Exists("id:discard-dialog")
+	})
 	app.WaitUntil(15*time.Second, func() bool {
 		if _, err := os.Stat(filepath.Join(repo, "pic.png")); os.IsNotExist(err) {
 			return true
@@ -2417,4 +2433,61 @@ func TestUINewThreadOptions(t *testing.T) {
 		return created.Branch == "t3go/test" && created.WorktreePath != "" &&
 			created.Provider == "side-fake" && created.Permission == proto.PermissionAuto
 	})
+}
+
+// TestUIPreviewServers lists a local server and opens it in the browser.
+func TestUIPreviewServers(t *testing.T) {
+	dir := t.TempDir()
+	script := `#!/bin/sh
+printf 'p123\ncnode\nn127.0.0.1:3000\n'
+`
+	if err := os.WriteFile(filepath.Join(dir, "lsof"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Repo", gitRepo(t))
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Preview", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:toggle-right-panel", 10*time.Second)
+	app.WaitUntil(15*time.Second, func() bool {
+		if app.Exists("id:surface-preview") {
+			return true
+		}
+		if app.Exists("id:surface-add") {
+			app.Press("id:surface-add")
+			app.Settle()
+		} else if app.Exists("id:toggle-right-panel") {
+			app.Press("id:toggle-right-panel")
+			app.Settle()
+		}
+		return app.Exists("id:surface-preview")
+	})
+	app.WaitUntil(20*time.Second, func() bool {
+		if app.Exists("id:preview-open-3000") {
+			return true
+		}
+		if app.Exists("id:surface-preview") {
+			app.Press("id:surface-preview")
+			app.Settle()
+		}
+		return app.Exists("id:preview-open-3000")
+	})
+	app.Press("id:preview-open-3000")
+	app.WaitFor("id:browser-view", 10*time.Second)
+	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Address").Text == "http://localhost:3000" })
 }

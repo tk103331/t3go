@@ -129,6 +129,8 @@ func surfaceTitle(name string) string {
 		return "Pull request"
 	case "browser":
 		return "Browser"
+	case "preview":
+		return "Preview"
 	case "terminal":
 		return "Terminal"
 	}
@@ -147,6 +149,8 @@ func surfaceIcon(name string) func() *core.SVG {
 		return lucide.GitPullRequest
 	case "browser":
 		return lucide.Globe
+	case "preview":
+		return lucide.MonitorPlay
 	case "linked":
 		return lucide.Link2
 	case "device":
@@ -172,6 +176,8 @@ func (a *app) rightBody(cx *core.Scope) core.Node {
 		return a.rightGraph(cx)
 	case "browser":
 		return a.rightBrowser(cx)
+	case "preview":
+		return a.rightPreview(cx)
 	case "terminal":
 		return a.rightTerminal(cx)
 	case "linked":
@@ -191,6 +197,7 @@ func (a *app) surfacePicker(cx *core.Scope) core.Node {
 	hasThread := thread != ""
 	rows := []core.Node{
 		a.surfaceRow(cx, "browser", "Browser", lucide.Globe, "B", true),
+		a.surfaceRow(cx, "preview", "Preview", lucide.MonitorPlay, "V", true),
 		a.surfaceRow(cx, "terminal", "Terminal", lucide.Terminal, "T", hasThread),
 		a.surfaceRow(cx, "files", "Files", lucide.Folder, "F", hasThread),
 		a.surfaceRow(cx, "diff", "Diff", lucide.GitCompare, "D", hasThread),
@@ -1044,6 +1051,63 @@ func (a *app) rightTerminal(cx *core.Scope) core.Node {
 	}
 	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Overflow: core.Hidden},
 		Children: body}
+}
+
+// rightPreview lists the local development servers to open.
+func (a *app) rightPreview(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	servers := a.previewServers.Get()
+	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
+		Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
+		core.Text{Content: fmt.Sprintf("Local servers · %d", len(servers)), MaxLines: 1,
+			Style:     core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+		core.Show{When: func() bool { return a.previewBusy.Get() }, Then: func(*core.Scope) core.Node {
+			return ui.Spinner{Size: 12, Label: "Looking for local servers"}
+		}},
+		ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh local servers", TestID: "preview-refresh",
+			OnPress: a.loadPreviewServers},
+	}}
+	var rows []core.Node
+	for _, server := range servers {
+		server := server
+		name := server.Process
+		if name == "" {
+			name = "Server"
+		}
+		rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+			Padding: core.Symmetric(6, 8), Background: colors.Inset(), CornerRadius: 7}, Children: []core.Node{
+			ui.Icon(lucide.MonitorPlay, 14, colors.Muted),
+			core.View{Style: core.Style{Direction: core.Column, Gap: 1, FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+				core.Text{Content: fmt.Sprintf("%s · %d", name, server.Port), MaxLines: 1,
+					Style:     core.Style{FontSize: 11.5, FontWeight: ui.Medium},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+				core.Text{Content: server.URL, MaxLines: 1, Style: core.Style{FontSize: 10, FontFamily: "Menlo, monospace"},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+			}},
+			ui.Button{Text: "Open", Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				TestID:  fmt.Sprintf("preview-open-%d", server.Port),
+				OnPress: func() { a.openPreviewServer(server.URL) }},
+		}})
+	}
+	if len(rows) == 0 {
+		detail := a.previewDetail.Get()
+		if detail == "" {
+			detail = "No local servers found. Start a dev server, then refresh."
+		}
+		rows = append(rows, core.Text{Content: detail, MaxLines: 5, Style: core.Style{FontSize: 11},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
+	}
+	return core.View{Style: core.Style{Direction: core.Column, Gap: 6, Padding: core.All(10), FlexGrow: 1, MinHeight: core.Pt(0)},
+		Children: []core.Node{head, a.rightError(cx),
+			core.Show{When: func() bool { return a.previewErr.Get() != "" }, Then: func(*core.Scope) core.Node {
+				return core.Text{Content: a.previewErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 10.5},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }}
+			}},
+			core.Scroll{Style: ui.FillRest, Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Column, Gap: 5}, Children: rows},
+			}},
+		}}
 }
 
 // rightBrowser shows a web page with its address bar.
