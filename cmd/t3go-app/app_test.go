@@ -2623,3 +2623,37 @@ func TestUIRestoreRun(t *testing.T) {
 		return err == nil && string(after) == string(before)
 	})
 }
+
+// TestUISettingsUsage shows token and cost totals.
+func TestUISettingsUsage(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Repo", gitRepo(t))
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Usage", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	ended := time.Now()
+	if err := srv.Store.CreateRun(ctx, proto.Run{ID: "run_usage_ui", ThreadID: thread.ID, Status: proto.RunCompleted,
+		Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess, StartedAt: ended.Add(-time.Second),
+		EndedAt: &ended, Usage: &proto.Usage{TotalTokens: 1500, CostUSD: 0.05}}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:settings", 15*time.Second)
+	app.Press("id:settings")
+	app.WaitFor("id:settings-nav-usage", 10*time.Second)
+	app.Press("id:settings-nav-usage")
+	app.WaitFor("id:usage-chart", 10*time.Second)
+	app.WaitFor("id:usage-provider-claude", 5*time.Second)
+	app.WaitFor("text:1.5k tokens", 5*time.Second)
+	app.WaitFor("text:Cost", 5*time.Second)
+}

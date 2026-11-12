@@ -177,6 +177,38 @@ type Provider struct {
 	LoginCommand    string `json:"loginCommand,omitempty"`
 }
 
+// UsageTotals is a token and cost total.
+type UsageTotals struct {
+	Runs   int     `json:"runs"`
+	Tokens int64   `json:"tokens"`
+	Cost   float64 `json:"costUsd"`
+}
+
+// UsageDay is one day's usage.
+type UsageDay struct {
+	Date   string  `json:"date"`
+	Runs   int     `json:"runs"`
+	Tokens int64   `json:"tokens"`
+	Cost   float64 `json:"costUsd"`
+}
+
+// UsageProvider is one provider's usage in the range.
+type UsageProvider struct {
+	Provider string  `json:"provider"`
+	Runs     int     `json:"runs"`
+	Tokens   int64   `json:"tokens"`
+	Cost     float64 `json:"costUsd"`
+}
+
+// UsageReport is the usage of a range of days.
+type UsageReport struct {
+	Days      []UsageDay      `json:"days"`
+	Providers []UsageProvider `json:"providers"`
+	Totals    UsageTotals     `json:"totals"`
+	DaysCount int             `json:"daysCount"`
+	Since     string          `json:"since"`
+}
+
 // PreviewServer is a listening local server the app can open.
 type PreviewServer struct {
 	Port    int    `json:"port"`

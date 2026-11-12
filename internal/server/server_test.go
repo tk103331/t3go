@@ -2578,3 +2578,34 @@ func TestRestoreRunCheckpoint(t *testing.T) {
 		t.Fatalf("restore result = %#v", out)
 	}
 }
+
+func TestUsageReport(t *testing.T) {
+	e := newTestEnv(t)
+	thread := e.thread(t, e.project(t).ID)
+	now := time.Now()
+	for _, run := range []proto.Run{
+		{ID: "run_usage_1", ThreadID: thread.ID, Status: proto.RunCompleted, Provider: "claude", Model: "m",
+			Permission: proto.PermissionFullAccess, StartedAt: now,
+			Usage: &proto.Usage{InputTokens: 80, OutputTokens: 20, TotalTokens: 100, CostUSD: 0.02}},
+		{ID: "run_usage_2", ThreadID: thread.ID, Status: proto.RunCompleted, Provider: "codex", Model: "m",
+			Permission: proto.PermissionFullAccess, StartedAt: now.AddDate(0, 0, -1),
+			Usage: &proto.Usage{InputTokens: 10, OutputTokens: 5}},
+	} {
+		if err := e.server.Store.CreateRun(context.Background(), run); err != nil {
+			t.Fatalf("run: %v", err)
+		}
+	}
+	var report proto.UsageReport
+	if code := e.request(t, http.MethodGet, "/api/v1/usage?days=7", nil, e.token, &report); code != http.StatusOK {
+		t.Fatalf("usage = %d", code)
+	}
+	if report.Totals.Runs != 2 || report.Totals.Tokens != 115 || report.Totals.Cost != 0.02 {
+		t.Fatalf("totals = %#v", report.Totals)
+	}
+	if len(report.Days) != 7 || len(report.Providers) != 2 {
+		t.Fatalf("report = %#v", report)
+	}
+	if report.Providers[0].Provider != "claude" || report.Providers[0].Tokens != 100 {
+		t.Fatalf("providers = %#v", report.Providers)
+	}
+}

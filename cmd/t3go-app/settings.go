@@ -19,6 +19,7 @@ type settingsNavItem struct {
 var settingsNav = []settingsNavItem{
 	{ID: "general", Label: "General", Icon: lucide.Settings},
 	{ID: "providers", Label: "Providers", Icon: lucide.Bot},
+	{ID: "usage", Label: "Usage", Icon: lucide.ChartColumn},
 	{ID: "worktrees", Label: "Worktrees", Icon: lucide.GitBranch},
 	{ID: "shortcuts", Label: "Shortcuts", Icon: lucide.Keyboard},
 	{ID: "about", Label: "About", Icon: lucide.Info},
@@ -63,6 +64,8 @@ func (a *app) settingsBody(cx *core.Scope) core.Node {
 	switch section {
 	case "providers":
 		page = a.settingsProviders(cx)
+	case "usage":
+		page = a.settingsUsage(cx)
 	case "worktrees":
 		page = a.settingsWorktrees(cx)
 	case "shortcuts":
@@ -198,6 +201,100 @@ func (a *app) settingsProviders(cx *core.Scope) core.Node {
 			ui.Spacer{}, refresh,
 		}},
 		core.View{Style: core.Style{Direction: core.Column, Gap: 6}, Children: cards},
+	}}
+}
+
+// settingsUsage summarizes token and cost usage.
+func (a *app) settingsUsage(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	report := a.usageReport.Get()
+	days := a.usageDays.Get()
+	var ranges []core.Node
+	for _, option := range []int{7, 30, 90} {
+		option := option
+		variant := ui.ButtonSecondary
+		if option == days {
+			variant = ui.ButtonPrimary
+		}
+		ranges = append(ranges, ui.Button{Text: fmt.Sprintf("%dd", option), Variant: variant, Size: ui.SizeSmall,
+			TestID: fmt.Sprintf("settings-usage-%d", option), OnPress: func() { a.loadUsage(option) }})
+	}
+	totals := core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
+		a.usageCard(cx, "Runs", fmt.Sprint(report.Totals.Runs)),
+		a.usageCard(cx, "Tokens", humanTokens(report.Totals.Tokens)),
+		a.usageCard(cx, "Cost", fmt.Sprintf("$%.2f", report.Totals.Cost)),
+	}}
+	var max int64
+	for _, day := range report.Days {
+		if day.Tokens > max {
+			max = day.Tokens
+		}
+	}
+	var bars []core.Node
+	for _, day := range report.Days {
+		day := day
+		height := 2.0
+		if max > 0 && day.Tokens > 0 {
+			height = 4 + 96*float64(day.Tokens)/float64(max)
+		}
+		bar := core.View{TestID: "usage-bar-" + day.Date, Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(2),
+			Height: core.Pt(core.Points(height)), CornerRadius: 2, Background: ui.Alpha(colors.Accent(), 0.55),
+			AlignSelf: core.AlignEnd}, StyleFunc: func() core.Style {
+			return core.Style{Background: ui.Alpha(colors.Accent(), 0.55)}
+		}}
+		bars = append(bars, bar)
+	}
+	chart := core.View{TestID: "usage-chart", Style: core.Style{Direction: core.Row, AlignItems: core.AlignEnd,
+		Gap: 2, Height: core.Pt(104), Padding: core.Edges{Top: 4}}, Children: bars}
+	var providers []core.Node
+	for _, provider := range report.Providers {
+		providers = append(providers, core.View{TestID: "usage-provider-" + provider.Provider,
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(5, 6),
+				Background: colors.Inset(), CornerRadius: 6}, Children: []core.Node{
+				core.Text{Content: provider.Provider, MaxLines: 1, Style: core.Style{FontSize: 11.5, FontWeight: ui.Medium, FlexGrow: 1},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+				core.Text{Content: fmt.Sprintf("%d runs", provider.Runs), Style: core.Style{FontSize: 10.5},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+				core.Text{Content: humanTokens(provider.Tokens) + " tokens", Style: core.Style{FontSize: 10.5},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+				core.Text{Content: fmt.Sprintf("$%.2f", provider.Cost), Style: core.Style{FontSize: 10.5},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+			}})
+	}
+	var body []core.Node
+	body = append(body, settingsSectionTitle(cx, "Usage", "Tokens and cost of the runs this environment recorded."),
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
+			ui.Text(report.Since+" – today", 11, ui.Regular, colors.Faint), ui.Spacer{},
+			core.Show{When: func() bool { return a.usageBusy.Get() }, Then: func(*core.Scope) core.Node {
+				return ui.Spinner{Size: 12, Label: "Loading usage"}
+			}},
+			core.View{Style: core.Style{Direction: core.Row, Gap: 4}, Children: ranges},
+		}},
+		totals)
+	if report.Totals.Runs > 0 {
+		body = append(body, chart)
+	} else {
+		body = append(body, ui.Text("No usage recorded in this range.", 11.5, ui.Regular, colors.Faint))
+	}
+	if a.usageErr.Get() != "" {
+		body = append(body, ui.Text(a.usageErr.Get(), 11, ui.Regular, colors.Danger))
+	}
+	if len(providers) > 0 {
+		body = append(body, ui.Text("Providers", 11, ui.Semibold, colors.Muted))
+		body = append(body, core.View{Style: core.Style{Direction: core.Column, Gap: 4}, Children: providers})
+	}
+	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: body}
+}
+
+// usageCard is one total in the usage page.
+func (a *app) usageCard(cx *core.Scope, label, value string) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.View{Style: core.Style{FlexGrow: 1, Gap: 1, Padding: core.Symmetric(8, 10), Background: colors.Inset(),
+		CornerRadius: 7}, Children: []core.Node{
+		core.Text{Content: value, Style: core.Style{FontSize: 16, FontWeight: ui.Semibold},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+		core.Text{Content: label, Style: core.Style{FontSize: 10.5},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 	}}
 }
 

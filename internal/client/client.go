@@ -457,6 +457,14 @@ func (c *Client) PullBranch(ctx context.Context, threadID string) (string, strin
 	return out.Status, out.RefName, err
 }
 
+// Usage summarizes runs over the last days.
+func (c *Client) Usage(ctx context.Context, days int) (proto.UsageReport, error) {
+	var out proto.UsageReport
+	path := "/api/v1/usage?days=" + fmt.Sprint(days)
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out, err
+}
+
 // PreviewServers lists the local development servers on the machine.
 func (c *Client) PreviewServers(ctx context.Context) ([]proto.PreviewServer, string, error) {
 	var out struct {

@@ -68,6 +68,12 @@ type app struct {
 	filesScroll *core.Ref
 	graphScroll *core.Ref
 
+	// usage
+	usageReport *core.Signal[proto.UsageReport]
+	usageDays   *core.Signal[int]
+	usageBusy   *core.Signal[bool]
+	usageErr    *core.Signal[string]
+
 	// local preview servers
 	previewServers *core.Signal[[]proto.PreviewServer]
 	previewDetail  *core.Signal[string]
@@ -244,6 +250,10 @@ func newApp(cx *core.Scope) *app {
 		sideAttachments: sliceSignal[proto.Attachment](cx),
 		filesScroll:     &core.Ref{},
 		graphScroll:     &core.Ref{},
+		usageReport:     core.NewSignalFunc(cx, proto.UsageReport{}, func(a, b proto.UsageReport) bool { return false }),
+		usageDays:       core.NewSignal(cx, 30),
+		usageBusy:       core.NewSignal(cx, false),
+		usageErr:        core.NewSignal(cx, ""),
 		previewServers:  sliceSignal[proto.PreviewServer](cx),
 		previewDetail:   core.NewSignal(cx, ""),
 		previewErr:      core.NewSignal(cx, ""),
@@ -2848,6 +2858,32 @@ func (a *app) changePullRequestState(action string) {
 	})
 }
 
+// loadUsage reads the token and cost usage of the last days.
+func (a *app) loadUsage(days int) {
+	if days <= 0 {
+		days = 30
+	}
+	a.usageDays.Set(days)
+	a.usageBusy.Set(true)
+	a.usageErr.Set("")
+	a.call(func(ctx context.Context, c *client.Client) error {
+		report, err := c.Usage(ctx, days)
+		if err != nil {
+			return err
+		}
+		a.cx.Post(func() {
+			a.usageReport.Set(report)
+			a.usageBusy.Set(false)
+		})
+		return nil
+	}, func(err error) {
+		a.usageBusy.Set(false)
+		if err != nil {
+			a.usageErr.Set(friendlyError(err))
+		}
+	})
+}
+
 // loadPreviewServers lists local development servers to open.
 func (a *app) loadPreviewServers() {
 	a.previewBusy.Set(true)
@@ -3571,6 +3607,9 @@ func (a *app) commandItems() []base.CommandItem {
 func (a *app) setSettingsSection(name string) {
 	a.settingsSection.Set(name)
 	_ = a.store.SetItem("settingsSection", name)
+	if name == "usage" {
+		a.loadUsage(a.usageDays.GetUntracked())
+	}
 }
 
 // openSettings starts a draft from the environment's settings, so closing
@@ -3583,6 +3622,9 @@ func (a *app) openSettings() {
 	// the rest of the dialog on every keystroke.
 	a.settingsTitle.Set(s.Title)
 	a.showSettings.Set(true)
+	if a.settingsSection.GetUntracked() == "usage" {
+		a.loadUsage(a.usageDays.GetUntracked())
+	}
 }
 
 func (a *app) closeSettings() {

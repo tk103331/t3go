@@ -357,6 +357,40 @@ func (s *Store) UpdateThread(ctx context.Context, t proto.Thread) error {
 }
 
 // DeleteThread removes a thread and its history.
+// UsageEntry is one run's provider and usage for the usage report.
+type UsageEntry struct {
+	Provider  string
+	StartedAt time.Time
+	Usage     *proto.Usage
+}
+
+// UsageEntries lists runs started since a time, with their usage.
+func (s *Store) UsageEntries(ctx context.Context, since time.Time) ([]UsageEntry, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT provider, started_at, usage FROM runs WHERE started_at>=?`,
+		since.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []UsageEntry
+	for rows.Next() {
+		var entry UsageEntry
+		var started, usage string
+		if err := rows.Scan(&entry.Provider, &started, &usage); err != nil {
+			return nil, err
+		}
+		entry.StartedAt = parseTime(started)
+		if usage != "" {
+			var u proto.Usage
+			if json.Unmarshal([]byte(usage), &u) == nil {
+				entry.Usage = &u
+			}
+		}
+		out = append(out, entry)
+	}
+	return out, rows.Err()
+}
+
 // SideChat returns the newest side chat of a parent thread.
 func (s *Store) SideChat(ctx context.Context, parentID string) (proto.Thread, bool, error) {
 	t, err := scanThread(s.db.QueryRowContext(ctx, `SELECT `+threadColumns()+
