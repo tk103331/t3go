@@ -2609,3 +2609,43 @@ func TestUsageReport(t *testing.T) {
 		t.Fatalf("providers = %#v", report.Providers)
 	}
 }
+
+func TestOpenEditor(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "editor.log")
+	script := `#!/bin/sh
+echo "$@" >> "$EDITOR_LOG"
+`
+	if err := os.WriteFile(filepath.Join(dir, "zed"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("EDITOR_LOG", logPath)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	e := newTestEnv(t)
+	repo := upstreamGitRepo(t)
+	var project proto.Project
+	if code := e.request(t, http.MethodPost, "/api/v1/projects",
+		map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
+		t.Fatalf("project = %d", code)
+	}
+	thread := e.thread(t, project.ID)
+	path := "/api/v1/threads/" + thread.ID + "/open-editor"
+	if code := e.request(t, http.MethodPost, path, map[string]string{"editor": "zed"}, e.token, nil); code != http.StatusOK {
+		t.Fatalf("open editor = %d", code)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		raw, err := os.ReadFile(logPath)
+		if err == nil && strings.Contains(string(raw), repo) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	raw, _ := os.ReadFile(logPath)
+	if !strings.Contains(string(raw), repo) {
+		t.Fatalf("editor log = %q", raw)
+	}
+	if code := e.request(t, http.MethodPost, path, map[string]string{"editor": "nope"}, e.token, nil); code != http.StatusBadRequest {
+		t.Fatalf("bad editor = %d", code)
+	}
+}

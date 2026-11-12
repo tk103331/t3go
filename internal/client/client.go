@@ -294,6 +294,12 @@ func (c *Client) Stop(ctx context.Context, threadID string) (bool, error) {
 	return out.Stopped, err
 }
 
+// OpenEditor opens a thread's checkout in an editor.
+func (c *Client) OpenEditor(ctx context.Context, threadID, editor string) error {
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/open-editor"
+	return c.do(ctx, http.MethodPost, path, map[string]string{"editor": editor}, nil)
+}
+
 // RestoreRun puts the checkout's tracked files back to a run's checkpoint.
 func (c *Client) RestoreRun(ctx context.Context, threadID, runID string) (proto.GitStatus, string, error) {
 	var out struct {

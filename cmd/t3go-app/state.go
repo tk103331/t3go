@@ -68,6 +68,9 @@ type app struct {
 	filesScroll *core.Ref
 	graphScroll *core.Ref
 
+	// editor
+	editorChoice *core.Signal[string]
+
 	// usage
 	usageReport *core.Signal[proto.UsageReport]
 	usageDays   *core.Signal[int]
@@ -250,6 +253,7 @@ func newApp(cx *core.Scope) *app {
 		sideAttachments: sliceSignal[proto.Attachment](cx),
 		filesScroll:     &core.Ref{},
 		graphScroll:     &core.Ref{},
+		editorChoice:    core.NewSignal(cx, "auto"),
 		usageReport:     core.NewSignalFunc(cx, proto.UsageReport{}, func(a, b proto.UsageReport) bool { return false }),
 		usageDays:       core.NewSignal(cx, 30),
 		usageBusy:       core.NewSignal(cx, false),
@@ -392,6 +396,9 @@ func newApp(cx *core.Scope) *app {
 	}
 	if raw, ok := a.store.GetItem("rightOpen"); ok {
 		a.rightOpen.Set(raw != "false")
+	}
+	if raw, ok := a.store.GetItem("editorChoice"); ok && strings.TrimSpace(raw) != "" {
+		a.editorChoice.Set(strings.TrimSpace(raw))
 	}
 	if raw, ok := a.store.GetItem("customModels"); ok {
 		var models map[string][]proto.Model
@@ -909,6 +916,29 @@ func upsertProto(list []proto.Message, message proto.Message) []proto.Message {
 		}
 	}
 	return append(next, message)
+}
+
+// setEditor remembers where Open in editor sends a checkout.
+func (a *app) setEditor(choice string) {
+	a.editorChoice.Set(choice)
+	_ = a.store.SetItem("editorChoice", choice)
+}
+
+// openInEditor opens the selected thread's checkout in the editor.
+func (a *app) openInEditor() {
+	id := a.selected.GetUntracked()
+	if id == "" {
+		return
+	}
+	a.connErr.Set("")
+	choice := a.editorChoice.GetUntracked()
+	a.call(func(ctx context.Context, c *client.Client) error {
+		return c.OpenEditor(ctx, id, choice)
+	}, func(err error) {
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
+		}
+	})
 }
 
 // allModels is the providers' models plus the app's custom ones.

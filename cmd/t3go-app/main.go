@@ -377,6 +377,7 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 		ui.IconButton{Icon: lucide.Trash, Label: "Delete thread", TestID: "delete-thread",
 			OnPress: func() { a.askDeleteThread(d.Thread) }},
 		ui.IconButton{Icon: lucide.Clock3, Label: "Run history", TestID: "history", OnPress: a.openRuns},
+		ui.IconButton{Icon: lucide.CodeXml, Label: "Open in editor", TestID: "open-editor", OnPress: a.openInEditor},
 		ui.IconButton{Icon: lucide.GitCompare, Label: "Changes in this thread", TestID: "open-diff", OnPress: a.openDiff},
 		a.rightToggle(),
 	}}
@@ -787,6 +788,16 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 				update(func(s *proto.Settings) { s.Theme = theme })
 			}})
 	}
+	var editorButtons []core.Node
+	for _, choice := range []string{"auto", "zed", "code", "cursor", "finder"} {
+		choice := choice
+		variant := ui.ButtonSecondary
+		if choice == a.editorChoice.Get() {
+			variant = ui.ButtonPrimary
+		}
+		editorButtons = append(editorButtons, ui.Button{Text: choice, Variant: variant, Size: ui.SizeSmall,
+			TestID: "settings-editor-" + choice, OnPress: func() { a.setEditor(choice) }})
+	}
 	fields := []core.Node{
 		ui.Input{Input: base.Input{Value: a.settingsTitle.Get, OnChange: a.settingsTitle.Set,
 			Placeholder: "Environment name", Label: "Environment name"}},
@@ -798,6 +809,8 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: permButtons},
 		ui.Text("Theme", 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: themeButtons},
+		ui.Text("Editor", 11, ui.Semibold, colors.Muted),
+		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: editorButtons},
 		core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{
 			core.Text{Content: "Server", Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 			core.Text{Content: a.serverURL.Get(), MaxLines: 1, Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},

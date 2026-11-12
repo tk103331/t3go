@@ -2657,3 +2657,62 @@ func TestUISettingsUsage(t *testing.T) {
 	app.WaitFor("text:1.5k tokens", 5*time.Second)
 	app.WaitFor("text:Cost", 5*time.Second)
 }
+
+// TestUIOpenEditor sets the editor and opens the thread's checkout.
+func TestUIOpenEditor(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "editor.log")
+	script := `#!/bin/sh
+echo "$@" >> "$EDITOR_LOG"
+`
+	if err := os.WriteFile(filepath.Join(dir, "zed"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("EDITOR_LOG", logPath)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	project, err := srv.Service.CreateProject(ctx, "Repo", repo)
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Editor", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:settings", 10*time.Second)
+	app.WaitUntil(15*time.Second, func() bool {
+		if app.Exists("id:settings-nav-general") {
+			return true
+		}
+		if app.Exists("id:settings") {
+			app.Press("id:settings")
+			app.Settle()
+		}
+		return app.Exists("id:settings-nav-general")
+	})
+	app.WaitFor("id:settings-editor-zed", 5*time.Second)
+	app.Press("id:settings-editor-zed")
+	app.Press("text:Close")
+	app.WaitForGone("id:settings-dialog", 5*time.Second)
+	app.WaitUntil(30*time.Second, func() bool {
+		raw, err := os.ReadFile(logPath)
+		if err == nil && strings.Contains(string(raw), repo) {
+			return true
+		}
+		if app.Exists("id:open-editor") {
+			app.Press("id:open-editor")
+			app.Settle()
+		}
+		return false
+	})
+}

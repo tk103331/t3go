@@ -217,6 +217,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/threads/{id}/retry", s.auth(s.handleRetry))
 	mux.HandleFunc("POST /api/v1/threads/{id}/fork", s.auth(s.handleFork))
 	mux.HandleFunc("POST /api/v1/threads/{id}/side-chat", s.auth(s.handleSideChat))
+	mux.HandleFunc("POST /api/v1/threads/{id}/open-editor", s.auth(s.handleOpenEditor))
 	mux.HandleFunc("POST /api/v1/threads/{id}/runs/{runID}/restore", s.auth(s.handleRestoreRun))
 	mux.HandleFunc("GET /api/v1/threads/{id}/diff", s.auth(s.handleDiff))
 	mux.HandleFunc("POST /api/v1/threads/{id}/git", s.auth(s.handleGitAction))
