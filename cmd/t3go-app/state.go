@@ -475,6 +475,19 @@ func newApp(cx *core.Scope) *app {
 	if value := strings.TrimSpace(os.Getenv("T3GO_TOKEN")); value != "" {
 		token = value
 	}
+	// On the web the client is served by the environment, so its own
+	// address is the server, and "#token=..." in the link logs in.
+	if origin := pageOrigin(); origin != "" {
+		if fragURL, fragToken := parseLoginFragment(pageFragment()); fragToken != "" {
+			token = fragToken
+			if fragURL != "" {
+				url = fragURL
+			}
+		}
+		if url == "" {
+			url = origin
+		}
+	}
 	a.serverURL.Set(url)
 	a.token.Set(token)
 	if url != "" {

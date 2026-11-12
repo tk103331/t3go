@@ -3065,3 +3065,24 @@ func TestUIMobileBrowseHostDirs(t *testing.T) {
 		t.Fatalf("project name = %q", name)
 	}
 }
+
+// TestParseLoginFragment reads a login from a web link's fragment.
+func TestParseLoginFragment(t *testing.T) {
+	cases := []struct {
+		fragment, url, token string
+	}{
+		{"", "", ""},
+		{"#", "", ""},
+		{"#token=abc", "", "abc"},
+		{"#token=a%2Bb", "", "a+b"},
+		{"#url=http://h:1&token=abc", "http://h:1", "abc"},
+		{"#t3go://pair?url=http://h:1&token=abc", "http://h:1", "abc"},
+		{"#t3go%3A%2F%2Fpair%3Furl%3Dhttp%3A%2F%2Fh%3A1%26token%3Dabc", "http://h:1", "abc"},
+	}
+	for _, tc := range cases {
+		u, tok := parseLoginFragment(tc.fragment)
+		if u != tc.url || tok != tc.token {
+			t.Errorf("%q = (%q, %q), want (%q, %q)", tc.fragment, u, tok, tc.url, tc.token)
+		}
+	}
+}
