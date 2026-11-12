@@ -238,3 +238,14 @@ func (s *Server) pullRequestTarget(w http.ResponseWriter, r *http.Request) (prot
 	}
 	return t, number, true
 }
+
+// handleRestoreRun puts the checkout's tracked files back to a run's
+// checkpoint.
+func (s *Server) handleRestoreRun(w http.ResponseWriter, r *http.Request) {
+	status, backup, err := s.Service.RestoreRun(r.Context(), r.PathValue("id"), r.PathValue("runID"))
+	if err != nil {
+		writeError(w, statusFor(err), "checkpoint", err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"status": status, "backup": backup})
+}

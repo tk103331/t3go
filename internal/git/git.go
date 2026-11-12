@@ -116,6 +116,16 @@ func Checkpoint(ctx context.Context, dir, threadID, runID string) (string, error
 	return ref, nil
 }
 
+// Restore puts the tracked files back to a checkpoint's tree. Untracked
+// files and files added after the checkpoint stay in place.
+func Restore(ctx context.Context, dir, ref string) error {
+	if strings.TrimSpace(ref) == "" {
+		return errors.New("no checkpoint to restore")
+	}
+	_, err := run(ctx, dir, "checkout", ref, "--", ".")
+	return err
+}
+
 // DiffStat shows what changed since ref.
 func DiffStat(ctx context.Context, dir, ref string) string {
 	if ref == "" {

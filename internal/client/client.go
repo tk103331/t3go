@@ -294,6 +294,17 @@ func (c *Client) Stop(ctx context.Context, threadID string) (bool, error) {
 	return out.Stopped, err
 }
 
+// RestoreRun puts the checkout's tracked files back to a run's checkpoint.
+func (c *Client) RestoreRun(ctx context.Context, threadID, runID string) (proto.GitStatus, string, error) {
+	var out struct {
+		Status proto.GitStatus `json:"status"`
+		Backup string          `json:"backup"`
+	}
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/runs/" + url.PathEscape(runID) + "/restore"
+	err := c.do(ctx, http.MethodPost, path, map[string]any{}, &out)
+	return out.Status, out.Backup, err
+}
+
 // Diff returns a run's checkpoint diff.
 func (c *Client) Diff(ctx context.Context, threadID, runID string) (string, error) {
 	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/diff"

@@ -2557,3 +2557,69 @@ func TestUICustomModel(t *testing.T) {
 		return err == nil && updated.Model == "side-fake-custom"
 	})
 }
+
+// TestUIRestoreRun restores tracked files from a run's checkpoint.
+func TestUIRestoreRun(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	before, err := os.ReadFile(filepath.Join(repo, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := srv.Service.CreateProject(ctx, "Repo", repo)
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Restore", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	const runID = "run_restore_ui"
+	ref, err := git.Checkpoint(ctx, repo, thread.ID, runID)
+	if err != nil {
+		t.Fatalf("checkpoint: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("agent wrote this\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ended := time.Now()
+	if err := srv.Store.CreateRun(ctx, proto.Run{ID: runID, ThreadID: thread.ID, Status: proto.RunCompleted,
+		Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess, Prompt: "Change files",
+		StartedAt: ended.Add(-time.Second), EndedAt: &ended, Checkpoint: ref}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:run-restore-" + runID) {
+			return true
+		}
+		if app.Exists("id:history") {
+			app.Press("id:history")
+			app.Settle()
+		}
+		return app.Exists("id:run-restore-" + runID)
+	})
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:restore-dialog") {
+			return true
+		}
+		if app.Exists("id:run-restore-" + runID) {
+			app.Press("id:run-restore-" + runID)
+			app.Settle()
+		}
+		return app.Exists("id:restore-dialog")
+	})
+	app.Press("id:confirm-restore-run")
+	app.WaitUntil(10*time.Second, func() bool {
+		after, err := os.ReadFile(filepath.Join(repo, "README.md"))
+		return err == nil && string(after) == string(before)
+	})
+}

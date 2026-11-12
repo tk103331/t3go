@@ -2531,3 +2531,50 @@ printf 'p123\ncnode\nn127.0.0.1:3000\np456\ncadmin\nn*:80\n'
 		t.Fatalf("servers = %#v", out.Servers)
 	}
 }
+
+func TestRestoreRunCheckpoint(t *testing.T) {
+	e := newTestEnv(t)
+	repo := upstreamGitRepo(t)
+	before, err := os.ReadFile(filepath.Join(repo, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var project proto.Project
+	if code := e.request(t, http.MethodPost, "/api/v1/projects",
+		map[string]string{"name": "repo", "path": repo}, e.token, &project); code != http.StatusCreated {
+		t.Fatalf("project = %d", code)
+	}
+	thread := e.thread(t, project.ID)
+	ctx := context.Background()
+	const runID = "run_restore"
+	ref, err := git.Checkpoint(ctx, repo, thread.ID, runID)
+	if err != nil {
+		t.Fatalf("checkpoint: %v", err)
+	}
+	if err := e.server.Store.CreateRun(ctx, proto.Run{ID: runID, ThreadID: thread.ID, Status: proto.RunCompleted,
+		Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess, StartedAt: time.Now(),
+		Checkpoint: ref}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Status proto.GitStatus `json:"status"`
+		Backup string          `json:"backup"`
+	}
+	path := "/api/v1/threads/" + thread.ID + "/runs/" + runID + "/restore"
+	if code := e.request(t, http.MethodPost, path, map[string]any{}, e.token, &out); code != http.StatusOK {
+		t.Fatalf("restore = %d", code)
+	}
+	after, err := os.ReadFile(filepath.Join(repo, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("README = %q, want %q", after, before)
+	}
+	if out.Backup == "" || out.Status.Branch == "" {
+		t.Fatalf("restore result = %#v", out)
+	}
+}

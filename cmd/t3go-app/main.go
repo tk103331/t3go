@@ -450,7 +450,7 @@ func (a *app) dialogs(cx *core.Scope) core.Node {
 	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.runsDialog(cx),
 		a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx), a.approvalDialog(cx), a.discardDialog(cx),
 		a.editMessageDialog(cx), a.newBranchDialog(cx), a.branchesDialog(cx), a.promptArgsDialog(cx),
-		a.devicesDialog(cx), a.customModelDialog(cx)}
+		a.devicesDialog(cx), a.customModelDialog(cx), a.restoreDialog(cx)}
 }
 
 // approvalDialog asks about the first tool call a supervised run is
@@ -891,6 +891,21 @@ func (a *app) branchesDialog(cx *core.Scope) core.Node {
 		}}
 }
 
+// restoreDialog confirms reverting tracked files to a checkpoint.
+func (a *app) restoreDialog(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	return ui.Dialog{Open: a.showRestore.Get, OnOpenChange: closeDialog(a.showRestore), Title: "Restore files?",
+		Description: "Tracked files go back to this run's checkpoint. Untracked files stay, and the current files are saved as a backup checkpoint first.",
+		TestID:      "restore-dialog", Children: []core.Node{
+			core.Text{Content: "This changes the working tree; commit anything you want to keep first.",
+				Style: core.Style{FontSize: 11.5}, StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+		}, Footer: []core.Node{
+			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showRestore.Set(false) }},
+			ui.Button{Text: "Restore files", Icon: lucide.RotateCcw, Variant: ui.ButtonPrimary,
+				TestID: "confirm-restore-run", OnPress: a.restoreRun},
+		}}
+}
+
 // customModelDialog adds a model id a provider's CLI accepts.
 func (a *app) customModelDialog(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
@@ -1103,8 +1118,11 @@ func (a *app) runsDialog(cx *core.Scope) core.Node {
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 		}}
 		if r.Checkpoint != "" {
-			line.Children = append(line.Children, ui.Button{Text: "Diff", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
-				TestID: "run-diff-" + r.ID, OnPress: func() { a.openRunDiff(r.ID) }})
+			line.Children = append(line.Children,
+				ui.Button{Text: "Diff", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					TestID: "run-diff-" + r.ID, OnPress: func() { a.openRunDiff(r.ID) }},
+				ui.Button{Text: "Restore", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+					TestID: "run-restore-" + r.ID, OnPress: func() { a.askRestoreRun(r.ID) }})
 		}
 		rows = append(rows, core.View{Style: core.Style{Gap: 3, Padding: core.Symmetric(8, 10), Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{
 			line,

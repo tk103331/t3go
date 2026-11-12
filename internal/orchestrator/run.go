@@ -563,6 +563,38 @@ func (s *Service) GitAction(ctx context.Context, threadID string, in proto.GitAc
 	return res, nil
 }
 
+// RestoreRun puts the checkout's tracked files back to a run's
+// checkpoint, saving the current files in a fresh checkpoint first.
+func (s *Service) RestoreRun(ctx context.Context, threadID, runID string) (proto.GitStatus, string, error) {
+	t, err := s.Store.Thread(ctx, threadID)
+	if err != nil {
+		return proto.GitStatus{}, "", err
+	}
+	runs, err := s.Store.Runs(ctx, threadID)
+	if err != nil {
+		return proto.GitStatus{}, "", err
+	}
+	ref := ""
+	for i := len(runs) - 1; i >= 0; i-- {
+		if runs[i].ID == runID {
+			ref = runs[i].Checkpoint
+			break
+		}
+	}
+	if ref == "" {
+		return proto.GitStatus{}, "", fmt.Errorf("no checkpoint for this run")
+	}
+	if !strings.HasPrefix(ref, "refs/t3go/checkpoints/"+threadID+"/") {
+		return proto.GitStatus{}, "", fmt.Errorf("that checkpoint belongs to another thread")
+	}
+	dir := s.ThreadDir(ctx, t)
+	backup, _ := git.Checkpoint(ctx, dir, threadID, "restore-"+id.New("bk"))
+	if err := git.Restore(ctx, dir, ref); err != nil {
+		return proto.GitStatus{}, backup, err
+	}
+	return git.Status(ctx, dir), backup, nil
+}
+
 // Diff returns a run's checkpoint diff.
 func (s *Service) Diff(ctx context.Context, threadID, runID string) (string, error) {
 	t, err := s.Store.Thread(ctx, threadID)

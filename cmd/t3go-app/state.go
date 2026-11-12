@@ -110,6 +110,8 @@ type app struct {
 	settingsSection *core.Signal[string]
 	showDiff        *core.Signal[bool]
 	showRuns        *core.Signal[bool]
+	pendingRestore  *core.Signal[string]
+	showRestore     *core.Signal[bool]
 	diffText        *core.Signal[string]
 	workingDiff     *core.Signal[string]
 	workingFiles    *core.Signal[[]proto.DiffFile]
@@ -277,6 +279,8 @@ func newApp(cx *core.Scope) *app {
 		settingsSection: core.NewSignal(cx, "general"),
 		showDiff:        core.NewSignal(cx, false),
 		showRuns:        core.NewSignal(cx, false),
+		pendingRestore:  core.NewSignal(cx, ""),
+		showRestore:     core.NewSignal(cx, false),
 		diffText:        core.NewSignal(cx, ""),
 		workingDiff:     core.NewSignal(cx, ""),
 		workingFiles:    sliceSignal[proto.DiffFile](cx),
@@ -1797,6 +1801,38 @@ func (a *app) openRunDiff(runID string) {
 	a.closeRuns()
 	a.showDiff.Set(true)
 	a.loadDiff(id, runID)
+}
+
+// askRestoreRun confirms reverting the checkout to a run's checkpoint.
+func (a *app) askRestoreRun(runID string) {
+	if runID == "" {
+		return
+	}
+	a.closeRuns()
+	a.pendingRestore.Set(runID)
+	a.showRestore.Set(true)
+}
+
+// restoreRun puts the working tree back to the selected checkpoint.
+func (a *app) restoreRun() {
+	id := a.selected.GetUntracked()
+	runID := a.pendingRestore.GetUntracked()
+	if id == "" || runID == "" {
+		return
+	}
+	a.showRestore.Set(false)
+	a.call(func(ctx context.Context, c *client.Client) error {
+		_, _, err := c.RestoreRun(ctx, id, runID)
+		return err
+	}, func(err error) {
+		if err != nil {
+			a.connErr.Set(friendlyError(err))
+			return
+		}
+		a.pendingRestore.Set("")
+		a.loadDetail(id)
+		a.loadWorkingDiff(id)
+	})
 }
 
 // runGitAction commits, pushes, or opens a pull request for the selected
