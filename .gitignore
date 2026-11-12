@@ -3,6 +3,7 @@
 /t3go
 /t3go-app
 /*.exe
+dist/
 
 # local data
 .t3go/
