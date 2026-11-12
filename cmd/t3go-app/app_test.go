@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"net/http/httptest"
@@ -2783,4 +2784,39 @@ func TestUISettingsAccent(t *testing.T) {
 	app.WaitUntil(10*time.Second, func() bool {
 		return srv.Service.Settings(ctx).Accent == "#7c3aed"
 	})
+}
+
+// TestUIMobileComposerStaysVisible keeps the composer on screen with a
+// long transcript on a phone-sized window.
+func TestUIMobileComposerStaysVisible(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Mobile", gitRepo(t))
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Long thread", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	for i := 0; i < 40; i++ {
+		if _, err := srv.Store.AppendMessage(ctx, proto.Message{ID: "msg_long_" + fmt.Sprint(i), ThreadID: thread.ID,
+			Role: proto.RoleAssistant, Kind: proto.KindText, Content: "Line " + fmt.Sprint(i) + "\n\nA long answer that wraps over several lines in a narrow window.",
+			CreatedAt: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(390, 844), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:composer-card", 10*time.Second)
+	composer := app.Find("id:composer-card")
+	if bottom := composer.Frame.Origin.Y + composer.Frame.Size.Height; bottom > 844 {
+		t.Fatalf("the composer is below the window: %v", composer.Frame)
+	}
 }

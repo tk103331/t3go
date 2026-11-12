@@ -89,7 +89,8 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 		}}
 	}
 	style := core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0),
-		Overflow: core.Hidden, Direction: core.Column, Background: colors.Background()}
+		Width: core.Pct(100), Height: core.Pct(100), Overflow: core.Hidden, Direction: core.Column,
+		Background: colors.Background()}
 	if ui.Touch(cx) {
 		style.PaddingEnv = core.EnvAll(core.EnvSafeArea)
 	}
@@ -429,16 +430,20 @@ func (a *app) welcome(cx *core.Scope) core.Node {
 func (a *app) narrowView(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	if a.selected.Get() != "" {
-		return core.View{Style: core.Style{FlexGrow: 1}, Children: []core.Node{
-			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Padding: core.Symmetric(8, 8), Gap: 8}, Children: []core.Node{
-				ui.IconButton{Icon: lucide.ChevronLeft, Label: "Back to threads", OnPress: func() { a.selected.Set("") }},
-				core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{a.contentHeader(cx)}},
-			}},
-			core.View{Style: ui.FillRest, Children: []core.Node{a.threadPane(cx)}},
-		}}
+		return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Overflow: core.Hidden},
+			Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexShrink: 0,
+					Padding: core.Symmetric(8, 8), Gap: 8}, Children: []core.Node{
+					ui.IconButton{Icon: lucide.ChevronLeft, Label: "Back to threads", OnPress: func() { a.selected.Set("") }},
+					core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{a.contentHeader(cx)}},
+				}},
+				core.View{Style: ui.FillRest, Children: []core.Node{a.threadPane(cx)}},
+			}}
 	}
-	return core.View{Style: core.Style{FlexGrow: 1, Direction: core.Column}, Children: []core.Node{
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Padding: core.Symmetric(8, 12), Gap: 8}, Children: []core.Node{
+	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Direction: core.Column,
+		Overflow: core.Hidden}, Children: []core.Node{
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexShrink: 0,
+			Padding: core.Symmetric(8, 12), Gap: 8}, Children: []core.Node{
 			ui.Text(a.envName(), 16, ui.Bold, colors.Text), ui.Spacer{},
 			ui.IconButton{Icon: lucide.Search, Label: "Search", TestID: "open-palette", OnPress: a.openPalette},
 			ui.IconButton{Icon: lucide.Settings, Label: "Settings", TestID: "settings", OnPress: a.openSettings},
