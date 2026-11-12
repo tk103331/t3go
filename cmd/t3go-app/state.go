@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,9 +43,16 @@ type app struct {
 	threads   *core.Signal[[]proto.Thread]
 	providers *core.Signal[[]proto.Provider]
 	models    *core.Signal[[]proto.Model]
-	settings  *core.Signal[proto.Settings]
+	// customModels are model ids the environment's CLIs accept but do not list.
+	customModels *core.Signal[map[string][]proto.Model]
+	settings     *core.Signal[proto.Settings]
 
-	showArchived *core.Signal[bool]
+	showArchived        *core.Signal[bool]
+	showCustomModel     *core.Signal[bool]
+	customModelProvider *core.Signal[string]
+	customModelID       *core.Signal[string]
+	customModelName     *core.Signal[string]
+	customModelErr      *core.Signal[string]
 
 	// side chat
 	sideChat        *core.Signal[proto.Thread]
@@ -209,13 +217,19 @@ func newApp(cx *core.Scope) *app {
 		offline:    core.NewSignal(cx, false),
 		connErr:    core.NewSignal(cx, ""),
 
-		projects:  sliceSignal[proto.Project](cx),
-		threads:   sliceSignal[proto.Thread](cx),
-		providers: sliceSignal[proto.Provider](cx),
-		models:    sliceSignal[proto.Model](cx),
-		settings:  core.NewSignal(cx, proto.DefaultSettings()),
+		projects:     sliceSignal[proto.Project](cx),
+		threads:      sliceSignal[proto.Thread](cx),
+		providers:    sliceSignal[proto.Provider](cx),
+		models:       sliceSignal[proto.Model](cx),
+		customModels: core.NewSignalFunc(cx, map[string][]proto.Model{}, func(map[string][]proto.Model, map[string][]proto.Model) bool { return false }),
+		settings:     core.NewSignal(cx, proto.DefaultSettings()),
 
-		showArchived: core.NewSignal(cx, false),
+		showArchived:        core.NewSignal(cx, false),
+		showCustomModel:     core.NewSignal(cx, false),
+		customModelProvider: core.NewSignal(cx, ""),
+		customModelID:       core.NewSignal(cx, ""),
+		customModelName:     core.NewSignal(cx, ""),
+		customModelErr:      core.NewSignal(cx, ""),
 		sideChat: core.NewSignalFunc(cx, proto.Thread{}, func(a, b proto.Thread) bool {
 			return a.ID == b.ID && a.Status == b.Status
 		}),
@@ -364,6 +378,12 @@ func newApp(cx *core.Scope) *app {
 	}
 	if raw, ok := a.store.GetItem("rightOpen"); ok {
 		a.rightOpen.Set(raw != "false")
+	}
+	if raw, ok := a.store.GetItem("customModels"); ok {
+		var models map[string][]proto.Model
+		if json.Unmarshal([]byte(raw), &models) == nil {
+			a.customModels.Set(models)
+		}
 	}
 	if raw, ok := a.store.GetItem("rightWidth"); ok {
 		if w, err := strconv.ParseFloat(raw, 64); err == nil && w > 0 {
@@ -875,6 +895,110 @@ func upsertProto(list []proto.Message, message proto.Message) []proto.Message {
 		}
 	}
 	return append(next, message)
+}
+
+// allModels is the providers' models plus the app's custom ones.
+func (a *app) allModels() []proto.Model {
+	base := a.models.Get()
+	custom := a.customModels.Get()
+	out := make([]proto.Model, 0, len(base)+8)
+	seen := map[[2]string]bool{}
+	for _, model := range base {
+		key := [2]string{model.Provider, model.ID}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, model)
+	}
+	providers := make([]string, 0, len(custom))
+	for provider := range custom {
+		providers = append(providers, provider)
+	}
+	sort.Strings(providers)
+	for _, provider := range providers {
+		for _, model := range custom[provider] {
+			key := [2]string{provider, model.ID}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			model.Provider = provider
+			model.Custom = true
+			out = append(out, model)
+		}
+	}
+	return out
+}
+
+// customModelList returns the custom models of one provider.
+func (a *app) customModelList(provider string) []proto.Model {
+	return a.customModels.Get()[provider]
+}
+
+// openCustomModelDialog asks for a model id to add to a provider.
+func (a *app) openCustomModelDialog(provider string) {
+	a.customModelProvider.Set(provider)
+	a.customModelID.Set("")
+	a.customModelName.Set("")
+	a.customModelErr.Set("")
+	a.showCustomModel.Set(true)
+}
+
+// addCustomModel records a model id for a provider.
+func (a *app) addCustomModel() {
+	provider := a.customModelProvider.GetUntracked()
+	id := strings.TrimSpace(a.customModelID.GetUntracked())
+	name := strings.TrimSpace(a.customModelName.GetUntracked())
+	if provider == "" || id == "" {
+		a.customModelErr.Set("Enter the model id the CLI expects.")
+		return
+	}
+	if name == "" {
+		name = id
+	}
+	models := a.customModels.GetUntracked()
+	next := make(map[string][]proto.Model, len(models)+1)
+	for key, value := range models {
+		next[key] = value
+	}
+	for _, model := range next[provider] {
+		if model.ID == id {
+			a.customModelErr.Set("That model is already listed.")
+			return
+		}
+	}
+	next[provider] = append(next[provider], proto.Model{ID: id, Name: name, Provider: provider, Custom: true})
+	a.customModels.Set(next)
+	if raw, err := json.Marshal(next); err == nil {
+		_ = a.store.SetItem("customModels", string(raw))
+	}
+	a.showCustomModel.Set(false)
+}
+
+// removeCustomModel forgets a custom model id.
+func (a *app) removeCustomModel(provider, id string) {
+	models := a.customModels.GetUntracked()
+	next := make(map[string][]proto.Model, len(models))
+	for key, value := range models {
+		if key != provider {
+			next[key] = value
+			continue
+		}
+		kept := make([]proto.Model, 0, len(value))
+		for _, model := range value {
+			if model.ID != id {
+				kept = append(kept, model)
+			}
+		}
+		if len(kept) > 0 {
+			next[key] = kept
+		}
+	}
+	a.customModels.Set(next)
+	if raw, err := json.Marshal(next); err == nil {
+		_ = a.store.SetItem("customModels", string(raw))
+	}
 }
 
 // refreshProviders re-probes the agent CLIs, after a sign-in for example.
@@ -3290,7 +3414,7 @@ func (a *app) openNewThread() {
 		}
 	}
 	if model == "" {
-		for _, m := range a.models.GetUntracked() {
+		for _, m := range a.allModels() {
 			if m.Provider == provider {
 				model = m.ID
 				break

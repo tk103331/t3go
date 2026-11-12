@@ -96,7 +96,7 @@ func settingsSectionTitle(cx *core.Scope, title, detail string) core.Node {
 func (a *app) settingsProviders(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	providers := a.providers.Get()
-	models := a.models.Get()
+	models := a.allModels()
 	var cards []core.Node
 	for _, provider := range providers {
 		provider := provider
@@ -124,9 +124,15 @@ func (a *app) settingsProviders(cx *core.Scope) core.Node {
 			if model.ContextWindow > 0 {
 				label += " · " + humanTokens(int64(model.ContextWindow))
 			}
-			labels = append(labels, core.View{Style: core.Style{Padding: core.Symmetric(2, 7), Background: colors.Inset(),
-				CornerRadius: 5}, Children: []core.Node{core.Text{Content: label, Style: core.Style{FontSize: 10.5},
-				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }}}})
+			children := []core.Node{core.Text{Content: label, Style: core.Style{FontSize: 10.5},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }}}
+			if model.Custom {
+				children = append(children, ui.IconButton{Icon: lucide.X, Label: "Remove " + model.Name, Size: 16, IconSize: 9,
+					TestID: "settings-remove-model-" + provider.ID + "-" + model.ID, Tint: colors.Faint,
+					OnPress: func() { a.removeCustomModel(provider.ID, model.ID) }})
+			}
+			labels = append(labels, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
+				Gap: 2, Padding: core.Symmetric(2, 7), Background: colors.Inset(), CornerRadius: 5}, Children: children})
 		}
 		meta := provider.Name + " · " + provider.ID
 		if provider.Version != "" {
@@ -176,10 +182,10 @@ func (a *app) settingsProviders(cx *core.Scope) core.Node {
 				Size: ui.SizeSmall, TestID: "settings-login-" + provider.ID,
 				OnPress: func() { a.runProviderCommand(provider.LoginCommand) }})
 		}
-		if len(actions) > 0 {
-			body = append(body, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4,
-				Padding: core.Edges{Top: 2}}, Children: actions})
-		}
+		actions = append(actions, ui.Button{Text: "Add model", Icon: lucide.Plus, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			TestID: "settings-add-model-" + provider.ID, OnPress: func() { a.openCustomModelDialog(provider.ID) }})
+		body = append(body, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4,
+			Padding: core.Edges{Top: 2}}, Children: actions})
 		cards = append(cards, core.View{Style: core.Style{Direction: core.Column, Gap: 5, Padding: core.Symmetric(8, 10),
 			Background: colors.Inset(), CornerRadius: 8}, Children: body})
 	}

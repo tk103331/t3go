@@ -450,7 +450,7 @@ func (a *app) dialogs(cx *core.Scope) core.Node {
 	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.runsDialog(cx),
 		a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx), a.approvalDialog(cx), a.discardDialog(cx),
 		a.editMessageDialog(cx), a.newBranchDialog(cx), a.branchesDialog(cx), a.promptArgsDialog(cx),
-		a.devicesDialog(cx)}
+		a.devicesDialog(cx), a.customModelDialog(cx)}
 }
 
 // approvalDialog asks about the first tool call a supervised run is
@@ -578,7 +578,7 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 			TestID:   "new-thread-provider-" + p.ID,
 			Disabled: func() bool { return !p.Installed }, OnPress: func() {
 				a.newThreadProv.Set(p.ID)
-				for _, m := range a.models.Get() {
+				for _, m := range a.allModels() {
 					if m.Provider == p.ID {
 						a.newThreadModel.Set(m.ID)
 						break
@@ -588,7 +588,7 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 	}
 	var modelItems []core.Node
 	modelLabel := "Choose model"
-	for _, m := range a.models.Get() {
+	for _, m := range a.allModels() {
 		if m.Provider != provider {
 			continue
 		}
@@ -729,7 +729,7 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 				update(func(s *proto.Settings) {
 					s.DefaultProvider = p.ID
 					s.DefaultModel = ""
-					for _, m := range a.models.GetUntracked() {
+					for _, m := range a.allModels() {
 						if m.Provider == p.ID {
 							s.DefaultModel = m.ID
 							break
@@ -740,7 +740,7 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 	}
 	var modelItems []core.Node
 	modelLabel := "Choose model"
-	for _, m := range a.models.Get() {
+	for _, m := range a.allModels() {
 		if m.Provider != provider {
 			continue
 		}
@@ -888,6 +888,28 @@ func (a *app) branchesDialog(cx *core.Scope) core.Node {
 			ui.Button{Text: "New branch…", Icon: lucide.GitBranch, Variant: ui.ButtonSecondary, TestID: "branch-new",
 				OnPress: func() { a.showBranches.Set(false); a.openNewBranch() }},
 			ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: func() { a.showBranches.Set(false) }},
+		}}
+}
+
+// customModelDialog adds a model id a provider's CLI accepts.
+func (a *app) customModelDialog(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	provider := a.customModelProvider.Get()
+	return ui.Dialog{Open: a.showCustomModel.Get, OnOpenChange: closeDialog(a.showCustomModel),
+		Title: "Add model to " + provider, Description: "Use the model id the CLI expects.",
+		TestID: "custom-model-dialog", Style: core.Style{Width: core.Pt(520)}, Children: []core.Node{
+			ui.Input{Input: base.Input{Value: a.customModelID.Get, OnChange: a.customModelID.Set,
+				Placeholder: "model-id", Label: "Model id", TestID: "custom-model-id"}},
+			ui.Input{Input: base.Input{Value: a.customModelName.Get, OnChange: a.customModelName.Set,
+				Placeholder: "Display name (optional)", Label: "Model name", TestID: "custom-model-name"}},
+			core.Show{When: func() bool { return a.customModelErr.Get() != "" }, Then: func(*core.Scope) core.Node {
+				return core.Text{Content: a.customModelErr.Get(), MaxLines: 2, Style: core.Style{FontSize: 11.5},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }}
+			}},
+		}, Footer: []core.Node{
+			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showCustomModel.Set(false) }},
+			ui.Button{Text: "Add model", Icon: lucide.Plus, Variant: ui.ButtonPrimary, TestID: "confirm-custom-model",
+				OnPress: a.addCustomModel},
 		}}
 }
 

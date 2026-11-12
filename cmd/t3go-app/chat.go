@@ -158,7 +158,7 @@ func (a *app) composerControls(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	var modelItems []core.Node
 	modelLabel := shortModel(thread.Model)
-	for _, model := range a.models.Get() {
+	for _, model := range a.allModels() {
 		model := model
 		label := model.Name
 		if model.Provider != thread.Provider {
@@ -195,7 +195,7 @@ func (a *app) composerControls(cx *core.Scope) core.Node {
 		planVariant = ui.ButtonPrimary
 	}
 	contextLabel := ""
-	if used, limit := contextUsage(thread.Model, a.detail.Get().Runs, a.models.Get()); used > 0 {
+	if used, limit := contextUsage(thread.Model, a.detail.Get().Runs, a.allModels()); used > 0 {
 		remaining := limit - used
 		if remaining < 0 {
 			remaining = 0
@@ -229,7 +229,7 @@ func (a *app) composerControls(cx *core.Scope) core.Node {
 	if contextLabel != "" {
 		children = append(children, core.Text{Content: contextLabel, MaxLines: 1, Style: core.Style{FontSize: 10},
 			StyleFunc: func() core.Style {
-				if used, limit := contextUsage(thread.Model, a.detail.Get().Runs, a.models.Get()); used*10 >= limit*9 {
+				if used, limit := contextUsage(thread.Model, a.detail.Get().Runs, a.allModels()); used*10 >= limit*9 {
 					return core.Style{Color: colors.Danger()}
 				}
 				return core.Style{Color: colors.Faint()}

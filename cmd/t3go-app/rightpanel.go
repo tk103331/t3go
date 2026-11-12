@@ -623,7 +623,7 @@ func (a *app) rightSideChat(cx *core.Scope) core.Node {
 	}}
 	var modelItems []core.Node
 	modelLabel := shortModel(thread.Model)
-	for _, model := range a.models.Get() {
+	for _, model := range a.allModels() {
 		model := model
 		label := model.Name
 		if model.Provider != thread.Provider {

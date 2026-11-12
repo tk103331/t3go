@@ -2491,3 +2491,69 @@ printf 'p123\ncnode\nn127.0.0.1:3000\n'
 	app.WaitFor("id:browser-view", 10*time.Second)
 	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Address").Text == "http://localhost:3000" })
 }
+
+// TestUICustomModel adds a model id in Settings and picks it in the composer.
+func TestUICustomModel(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	srv.Service.Providers.Register(sideRunner{})
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Repo", gitRepo(t))
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Custom", Provider: "side-fake", Model: "side-fake-1",
+		Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.WaitFor("id:settings", 10*time.Second)
+	app.Press("id:settings")
+	app.WaitFor("id:settings-dialog", 10*time.Second)
+	app.Press("id:settings-nav-providers")
+	app.WaitFor("id:settings-add-model-side-fake", 10*time.Second)
+	app.Press("id:settings-add-model-side-fake")
+	app.WaitFor("id:custom-model-dialog", 5*time.Second)
+
+	for id, want := range map[string]string{"id:custom-model-id": "side-fake-custom", "id:custom-model-name": "Custom Side"} {
+		id, want := id, want
+		app.WaitUntil(10*time.Second, func() bool {
+			if app.Find(id).Text == want {
+				return true
+			}
+			app.Clear(id)
+			app.Type(id, want)
+			app.Settle()
+			return app.Find(id).Text == want
+		})
+	}
+	app.Press("id:confirm-custom-model")
+	app.WaitForGone("id:custom-model-dialog", 10*time.Second)
+	app.WaitFor("text:Custom Side", 5*time.Second)
+
+	app.Press("text:Close")
+	app.WaitForGone("id:settings-dialog", 5*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:composer-model", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:composer-model-side-fake-custom") {
+			return true
+		}
+		if app.Exists("id:composer-model") {
+			app.Press("id:composer-model")
+			app.Settle()
+		}
+		return app.Exists("id:composer-model-side-fake-custom")
+	})
+	app.Press("id:composer-model-side-fake-custom")
+	app.WaitUntil(10*time.Second, func() bool {
+		updated, err := srv.Store.Thread(ctx, thread.ID)
+		return err == nil && updated.Model == "side-fake-custom"
+	})
+}
