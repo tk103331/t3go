@@ -473,7 +473,7 @@ func (a *app) dialogs(cx *core.Scope) core.Node {
 	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.runsDialog(cx),
 		a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx), a.approvalDialog(cx), a.discardDialog(cx),
 		a.editMessageDialog(cx), a.newBranchDialog(cx), a.branchesDialog(cx), a.promptArgsDialog(cx),
-		a.devicesDialog(cx), a.customModelDialog(cx), a.restoreDialog(cx)}
+		a.devicesDialog(cx), a.customModelDialog(cx), a.restoreDialog(cx), a.dirsDialog(cx)}
 }
 
 // approvalDialog asks about the first tool call a supervised run is
@@ -559,6 +559,10 @@ func (a *app) paletteDialog(cx *core.Scope) core.Node {
 
 func (a *app) newProjectDialog(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
+	browseLabel := "Browse…"
+	if compactSettings(cx) || ui.Touch(cx) {
+		browseLabel = "Browse host…"
+	}
 	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showNewProject.Get, OnOpenChange: closeDialog(a.showNewProject), Title: "New project",
 		Description: "Register a directory the agent can work in. The folder must already exist.",
 		TestID:      "new-project-dialog", Style: dialogWidth(cx, 520), Children: []core.Node{
@@ -570,7 +574,7 @@ func (a *app) newProjectDialog(cx *core.Scope) core.Node {
 						Placeholder: "/path/to/project", Label: "Project path", SubmitBehavior: core.SubmitBehaviorSubmit,
 						OnSubmit: func(string) { a.createProject() }}},
 				}},
-				ui.Button{Text: "Browse…", Icon: lucide.FolderOpen, Variant: ui.ButtonSecondary,
+				ui.Button{Text: browseLabel, Icon: lucide.FolderOpen, Variant: ui.ButtonSecondary,
 					TestID: "browse-project", OnPress: a.browseProject},
 			}},
 			core.Text{Content: "The project's path is used for diffs, files, terminals and worktrees.",

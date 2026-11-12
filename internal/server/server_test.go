@@ -2672,3 +2672,59 @@ func TestSearchMessagesEndpoint(t *testing.T) {
 		t.Fatalf("wildcard search = %d, %#v", code, out.Messages)
 	}
 }
+
+// TestHostDirs lists folders on the environment's machine for a client
+// that cannot see them.
+func TestHostDirs(t *testing.T) {
+	e := newTestEnv(t)
+	root := t.TempDir()
+	for _, name := range []string{"alpha", "alpha/nested", "Beta"} {
+		if err := os.MkdirAll(filepath.Join(root, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	symlinked := true
+	if err := os.Symlink(filepath.Join(root, "alpha"), filepath.Join(root, "link")); err != nil {
+		t.Logf("symlink: %v", err)
+		symlinked = false
+	}
+	var listing proto.HostDirs
+	path := "/api/v1/dirs?path=" + url.QueryEscape(root)
+	if code := e.request(t, http.MethodGet, path, nil, e.token, &listing); code != http.StatusOK {
+		t.Fatalf("dirs = %d", code)
+	}
+	if listing.Path != root || listing.Parent != filepath.Dir(root) {
+		t.Fatalf("listing path = %q parent = %q", listing.Path, listing.Parent)
+	}
+	names := make([]string, 0, len(listing.Entries))
+	for _, entry := range listing.Entries {
+		names = append(names, entry.Name)
+		if !filepath.IsAbs(entry.Path) {
+			t.Fatalf("entry path = %q", entry.Path)
+		}
+	}
+	want := []string{"alpha", "Beta"}
+	if symlinked {
+		want = append(want, "link")
+	}
+	if len(names) != len(want) {
+		t.Fatalf("entries = %v", names)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("entries = %v, want %v", names, want)
+		}
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/dirs?path="+url.QueryEscape(filepath.Join(root, "file.txt")), nil, e.token, nil); code != http.StatusBadRequest {
+		t.Fatalf("file dirs = %d", code)
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/dirs", nil, e.token, &listing); code != http.StatusOK {
+		t.Fatalf("home dirs = %d", code)
+	}
+	if home, err := os.UserHomeDir(); err == nil && listing.Path != home {
+		t.Fatalf("home = %q, want %q", listing.Path, home)
+	}
+}

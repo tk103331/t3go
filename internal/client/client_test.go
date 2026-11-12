@@ -5,6 +5,8 @@ import (
 	"io"
 	"log"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -127,5 +129,32 @@ func TestStreamRejectsBadToken(t *testing.T) {
 	err := good.Stream(ctx, 0, func(proto.Event) {}, func(error) {})
 	if !strings.Contains(err.Error(), "unauthorized") {
 		t.Fatalf("stream error = %v", err)
+	}
+}
+
+// TestClientDirs lists folders on the environment's machine.
+func TestClientDirs(t *testing.T) {
+	ctx := context.Background()
+	c, _ := newTestClient(t)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "child"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	listing, err := c.Dirs(ctx, root)
+	if err != nil {
+		t.Fatalf("dirs: %v", err)
+	}
+	if listing.Path != root || listing.Parent != filepath.Dir(root) || len(listing.Entries) != 1 {
+		t.Fatalf("listing = %#v", listing)
+	}
+	if listing.Entries[0].Name != "child" || listing.Entries[0].Path != filepath.Join(root, "child") {
+		t.Fatalf("entry = %#v", listing.Entries[0])
+	}
+	home, err := c.Dirs(ctx, "")
+	if err != nil {
+		t.Fatalf("home: %v", err)
+	}
+	if home.Home == "" || home.Path != home.Home {
+		t.Fatalf("home = %#v", home)
 	}
 }

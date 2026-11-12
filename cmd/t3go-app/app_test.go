@@ -3006,3 +3006,62 @@ func TestUIMobilePalette(t *testing.T) {
 	app.Press("id:palette-close")
 	app.WaitForGone("id:palette", 5*time.Second)
 }
+
+// TestUIMobileBrowseHostDirs browses the connected environment's folders
+// from a phone, whose own file system cannot see them.
+func TestUIMobileBrowseHostDirs(t *testing.T) {
+	_, ts, cfg := startEnv(t)
+	root := t.TempDir()
+	for _, name := range []string{"alpha", "beta"} {
+		if err := os.MkdirAll(filepath.Join(root, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Environment(core.Environment{OS: core.OSAndroid,
+		Idiom: core.IdiomPhone, SafeArea: core.Edges{Top: 24, Bottom: 16}}),
+		nsgotest.Size(390, 844), nsgotest.Storage(map[string]string{
+			"serverUrl": ts.URL,
+			"token":     cfg.Token,
+		}))
+	app.WaitFor("id:new-project", 15*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:new-project-dialog") {
+			return true
+		}
+		app.Press("id:new-project")
+		app.Settle()
+		return app.Exists("id:new-project-dialog")
+	})
+	app.Clear("label:Project path")
+	app.Type("label:Project path", root)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:dirs-dialog") {
+			return true
+		}
+		if app.Exists("id:browse-project") {
+			app.Press("id:browse-project")
+			app.Settle()
+		}
+		return app.Exists("id:dirs-dialog")
+	})
+	app.WaitFor("id:dirs-entry-alpha", 10*time.Second)
+	app.WaitFor("id:dirs-entry-beta", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Enabled("id:dirs-use") && app.Find("id:dirs-path").Text == filepath.Join(root, "alpha") {
+			return true
+		}
+		if app.Exists("id:dirs-entry-alpha") {
+			app.Press("id:dirs-entry-alpha")
+			app.Settle()
+		}
+		return false
+	})
+	app.Press("id:dirs-use")
+	app.WaitForGone("id:dirs-dialog", 5*time.Second)
+	app.WaitUntil(5*time.Second, func() bool {
+		return app.Find("label:Project path").Text == filepath.Join(root, "alpha")
+	})
+	if name := app.Find("label:Project name").Text; name != "alpha" {
+		t.Fatalf("project name = %q", name)
+	}
+}

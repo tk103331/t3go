@@ -324,6 +324,20 @@ type WorkspaceEntry struct {
 	Size      int64  `json:"size,omitempty"`
 }
 
+// HostDir is a folder on the machine running the environment.
+type HostDir struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// HostDirs is one folder on the environment's machine and its folders.
+type HostDirs struct {
+	Path    string    `json:"path"`
+	Parent  string    `json:"parent,omitempty"`
+	Home    string    `json:"home,omitempty"`
+	Entries []HostDir `json:"entries"`
+}
+
 // WorkspaceFile is one file's contents for the file viewer.
 type WorkspaceFile struct {
 	Path    string `json:"path"`

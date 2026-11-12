@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/oneo-me/nsgo/base"
 	basediff "github.com/oneo-me/nsgo/base/diff"
 	"github.com/oneo-me/nsgo/core"
+	"github.com/oneo-me/nsgo/ui"
 	"github.com/oneo-me/nsgo/ui/chat"
 	"github.com/tk/t3go/internal/client"
 	"github.com/tk/t3go/internal/proto"
@@ -162,6 +164,13 @@ type app struct {
 	newProjectName *core.Signal[string]
 	newProjectPath *core.Signal[string]
 	projectBusy    *core.Signal[bool]
+
+	// folders on the connected environment's machine
+	showDirs *core.Signal[bool]
+	dirs     *core.Signal[proto.HostDirs]
+	dirsBusy *core.Signal[bool]
+	dirsErr  *core.Signal[string]
+	dirsSeq  int
 
 	newThreadTitle  *core.Signal[string]
 	newThreadProv   *core.Signal[string]
@@ -347,6 +356,13 @@ func newApp(cx *core.Scope) *app {
 		newProjectName: core.NewSignal(cx, ""),
 		newProjectPath: core.NewSignal(cx, ""),
 		projectBusy:    core.NewSignal(cx, false),
+
+		showDirs: core.NewSignal(cx, false),
+		dirs: core.NewSignalFunc(cx, proto.HostDirs{}, func(a, b proto.HostDirs) bool {
+			return a.Path == b.Path && a.Parent == b.Parent && a.Home == b.Home && slices.Equal(a.Entries, b.Entries)
+		}),
+		dirsBusy: core.NewSignal(cx, false),
+		dirsErr:  core.NewSignal(cx, ""),
 
 		newThreadTitle:  core.NewSignal(cx, ""),
 		newThreadProv:   core.NewSignal(cx, ""),
@@ -3405,6 +3421,10 @@ func (a *app) createProject() {
 }
 
 func (a *app) browseProject() {
+	if a.cx != nil && (compactSettings(a.cx) || ui.Touch(a.cx)) {
+		a.openDirs()
+		return
+	}
 	a.cx.PickDirectories(core.PickDirectoriesOptions{}, func(dirs []core.Directory, err error) {
 		if err != nil || len(dirs) == 0 {
 			return
@@ -3412,11 +3432,69 @@ func (a *app) browseProject() {
 		if path := strings.TrimSpace(dirs[0].Path); path != "" {
 			a.newProjectPath.Set(path)
 			if a.newProjectName.Get() == "" {
-				parts := strings.Split(strings.TrimRight(path, "/"), "/")
-				a.newProjectName.Set(parts[len(parts)-1])
+				a.newProjectName.Set(folderName(path))
 			}
 		}
 	})
+}
+
+// openDirs browses the connected environment's folders, which a phone
+// cannot see for itself.
+func (a *app) openDirs() {
+	path := strings.TrimSpace(a.newProjectPath.GetUntracked())
+	a.showDirs.Set(true)
+	a.loadDirs(path)
+}
+
+// closeDirs hides the environment's folder browser.
+func (a *app) closeDirs() {
+	a.showDirs.Set(false)
+}
+
+// loadDirs reads one folder on the environment's machine.
+func (a *app) loadDirs(path string) {
+	a.dirsSeq++
+	seq := a.dirsSeq
+	a.dirsErr.Set("")
+	a.dirsBusy.Set(true)
+	var listing proto.HostDirs
+	a.call(func(ctx context.Context, c *client.Client) error {
+		var err error
+		listing, err = c.Dirs(ctx, path)
+		return err
+	}, func(err error) {
+		if seq != a.dirsSeq {
+			return
+		}
+		a.dirsBusy.Set(false)
+		if err != nil {
+			a.dirsErr.Set(friendlyError(err))
+			return
+		}
+		a.dirs.Set(listing)
+	})
+}
+
+// useDirs makes the folder on screen the new project's path.
+func (a *app) useDirs() {
+	path := strings.TrimSpace(a.dirs.GetUntracked().Path)
+	if path == "" {
+		return
+	}
+	a.newProjectPath.Set(path)
+	if a.newProjectName.GetUntracked() == "" {
+		a.newProjectName.Set(folderName(path))
+	}
+	a.showDirs.Set(false)
+}
+
+// folderName is the last part of a path from any platform.
+func folderName(path string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(path), `/\`)
+	if i := strings.LastIndexAny(trimmed, `/\`); i >= 0 {
+		trimmed = trimmed[i+1:]
+	}
+	return trimmed
 }
 
 func (a *app) createThread() {

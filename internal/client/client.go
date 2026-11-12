@@ -154,6 +154,22 @@ func (c *Client) Projects(ctx context.Context) ([]proto.Project, error) {
 	return out.Projects, err
 }
 
+// Dirs lists the folders in one directory of the environment's machine.
+// An empty path starts at that machine's home folder.
+func (c *Client) Dirs(ctx context.Context, path string) (proto.HostDirs, error) {
+	q := url.Values{}
+	if path != "" {
+		q.Set("path", path)
+	}
+	var out proto.HostDirs
+	target := "/api/v1/dirs"
+	if encoded := q.Encode(); encoded != "" {
+		target += "?" + encoded
+	}
+	err := c.do(ctx, http.MethodGet, target, nil, &out)
+	return out, err
+}
+
 // CreateProject registers a directory.
 func (c *Client) CreateProject(ctx context.Context, name, path string) (proto.Project, error) {
 	var out proto.Project

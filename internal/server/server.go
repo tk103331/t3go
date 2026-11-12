@@ -203,6 +203,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/websocket-ticket/{use}", s.auth(s.handleWebsocketTicket))
 	mux.HandleFunc("GET /.well-known/t3/environment", s.handleUpstreamDescriptor)
 	mux.HandleFunc("GET /api/v1/state", s.auth(s.handleState))
+	mux.HandleFunc("GET /api/v1/dirs", s.auth(s.handleHostDirs))
 	mux.HandleFunc("GET /api/v1/projects", s.auth(s.handleProjects))
 	mux.HandleFunc("POST /api/v1/projects", s.auth(s.handleCreateProject))
 	mux.HandleFunc("PATCH /api/v1/projects/{id}", s.auth(s.handleUpdateProject))
