@@ -394,7 +394,9 @@ type Settings struct {
 	DefaultModel      string `json:"defaultModel"`
 	DefaultPermission string `json:"defaultPermission"`
 	Theme             string `json:"theme"`
-	Title             string `json:"title"`
+	// Accent is a #rrggbb accent, empty for the theme's own.
+	Accent string `json:"accent,omitempty"`
+	Title  string `json:"title"`
 }
 
 // DefaultSettings are a new environment's defaults.

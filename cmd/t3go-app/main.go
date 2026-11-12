@@ -801,6 +801,38 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 		editorButtons = append(editorButtons, ui.Button{Text: choice, Variant: variant, Size: ui.SizeSmall,
 			TestID: "settings-editor-" + choice, OnPress: func() { a.setEditor(choice) }})
 	}
+	type accentChoice struct {
+		Name, Hex string
+	}
+	accents := []accentChoice{{"default", ""}, {"blue", "#007aff"}, {"violet", "#7c3aed"},
+		{"green", "#16a34a"}, {"orange", "#ea580c"}, {"pink", "#db2777"}, {"teal", "#0d9488"}}
+	var accentButtons []core.Node
+	for _, choice := range accents {
+		choice := choice
+		swatch := ui.Alpha(colors.Text(), 0.25)
+		if choice.Hex != "" {
+			if value, err := strconv.ParseUint(strings.TrimPrefix(choice.Hex, "#"), 16, 32); err == nil {
+				swatch = core.RGB(uint32(value))
+			}
+		}
+		selected := draft.Accent == choice.Hex
+		accentButtons = append(accentButtons, base.Button{OnPress: func(core.PressEvent) {
+			update(func(s *proto.Settings) { s.Accent = choice.Hex })
+		}, Label: choice.Name, TestID: "settings-accent-" + choice.Name,
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Padding: core.Symmetric(3, 7),
+				CornerRadius: 6, BorderWidth: 1, Cursor: core.CursorDefault},
+			StyleFunc: func() core.Style {
+				border := colors.Border()
+				if selected {
+					border = colors.Accent()
+				}
+				return core.Style{BorderColor: border, Hover: &core.Style{Background: colors.Inset()}}
+			}, Children: []core.Node{
+				core.View{Style: core.Style{Width: core.Pt(13), Height: core.Pt(13), CornerRadius: 7, Background: swatch}},
+				core.Text{Content: choice.Name, Style: core.Style{FontSize: 10.5},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+			}})
+	}
 	fields := []core.Node{
 		ui.Input{Input: base.Input{Value: a.settingsTitle.Get, OnChange: a.settingsTitle.Set,
 			Placeholder: "Environment name", Label: "Environment name"}},
@@ -812,6 +844,8 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: permButtons},
 		ui.Text("Theme", 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: themeButtons},
+		ui.Text("Accent", 11, ui.Semibold, colors.Muted),
+		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 5}, Children: accentButtons},
 		ui.Text("Editor", 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: editorButtons},
 		core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{

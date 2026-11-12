@@ -582,7 +582,7 @@ func (a *app) client() *client.Client {
 }
 
 func (a *app) applyState(st proto.State) {
-	a.applyTheme(st.Settings.Theme)
+	a.applyAppearance(st.Settings)
 	// One rebuild for the whole snapshot: each signal on its own would
 	// redraw the screen five times.
 	a.cx.Batch(func() {
@@ -1124,7 +1124,7 @@ func (a *app) applyEvent(e proto.Event) {
 		}
 	case proto.EventSettings:
 		if settings, ok := decodeData[proto.Settings](e.Data); ok {
-			a.applyTheme(settings.Theme)
+			a.applyAppearance(settings)
 			a.settings.Set(settings)
 		}
 	case proto.EventTerminalExit:
@@ -3740,9 +3740,9 @@ func (a *app) saveSettingsDraft() {
 	a.saveSettings(s)
 }
 
-// applyTheme follows the environment's theme, system by default.
-func (a *app) applyTheme(theme string) {
-	switch theme {
+// applyAppearance follows the environment's theme and accent.
+func (a *app) applyAppearance(s proto.Settings) {
+	switch s.Theme {
 	case "light":
 		a.cx.SetAppearance(core.AppearanceLight)
 	case "dark":
@@ -3750,12 +3750,54 @@ func (a *app) applyTheme(theme string) {
 	default:
 		a.cx.SetAppearance(core.AppearanceSystem)
 	}
+	if accent := accentTheme(s.Accent); accent != nil {
+		a.cx.SetTheme(accent)
+	} else {
+		a.cx.SetTheme(nil)
+	}
+}
+
+// accentTheme returns the default theme with another accent, or nil.
+func accentTheme(hex string) *core.Theme {
+	hex = strings.TrimSpace(strings.TrimPrefix(hex, "#"))
+	if len(hex) != 6 {
+		return nil
+	}
+	value, err := strconv.ParseUint(hex, 16, 32)
+	if err != nil {
+		return nil
+	}
+	accent := core.RGB(uint32(value))
+	theme := core.DefaultTheme().Clone()
+	theme.Light.Accent = accent
+	theme.Light.AccentHover = shadeColor(accent, 0.9)
+	theme.Light.AccentPressed = shadeColor(accent, 0.8)
+	theme.Light.AccentText = core.RGB(0xffffff)
+	theme.Light.Selection = core.RGBA(uint32(value), 0.22)
+	theme.Light.Focus = core.RGBA(uint32(value), 0.55)
+	bright := shadeColor(accent, 1.15)
+	theme.Dark.Accent = bright
+	theme.Dark.AccentHover = shadeColor(accent, 1.28)
+	theme.Dark.AccentPressed = shadeColor(accent, 1.05)
+	theme.Dark.AccentText = core.RGB(0xffffff)
+	theme.Dark.Selection = core.RGBA(uint32(value), 0.3)
+	theme.Dark.Focus = core.RGBA(uint32(value), 0.8)
+	return theme
+}
+
+// shadeColor multiplies a color's channels, for an accent's states.
+func shadeColor(c core.Color, factor float64) core.Color {
+	r, g, b, a := c.Components()
+	scale := func(v float64) uint32 {
+		return uint32(min(max(v*factor, 0), 1)*255 + 0.5)
+	}
+	return core.RGBA(scale(r)<<16|scale(g)<<8|scale(b), float32(a))
 }
 
 // saveSettings writes the draft and its values into the environment.
 func (a *app) saveSettings(s proto.Settings) {
 	a.settings.Set(s)
-	a.applyTheme(s.Theme)
+	a.applyAppearance(s)
 	a.call(func(ctx context.Context, c *client.Client) error {
 		_, err := c.SaveSettings(ctx, s)
 		return err

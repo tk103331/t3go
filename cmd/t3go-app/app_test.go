@@ -2758,3 +2758,29 @@ func TestUISearchMessages(t *testing.T) {
 	app.Key("enter")
 	app.WaitFor("id:content-header >> text:Search thread", 10*time.Second)
 }
+
+// TestUISettingsAccent saves a custom accent color.
+func TestUISettingsAccent(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:settings", 15*time.Second)
+	app.WaitUntil(15*time.Second, func() bool {
+		if app.Exists("id:settings-accent-violet") {
+			return true
+		}
+		if app.Exists("id:settings") {
+			app.Press("id:settings")
+			app.Settle()
+		}
+		return app.Exists("id:settings-accent-violet")
+	})
+	app.Press("id:settings-accent-violet")
+	app.Press("id:settings-save")
+	app.WaitUntil(10*time.Second, func() bool {
+		return srv.Service.Settings(ctx).Accent == "#7c3aed"
+	})
+}
