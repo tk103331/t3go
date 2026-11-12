@@ -25,6 +25,11 @@ var settingsNav = []settingsNavItem{
 	{ID: "about", Label: "About", Icon: lucide.Info},
 }
 
+// compactSettings is the phone layout: sections on chips above the page.
+func compactSettings(cx *core.Scope) bool {
+	return cx.Env().Window().Width < 760
+}
+
 // settingsBody is the settings window's section navigation and page.
 func (a *app) settingsBody(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
@@ -74,6 +79,28 @@ func (a *app) settingsBody(cx *core.Scope) core.Node {
 		page = a.settingsAbout(cx)
 	default:
 		page = a.settingsGeneral(cx)
+	}
+	if compactSettings(cx) {
+		var chips []core.Node
+		for _, item := range settingsNav {
+			item := item
+			variant := ui.ButtonSecondary
+			if item.ID == section {
+				variant = ui.ButtonPrimary
+			}
+			chips = append(chips, ui.Button{Text: item.Label, Variant: variant, Size: ui.SizeSmall,
+				TestID: "settings-nav-" + item.ID, OnPress: func() { a.setSettingsSection(item.ID) }})
+		}
+		height := core.Points(cx.Env().Window().Height * 0.62)
+		if height < 320 {
+			height = 320
+		}
+		return core.View{Style: core.Style{Direction: core.Column, Width: core.Pct(100),
+			Height: core.Pt(height), MinHeight: core.Pt(0), Gap: 8}, Children: []core.Node{
+			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: chips},
+			core.Scroll{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0)},
+				Children: []core.Node{page}},
+		}}
 	}
 	return core.View{Style: core.Style{Direction: core.Row, Height: core.Pt(520), MinHeight: core.Pt(0)}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Column, Width: core.Pt(150), FlexShrink: 0, Gap: 2,
@@ -371,12 +398,17 @@ func (a *app) settingsAbout(cx *core.Scope) core.Node {
 	if a.offline.Get() {
 		rows = append(rows, ui.Text("The event stream is reconnecting.", 11.5, ui.Regular, colors.Danger))
 	}
-	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: []core.Node{
+	body := []core.Node{
 		settingsSectionTitle(cx, "About T3Go", "A Go environment and native client for T3 Code's protocol."),
 		core.View{Style: core.Style{Direction: core.Column, Gap: 4}, Children: rows},
 		core.Text{Content: "Agent CLIs run locally on the environment machine. The client never sees a provider's tokens or process output beyond the thread.",
 			MaxLines: 4, Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-	}}
+	}
+	if compactSettings(cx) {
+		body = append(body, ui.Button{Text: "Disconnect environment", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			TestID: "settings-disconnect", OnPress: func() { a.closeSettings(); a.disconnect() }})
+	}
+	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: body}
 }
 
 func (a *app) aboutRow(cx *core.Scope, label, value string) core.Node {

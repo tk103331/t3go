@@ -2808,10 +2808,12 @@ func TestUIMobileComposerStaysVisible(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	app := nsgotest.Start(t, Root, nsgotest.Size(390, 844), nsgotest.Storage(map[string]string{
-		"serverUrl": ts.URL,
-		"token":     cfg.Token,
-	}))
+	app := nsgotest.Start(t, Root, nsgotest.Environment(core.Environment{OS: core.OSAndroid,
+		Idiom: core.IdiomPhone, SafeArea: core.Edges{Top: 24, Bottom: 16}}),
+		nsgotest.Size(390, 844), nsgotest.Storage(map[string]string{
+			"serverUrl": ts.URL,
+			"token":     cfg.Token,
+		}))
 	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
 	app.Press("id:thread-" + thread.ID)
 	app.WaitFor("id:composer-card", 10*time.Second)
@@ -2819,4 +2821,48 @@ func TestUIMobileComposerStaysVisible(t *testing.T) {
 	if bottom := composer.Frame.Origin.Y + composer.Frame.Size.Height; bottom > 844 {
 		t.Fatalf("the composer is below the window: %v", composer.Frame)
 	}
+}
+
+// TestUIMobileSettings fits settings into a phone-sized window.
+func TestUIMobileSettings(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Mobile", gitRepo(t))
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Mobile thread", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Environment(core.Environment{OS: core.OSAndroid,
+		Idiom: core.IdiomPhone, SafeArea: core.Edges{Top: 24, Bottom: 16}}),
+		nsgotest.Size(390, 844), nsgotest.Storage(map[string]string{
+			"serverUrl": ts.URL,
+			"token":     cfg.Token,
+		}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.WaitFor("id:open-settings", 10*time.Second)
+	app.WaitUntil(15*time.Second, func() bool {
+		if app.Exists("id:settings-nav-general") {
+			return true
+		}
+		if app.Exists("id:open-settings") {
+			app.Press("id:open-settings")
+			app.Settle()
+		}
+		return app.Exists("id:settings-nav-general")
+	})
+	app.Press("id:settings-nav-general")
+	app.WaitFor("id:settings-editor-auto", 5*time.Second)
+	save := app.Find("id:settings-save")
+	if save.Frame.Origin.X < 0 || save.Frame.Origin.X+save.Frame.Size.Width > 390 ||
+		save.Frame.Origin.Y+save.Frame.Size.Height > 844 {
+		t.Fatalf("save is outside the phone window: %v dialog=%v nav=%v", save.Frame,
+			app.Find("id:settings-dialog").Frame, app.Find("id:settings-nav-general").Frame)
+	}
+	app.Press("id:settings-nav-about")
+	app.WaitFor("id:settings-disconnect", 5*time.Second)
 }

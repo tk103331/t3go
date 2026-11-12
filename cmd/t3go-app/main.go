@@ -446,7 +446,7 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 			Padding: core.Symmetric(8, 12), Gap: 8}, Children: []core.Node{
 			ui.Text(a.envName(), 16, ui.Bold, colors.Text), ui.Spacer{},
 			ui.IconButton{Icon: lucide.Search, Label: "Search", TestID: "open-palette", OnPress: a.openPalette},
-			ui.IconButton{Icon: lucide.Settings, Label: "Settings", TestID: "settings", OnPress: a.openSettings},
+			ui.IconButton{Icon: lucide.Settings, Label: "Settings", TestID: "open-settings", OnPress: a.openSettings},
 		}},
 		core.View{Style: ui.FillRest, Children: []core.Node{a.sidebar(cx)}},
 	}}
@@ -698,17 +698,41 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 			a.closeSettings()
 		}
 	}, Title: "Settings", Description: "Defaults for new threads in this environment.",
-		TestID: "settings-dialog", Style: core.Style{Width: core.Pt(780)},
-		Children: []core.Node{core.Dynamic(a.settingsBody)},
-		Footer: []core.Node{
-			ui.Button{Text: "Disconnect", Variant: ui.ButtonGhost, TestID: "disconnect", OnPress: func() { a.closeSettings(); a.disconnect() }},
-			ui.Spacer{},
+		TestID: "settings-dialog", Style: settingsDialogStyle(cx), Children: []core.Node{core.Dynamic(a.settingsBody)},
+		Footer: settingsFooter(cx, a)}
+}
+
+// settingsDialogStyle is wide on desktops and the sheet's width on phones.
+func settingsDialogStyle(cx *core.Scope) core.Style {
+	if compactSettings(cx) {
+		return core.Style{}
+	}
+	return core.Style{Width: core.Pt(780)}
+}
+
+// settingsFooter keeps Disconnect out of the phone's short footer; it
+// lives in About there instead.
+func settingsFooter(cx *core.Scope, a *app) []core.Node {
+	if compactSettings(cx) {
+		return []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
+			Gap: 8, Width: core.Pct(100)}, Children: []core.Node{
 			ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: a.closeSettings},
+			ui.Spacer{},
 			ui.Button{Text: "Save", Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "settings-save", OnPress: func() {
 				a.closeSettings()
 				a.saveSettingsDraft()
 			}},
-		}}
+		}}}
+	}
+	return []core.Node{
+		ui.Button{Text: "Disconnect", Variant: ui.ButtonGhost, TestID: "disconnect", OnPress: func() { a.closeSettings(); a.disconnect() }},
+		ui.Spacer{},
+		ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: a.closeSettings},
+		ui.Button{Text: "Save", Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "settings-save", OnPress: func() {
+			a.closeSettings()
+			a.saveSettingsDraft()
+		}},
+	}
 }
 
 // settingsGeneral is the environment defaults page of settings.
