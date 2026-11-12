@@ -1811,10 +1811,26 @@ esac
 		}
 		return app.Exists("id:surface-linked")
 	})
-	app.Press("id:surface-linked")
-	app.WaitFor("id:open-linked-pr-7", 10*time.Second)
-	app.Press("id:open-linked-pr-7")
-	app.WaitFor("id:pr-merge-squash", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:open-linked-pr-7") {
+			return true
+		}
+		if app.Exists("id:surface-linked") {
+			app.Press("id:surface-linked")
+			app.Settle()
+		}
+		return app.Exists("id:open-linked-pr-7")
+	})
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:pr-merge-squash") {
+			return true
+		}
+		if app.Exists("id:open-linked-pr-7") {
+			app.Press("id:open-linked-pr-7")
+			app.Settle()
+		}
+		return app.Exists("id:pr-merge-squash")
+	})
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:test")) > 0 })
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:Please add tests")) > 0 })
 
@@ -2488,8 +2504,16 @@ printf 'p123\ncnode\nn127.0.0.1:3000\n'
 		}
 		return app.Exists("id:preview-open-3000")
 	})
-	app.Press("id:preview-open-3000")
-	app.WaitFor("id:browser-view", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:browser-view") {
+			return true
+		}
+		if app.Exists("id:preview-open-3000") {
+			app.Press("id:preview-open-3000")
+			app.Settle()
+		}
+		return app.Exists("id:browser-view")
+	})
 	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Address").Text == "http://localhost:3000" })
 }
 
@@ -2618,10 +2642,16 @@ func TestUIRestoreRun(t *testing.T) {
 		}
 		return app.Exists("id:restore-dialog")
 	})
-	app.Press("id:confirm-restore-run")
 	app.WaitUntil(10*time.Second, func() bool {
 		after, err := os.ReadFile(filepath.Join(repo, "README.md"))
-		return err == nil && string(after) == string(before)
+		if err == nil && string(after) == string(before) {
+			return true
+		}
+		if app.Exists("id:confirm-restore-run") {
+			app.Press("id:confirm-restore-run")
+			app.Settle()
+		}
+		return false
 	})
 }
 
@@ -2844,13 +2874,13 @@ func TestUIMobileSettings(t *testing.T) {
 			"token":     cfg.Token,
 		}))
 	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
-	app.WaitFor("id:open-settings", 10*time.Second)
+	app.WaitFor("id:settings", 10*time.Second)
 	app.WaitUntil(15*time.Second, func() bool {
 		if app.Exists("id:settings-nav-general") {
 			return true
 		}
-		if app.Exists("id:open-settings") {
-			app.Press("id:open-settings")
+		if app.Exists("id:settings") {
+			app.Press("id:settings")
 			app.Settle()
 		}
 		return app.Exists("id:settings-nav-general")
@@ -2865,4 +2895,114 @@ func TestUIMobileSettings(t *testing.T) {
 	}
 	app.Press("id:settings-nav-about")
 	app.WaitFor("id:settings-disconnect", 5*time.Second)
+}
+
+// TestUIMobileDialogsFit keeps the fixed-width dialogs inside a phone.
+func TestUIMobileDialogsFit(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	if _, err := srv.Service.CreateProject(ctx, "Mobile", gitRepo(t)); err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Environment(core.Environment{OS: core.OSAndroid,
+		Idiom: core.IdiomPhone, SafeArea: core.Edges{Top: 24, Bottom: 16}}),
+		nsgotest.Size(390, 844), nsgotest.Storage(map[string]string{
+			"serverUrl": ts.URL,
+			"token":     cfg.Token,
+		}))
+	app.WaitFor("id:new-thread", 15*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:new-thread-dialog") {
+			return true
+		}
+		app.Press("id:new-thread")
+		app.Settle()
+		return app.Exists("id:new-thread-dialog")
+	})
+	dialog := app.Find("id:new-thread-dialog").Frame
+	if dialog.Origin.X < 0 || dialog.Origin.X+dialog.Size.Width > 390 {
+		t.Fatalf("new thread dialog overflows: %v", dialog)
+	}
+	create := app.Find("id:create-thread").Frame
+	if create.Origin.X < 0 || create.Origin.X+create.Size.Width > 390 {
+		t.Fatalf("create button overflows: %v", create)
+	}
+	app.Press("id:cancel-thread")
+	app.WaitForGone("id:new-thread-dialog", 5*time.Second)
+
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:new-project-dialog") {
+			return true
+		}
+		app.Press("id:new-project")
+		app.Settle()
+		return app.Exists("id:new-project-dialog")
+	})
+	projectDialog := app.Find("id:new-project-dialog").Frame
+	if projectDialog.Origin.X < 0 || projectDialog.Origin.X+projectDialog.Size.Width > 390 {
+		t.Fatalf("new project dialog overflows: %v", projectDialog)
+	}
+}
+
+// TestUIMobileThreadActions keeps the phone's thread header compact: a
+// branch button and one menu rather than every action in a row.
+func TestUIMobileThreadActions(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Mobile", gitRepo(t))
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Mobile thread", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Environment(core.Environment{OS: core.OSAndroid,
+		Idiom: core.IdiomPhone, SafeArea: core.Edges{Top: 24, Bottom: 16}}),
+		nsgotest.Size(390, 844), nsgotest.Storage(map[string]string{
+			"serverUrl": ts.URL,
+			"token":     cfg.Token,
+		}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:composer-card", 10*time.Second)
+	app.WaitFor("id:branch-menu", 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:rename-thread") {
+			return true
+		}
+		if app.Exists("id:thread-actions") {
+			app.Press("id:thread-actions")
+			app.Settle()
+		}
+		return app.Exists("id:rename-thread")
+	})
+	app.WaitFor("id:history", 5*time.Second)
+	app.WaitFor("id:open-diff", 5*time.Second)
+}
+
+// TestUIMobilePalette keeps the phone palette above the keyboard and
+// gives it a visible way to close when the sheet cannot be swiped.
+func TestUIMobilePalette(t *testing.T) {
+	_, ts, cfg := startEnv(t)
+	app := nsgotest.Start(t, Root, nsgotest.Environment(core.Environment{OS: core.OSAndroid,
+		Idiom: core.IdiomPhone, KeyboardHeight: 300, SafeArea: core.Edges{Top: 24, Bottom: 16}}),
+		nsgotest.Size(390, 844), nsgotest.Storage(map[string]string{
+			"serverUrl": ts.URL,
+			"token":     cfg.Token,
+		}))
+	app.WaitFor("id:open-palette", 15*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:palette") {
+			return true
+		}
+		app.Press("id:open-palette")
+		app.Settle()
+		return app.Exists("id:palette")
+	})
+	app.WaitFor("id:palette-close", 5*time.Second)
+	app.Press("id:palette-close")
+	app.WaitForGone("id:palette", 5*time.Second)
 }

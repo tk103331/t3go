@@ -1249,7 +1249,7 @@ func (a *app) diffNodeWith(patch string, ref *basediff.Ref, unified bool) core.N
 func (a *app) editMessageDialog(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	message := a.editingMessage.Get()
-	return ui.Dialog{Open: func() bool { return message.ID != "" }, OnOpenChange: func(open bool, _ base.Reason) {
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: func() bool { return message.ID != "" }, OnOpenChange: func(open bool, _ base.Reason) {
 		if !open {
 			a.cancelEditMessage()
 		}

@@ -365,13 +365,32 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 		meta += " · " + d.Thread.Model
 	}
 	meta += " · " + string(d.Thread.Permission)
+	title := core.View{Style: core.Style{Direction: core.Column, MinWidth: core.Pt(0), FlexGrow: 1, Gap: 1}, Children: []core.Node{
+		core.Text{Content: d.Thread.Title, MaxLines: 1, Style: core.Style{FontSize: 13, FontWeight: ui.Semibold},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+		core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 11},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+	}}
+	if compactSettings(cx) {
+		// A phone row has no space for every action beside the title.
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinWidth: core.Pt(0)}, Children: []core.Node{
+			title,
+			ui.IconButton{Icon: lucide.GitBranch, Label: "Branches", TestID: "branch-menu",
+				OnPress: func() { a.showBranches.Set(true) }},
+			ui.Menu{TestID: "thread-actions", Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost,
+				Size: ui.SizeSmall, Label: "Thread actions", TestID: "thread-actions"},
+				Children: []core.Node{
+					ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread", OnSelect: func() { a.askRenameThread(d.Thread) }},
+					ui.MenuItem{Text: "Run history", TestID: "history", OnSelect: a.openRuns},
+					ui.MenuItem{Text: "Open in editor", TestID: "open-editor", OnSelect: a.openInEditor},
+					ui.MenuItem{Text: "Changes in this thread", TestID: "open-diff", OnSelect: a.openDiff},
+					ui.MenuItem{Text: "Delete thread", Variant: ui.MenuItemDanger, TestID: "delete-thread",
+						OnSelect: func() { a.askDeleteThread(d.Thread) }},
+				}},
+		}}
+	}
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, MinWidth: core.Pt(0)}, Children: []core.Node{
-		core.View{Style: core.Style{Direction: core.Column, MinWidth: core.Pt(0), FlexGrow: 1, Gap: 1}, Children: []core.Node{
-			core.Text{Content: d.Thread.Title, MaxLines: 1, Style: core.Style{FontSize: 13, FontWeight: ui.Semibold},
-				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-			core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 11},
-				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-		}},
+		title,
 		a.branchMenu(cx, d),
 		ui.IconButton{Icon: lucide.Pencil, Label: "Rename thread", TestID: "rename-thread",
 			OnPress: func() { a.askRenameThread(d.Thread) }},
@@ -445,8 +464,6 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexShrink: 0,
 			Padding: core.Symmetric(8, 12), Gap: 8}, Children: []core.Node{
 			ui.Text(a.envName(), 16, ui.Bold, colors.Text), ui.Spacer{},
-			ui.IconButton{Icon: lucide.Search, Label: "Search", TestID: "open-palette", OnPress: a.openPalette},
-			ui.IconButton{Icon: lucide.Settings, Label: "Settings", TestID: "open-settings", OnPress: a.openSettings},
 		}},
 		core.View{Style: ui.FillRest, Children: []core.Node{a.sidebar(cx)}},
 	}}
@@ -465,7 +482,7 @@ func (a *app) approvalDialog(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	approvals := a.approvals.Get()
 	if len(approvals) == 0 {
-		return ui.Dialog{Open: func() bool { return false }}
+		return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: func() bool { return false }}
 	}
 	request := approvals[0]
 	description := "A supervised agent wants to use " + request.Tool + "."
@@ -486,7 +503,7 @@ func (a *app) approvalDialog(cx *core.Scope) core.Node {
 	if len(approvals) > 1 {
 		children = append(children, ui.Text(fmt.Sprintf("%d more waiting", len(approvals)-1), 11.5, ui.Regular, colors.Faint))
 	}
-	return ui.Dialog{
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx),
 		Open:         func() bool { return len(a.approvals.Get()) > 0 },
 		OnOpenChange: func(bool, base.Reason) {},
 		Title:        "Allow tool call?",
@@ -510,25 +527,41 @@ func closeDialog(sig *core.Signal[bool]) func(bool, base.Reason) {
 
 // paletteDialog searches the environment's threads and actions.
 func (a *app) paletteDialog(cx *core.Scope) core.Node {
-	return ui.CommandDialog{
-		Open: a.showPalette.Get, OnOpenChange: closeDialog(a.showPalette),
-		TestID: "palette",
-		Command: ui.Command{
-			Items: a.commandItems, OnSelect: a.runCommand,
-			OnQueryChange: a.searchMessages,
-			Loading:       func() bool { return a.searchBusy.Get() },
-			Error:         func() string { return a.searchErr.Get() },
-			Placeholder:   "Search threads, messages and actions…", SearchLabel: "Search commands",
-			Empty: "No threads, messages or commands match.", Label: "Commands", TestID: "palette-command",
-		},
+	command := ui.Command{
+		AutoFocus: true,
+		Style:     core.Style{FlexGrow: 1, FlexShrink: 1, Height: core.Pt(440)},
+		Items:     a.commandItems, OnSelect: a.runCommand,
+		OnQueryChange: a.searchMessages,
+		Loading:       func() bool { return a.searchBusy.Get() },
+		Error:         func() string { return a.searchErr.Get() },
+		Placeholder:   "Search threads, messages and actions…", SearchLabel: "Search commands",
+		Empty: "No threads, messages or commands match.", Label: "Commands", TestID: "palette-command",
+		OnCancel: func() { a.showPalette.Set(false) },
+	}
+	style := core.Style{}
+	var footer []core.Node
+	if compactSettings(cx) {
+		// Keep the palette above the software keyboard, which covers the
+		// bottom of the window on phones. A sheet swipe would take the
+		// list's drags, so phones close the palette with this button.
+		if keyboard := cx.Env().KeyboardHeight(); keyboard > 0 {
+			style.Margin = core.Edges{Bottom: keyboard}
+		}
+		footer = []core.Node{ui.Button{Text: "Close", Variant: ui.ButtonGhost, TestID: "palette-close",
+			OnPress: func() { a.showPalette.Set(false) }}}
+	}
+	return ui.Dialog{Open: a.showPalette.Get, OnOpenChange: closeDialog(a.showPalette),
+		TestID: "palette", Label: "Commands", Bare: true, Style: style, Footer: footer,
+		NoCloseOnBackdropPress: compactSettings(cx),
+		Children:               []core.Node{command},
 	}
 }
 
 func (a *app) newProjectDialog(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	return ui.Dialog{Open: a.showNewProject.Get, OnOpenChange: closeDialog(a.showNewProject), Title: "New project",
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showNewProject.Get, OnOpenChange: closeDialog(a.showNewProject), Title: "New project",
 		Description: "Register a directory the agent can work in. The folder must already exist.",
-		TestID:      "new-project-dialog", Style: core.Style{Width: core.Pt(520)}, Children: []core.Node{
+		TestID:      "new-project-dialog", Style: dialogWidth(cx, 520), Children: []core.Node{
 			ui.Input{Input: base.Input{Value: a.newProjectName.Get, OnChange: a.newProjectName.Set,
 				Placeholder: "Defaults to the folder's name", Label: "Project name"}},
 			core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{
@@ -555,9 +588,9 @@ func (a *app) newProjectDialog(cx *core.Scope) core.Node {
 }
 
 func (a *app) newThreadDialog(cx *core.Scope) core.Node {
-	return ui.Dialog{Open: a.showNewThread.Get, OnOpenChange: closeDialog(a.showNewThread), Title: "New thread",
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showNewThread.Get, OnOpenChange: closeDialog(a.showNewThread), Title: "New thread",
 		Description: "The agent runs in the project's directory, or in its own worktree.",
-		TestID:      "new-thread-dialog", Style: core.Style{Width: core.Pt(540)},
+		TestID:      "new-thread-dialog", Style: dialogWidth(cx, 540),
 		Children: []core.Node{core.Dynamic(a.newThreadBody)},
 		Footer: []core.Node{
 			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, TestID: "cancel-thread",
@@ -687,9 +720,17 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 	fields = append(fields, core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node {
 		return ui.Text(a.connErr.Get(), 12, ui.Regular, colors.Danger)
 	}})
-	return core.Scroll{Style: core.Style{MaxHeight: core.Pct(60)},
-		Children: []core.Node{core.View{Style: core.Style{Direction: core.Column, Gap: 12,
-			Padding: core.Edges{Right: 16}}, Children: fields}}}
+	gap := core.Points(12)
+	bodyStyle := core.Style{MaxHeight: core.Pct(60), Padding: core.Edges{Right: 16}}
+	if compactSettings(cx) {
+		// A phone sheet has no room beside the footer: cap the body by a
+		// point height it can resolve, still short enough for the footer.
+		gap = 8
+		bodyStyle = core.Style{MaxHeight: core.Pt(cx.Env().Window().Height * 0.62),
+			FlexShrink: 1, MinHeight: core.Pt(0)}
+	}
+	return core.Scroll{Style: bodyStyle,
+		Children: []core.Node{core.View{Style: core.Style{Direction: core.Column, Gap: gap}, Children: fields}}}
 }
 
 func (a *app) settingsDialog(cx *core.Scope) core.Node {
@@ -697,7 +738,8 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 		if !open {
 			a.closeSettings()
 		}
-	}, Title: "Settings", Description: "Defaults for new threads in this environment.",
+	}, NoCloseOnBackdropPress: compactSettings(cx),
+		Title: "Settings", Description: "Defaults for new threads in this environment.",
 		TestID: "settings-dialog", Style: settingsDialogStyle(cx), Children: []core.Node{core.Dynamic(a.settingsBody)},
 		Footer: settingsFooter(cx, a)}
 }
@@ -708,6 +750,15 @@ func settingsDialogStyle(cx *core.Scope) core.Style {
 		return core.Style{}
 	}
 	return core.Style{Width: core.Pt(780)}
+}
+
+// dialogWidth keeps a desktop dialog's comfortable width off phones,
+// where the sheet already fills the screen.
+func dialogWidth(cx *core.Scope, width core.Points) core.Style {
+	if compactSettings(cx) {
+		return core.Style{}
+	}
+	return core.Style{Width: core.Pt(width)}
 }
 
 // settingsFooter keeps Disconnect out of the phone's short footer; it
@@ -924,7 +975,7 @@ func (a *app) promptArgsDialog(cx *core.Scope) core.Node {
 		rows = append(rows, ui.Text("This prompt takes no arguments.", 11.5, ui.Regular, colors.Faint))
 	}
 	name := a.promptName.Get()
-	return ui.Dialog{Open: a.showPromptArgs.Get, OnOpenChange: closeDialog(a.showPromptArgs),
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showPromptArgs.Get, OnOpenChange: closeDialog(a.showPromptArgs),
 		Title: "Run " + name, Description: "Fill in the prompt's arguments; empty ones are skipped.",
 		TestID: "prompt-args-dialog", Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: rows},
@@ -957,7 +1008,7 @@ func (a *app) branchesDialog(cx *core.Scope) core.Node {
 	if len(rows) == 0 {
 		rows = append(rows, ui.Text("No local branches.", 11.5, ui.Regular, colors.Faint))
 	}
-	return ui.Dialog{Open: a.showBranches.Get, OnOpenChange: closeDialog(a.showBranches), Title: "Branches",
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showBranches.Get, OnOpenChange: closeDialog(a.showBranches), Title: "Branches",
 		Description: "Switch this thread's checkout, or make a new branch.", TestID: "branches-dialog",
 		Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(300)}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Column, Gap: 3, Padding: core.Edges{Right: 12}}, Children: rows},
@@ -973,7 +1024,7 @@ func (a *app) branchesDialog(cx *core.Scope) core.Node {
 // restoreDialog confirms reverting tracked files to a checkpoint.
 func (a *app) restoreDialog(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	return ui.Dialog{Open: a.showRestore.Get, OnOpenChange: closeDialog(a.showRestore), Title: "Restore files?",
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showRestore.Get, OnOpenChange: closeDialog(a.showRestore), Title: "Restore files?",
 		Description: "Tracked files go back to this run's checkpoint. Untracked files stay, and the current files are saved as a backup checkpoint first.",
 		TestID:      "restore-dialog", Children: []core.Node{
 			core.Text{Content: "This changes the working tree; commit anything you want to keep first.",
@@ -989,9 +1040,9 @@ func (a *app) restoreDialog(cx *core.Scope) core.Node {
 func (a *app) customModelDialog(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	provider := a.customModelProvider.Get()
-	return ui.Dialog{Open: a.showCustomModel.Get, OnOpenChange: closeDialog(a.showCustomModel),
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showCustomModel.Get, OnOpenChange: closeDialog(a.showCustomModel),
 		Title: "Add model to " + provider, Description: "Use the model id the CLI expects.",
-		TestID: "custom-model-dialog", Style: core.Style{Width: core.Pt(520)}, Children: []core.Node{
+		TestID: "custom-model-dialog", Style: dialogWidth(cx, 520), Children: []core.Node{
 			ui.Input{Input: base.Input{Value: a.customModelID.Get, OnChange: a.customModelID.Set,
 				Placeholder: "model-id", Label: "Model id", TestID: "custom-model-id"}},
 			ui.Input{Input: base.Input{Value: a.customModelName.Get, OnChange: a.customModelName.Set,
@@ -1043,7 +1094,7 @@ func (a *app) devicesDialog(cx *core.Scope) core.Node {
 	if len(rows) == 0 {
 		rows = append(rows, ui.Text("No simulators found.", 11.5, ui.Regular, colors.Faint))
 	}
-	return ui.Dialog{Open: a.showDevices.Get, OnOpenChange: closeDialog(a.showDevices), Title: "Devices",
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showDevices.Get, OnOpenChange: closeDialog(a.showDevices), Title: "Devices",
 		Description: "Pick a simulator to see its screen.", TestID: "devices-dialog",
 		Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(300)}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Column, Gap: 2, Padding: core.Edges{Right: 12}}, Children: rows},
@@ -1056,7 +1107,7 @@ func (a *app) devicesDialog(cx *core.Scope) core.Node {
 
 // newBranchDialog asks for a branch to create and check out.
 func (a *app) newBranchDialog(cx *core.Scope) core.Node {
-	return ui.Dialog{Open: a.showBranch.Get, OnOpenChange: closeDialog(a.showBranch), Title: "New branch",
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showBranch.Get, OnOpenChange: closeDialog(a.showBranch), Title: "New branch",
 		Description: "Create a branch in this thread's checkout and switch to it.", TestID: "new-branch-dialog",
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			return ui.Input{Input: base.Input{Value: a.branchName.Get, OnChange: a.branchName.Set,
@@ -1069,7 +1120,7 @@ func (a *app) newBranchDialog(cx *core.Scope) core.Node {
 }
 
 func (a *app) diffDialog(cx *core.Scope) core.Node {
-	return ui.Dialog{Open: a.showDiff.Get, OnOpenChange: closeDialog(a.showDiff), Title: "Changes",
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showDiff.Get, OnOpenChange: closeDialog(a.showDiff), Title: "Changes",
 		Description: "Commit, push, and open a pull request for this thread's checkout.", TestID: "diff-dialog",
 		Children: []core.Node{core.Dynamic(a.diffBody)},
 		Footer: []core.Node{
@@ -1212,7 +1263,7 @@ func (a *app) runsDialog(cx *core.Scope) core.Node {
 	if len(rows) == 0 {
 		rows = append(rows, ui.Text("No runs yet. Ask the agent to change something.", 12.5, ui.Regular, colors.Faint))
 	}
-	return ui.Dialog{Open: a.showRuns.Get, OnOpenChange: closeDialog(a.showRuns), Title: "History",
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showRuns.Get, OnOpenChange: closeDialog(a.showRuns), Title: "History",
 		Description: "Runs of this thread, newest first.", TestID: "runs-dialog",
 		Children: []core.Node{
 			core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
@@ -1244,7 +1295,7 @@ func (a *app) renameDialog(cx *core.Scope) core.Node {
 	case "project":
 		title, label = "Rename project", "Project name"
 	}
-	return ui.Dialog{
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx),
 		Open: func() bool { return target.Kind != "" },
 		OnOpenChange: func(open bool, _ base.Reason) {
 			if !open {
