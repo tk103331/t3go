@@ -258,6 +258,33 @@ go run ./cmd/t3go-app
 桌面端也接受 `T3GO_SERVER` / `T3GO_TOKEN` 环境变量直接连接，适合脚本或
 IDE 调试配置。
 
+iOS 模拟器：
+
+```sh
+export SIMCTL_CHILD_T3GO_SERVER=http://127.0.0.1:4870
+export SIMCTL_CHILD_T3GO_TOKEN=$(cat .dev/t3go/token)
+go tool nsgo dev -target ios_simulator ./cmd/t3go-app
+```
+
+Android 模拟器（Apple Silicon）：
+
+```sh
+brew install --cask android-commandlinetools
+brew install openjdk@21
+export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+yes | sdkmanager "platform-tools" "emulator" "platforms;android-35" \
+  "system-images;android-35;google_apis;arm64-v8a"
+echo no | avdmanager create avd -n t3go \
+  -k "system-images;android-35;google_apis;arm64-v8a"
+emulator -avd t3go &
+go tool nsgo dev -target android ./cmd/t3go-app
+```
+
+Android 模拟器通过 `http://10.0.2.2:4870` 访问本机环境，token 在
+`.dev/t3go/token`，两者填进 App 的连接页即可。
+
 ## 开发与测试
 
 ```sh
