@@ -357,6 +357,68 @@ func (s *Store) UpdateThread(ctx context.Context, t proto.Thread) error {
 }
 
 // DeleteThread removes a thread and its history.
+// SearchMessages finds text messages holding query, newest first.
+func (s *Store) SearchMessageHits(ctx context.Context, query string, limit int) ([]proto.MessageHit, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	like := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query) + "%"
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT m.id, m.thread_id, t.title, t.project_id, p.name, m.role, m.content, m.created_at
+		FROM messages m
+		JOIN threads t ON t.id = m.thread_id
+		JOIN projects p ON p.id = t.project_id
+		WHERE t.side_chat = 0 AND m.kind = 'text' AND m.content LIKE ? ESCAPE '\'
+		ORDER BY m.created_at DESC LIMIT ?`, like, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []proto.MessageHit
+	for rows.Next() {
+		var hit proto.MessageHit
+		var created, content string
+		if err := rows.Scan(&hit.MessageID, &hit.ThreadID, &hit.ThreadTitle, &hit.ProjectID, &hit.ProjectName,
+			&hit.Role, &content, &created); err != nil {
+			return nil, err
+		}
+		hit.CreatedAt = parseTime(created)
+		hit.Snippet = messageSnippet(content, query)
+		out = append(out, hit)
+	}
+	return out, rows.Err()
+}
+
+// messageSnippet trims a message around its first match.
+func messageSnippet(content, query string) string {
+	content = strings.Join(strings.Fields(content), " ")
+	lower := strings.ToLower(content)
+	at := strings.Index(lower, strings.ToLower(query))
+	if at < 0 {
+		at = 0
+	}
+	start := at - 40
+	if start < 0 {
+		start = 0
+	}
+	end := at + len(query) + 100
+	if end > len(content) {
+		end = len(content)
+	}
+	snippet := strings.TrimSpace(content[start:end])
+	if start > 0 {
+		snippet = "…" + snippet
+	}
+	if end < len(content) {
+		snippet += "…"
+	}
+	return snippet
+}
+
 // UsageEntry is one run's provider and usage for the usage report.
 type UsageEntry struct {
 	Provider  string

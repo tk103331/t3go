@@ -2649,3 +2649,26 @@ echo "$@" >> "$EDITOR_LOG"
 		t.Fatalf("bad editor = %d", code)
 	}
 }
+
+func TestSearchMessagesEndpoint(t *testing.T) {
+	e := newTestEnv(t)
+	project := e.project(t)
+	thread := e.thread(t, project.ID)
+	if _, err := e.server.Store.AppendMessage(context.Background(), proto.Message{ID: "msg_search",
+		ThreadID: thread.ID, Role: proto.RoleUser, Kind: proto.KindText, Content: "the purple elephant", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Messages []proto.MessageHit `json:"messages"`
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/search/messages?q=purple", nil, e.token, &out); code != http.StatusOK {
+		t.Fatalf("search = %d", code)
+	}
+	if len(out.Messages) != 1 || out.Messages[0].MessageID != "msg_search" ||
+		out.Messages[0].ThreadTitle != thread.Title || !strings.Contains(out.Messages[0].Snippet, "purple elephant") {
+		t.Fatalf("messages = %#v", out.Messages)
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/search/messages?q=%25", nil, e.token, &out); code != http.StatusOK || len(out.Messages) != 0 {
+		t.Fatalf("wildcard search = %d, %#v", code, out.Messages)
+	}
+}

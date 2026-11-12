@@ -2716,3 +2716,45 @@ echo "$@" >> "$EDITOR_LOG"
 		return false
 	})
 }
+
+// TestUISearchMessages finds a transcript message from the palette.
+func TestUISearchMessages(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Search Repo", gitRepo(t))
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Search thread", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	if _, err := srv.Store.AppendMessage(ctx, proto.Message{ID: "msg_purple", ThreadID: thread.ID, Role: proto.RoleUser,
+		Kind: proto.KindText, Content: "find the purple elephant", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:open-palette", 15*time.Second)
+	app.Press("id:open-palette")
+	app.WaitFor("id:palette", 5*time.Second)
+	app.WaitUntil(15*time.Second, func() bool {
+		if app.Exists("text:/purple elephant/") {
+			return true
+		}
+		if app.Exists("label:Search commands") {
+			app.Clear("label:Search commands")
+			app.Type("label:Search commands", "purple elephant")
+			app.Settle()
+			app.Advance(300 * time.Millisecond)
+			app.Settle()
+		}
+		return app.Exists("text:/purple elephant/")
+	})
+	app.Key("enter")
+	app.WaitFor("id:content-header >> text:Search thread", 10*time.Second)
+}

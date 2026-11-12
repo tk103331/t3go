@@ -68,6 +68,13 @@ type app struct {
 	filesScroll *core.Ref
 	graphScroll *core.Ref
 
+	// message search
+	searchHits  *core.Signal[[]proto.MessageHit]
+	searchBusy  *core.Signal[bool]
+	searchErr   *core.Signal[string]
+	searchSeq   int
+	searchTimer func() bool
+
 	// editor
 	editorChoice *core.Signal[string]
 
@@ -253,6 +260,9 @@ func newApp(cx *core.Scope) *app {
 		sideAttachments: sliceSignal[proto.Attachment](cx),
 		filesScroll:     &core.Ref{},
 		graphScroll:     &core.Ref{},
+		searchHits:      sliceSignal[proto.MessageHit](cx),
+		searchBusy:      core.NewSignal(cx, false),
+		searchErr:       core.NewSignal(cx, ""),
 		editorChoice:    core.NewSignal(cx, "auto"),
 		usageReport:     core.NewSignalFunc(cx, proto.UsageReport{}, func(a, b proto.UsageReport) bool { return false }),
 		usageDays:       core.NewSignal(cx, 30),
@@ -3577,11 +3587,60 @@ func (a *app) setSidebarWidth(w core.Points) {
 // openPalette searches the environment's threads and commands.
 func (a *app) openPalette() {
 	a.connErr.Set("")
+	a.searchHits.Set(nil)
+	a.searchErr.Set("")
 	a.showPalette.Set(true)
 }
 
 func (a *app) closePalette() {
+	if a.searchTimer != nil {
+		a.searchTimer()
+		a.searchTimer = nil
+	}
 	a.showPalette.Set(false)
+}
+
+// searchMessages debounces a message search for the palette.
+func (a *app) searchMessages(query string) {
+	if a.searchTimer != nil {
+		a.searchTimer()
+		a.searchTimer = nil
+	}
+	query = strings.TrimSpace(query)
+	a.searchErr.Set("")
+	if len(query) < 2 {
+		a.searchHits.Set(nil)
+		a.searchBusy.Set(false)
+		return
+	}
+	a.searchSeq++
+	seq := a.searchSeq
+	a.searchTimer = a.cx.AfterFunc(250*time.Millisecond, func() {
+		a.searchTimer = nil
+		a.searchBusy.Set(true)
+		a.call(func(ctx context.Context, c *client.Client) error {
+			hits, err := c.SearchMessages(ctx, query, 20)
+			if err != nil {
+				return err
+			}
+			a.cx.Post(func() {
+				if a.searchSeq != seq {
+					return
+				}
+				a.searchHits.Set(hits)
+				a.searchBusy.Set(false)
+			})
+			return nil
+		}, func(err error) {
+			if a.searchSeq != seq {
+				return
+			}
+			a.searchBusy.Set(false)
+			if err != nil {
+				a.searchErr.Set(friendlyError(err))
+			}
+		})
+	})
 }
 
 // runCommand runs the palette row with id, closing the palette first so
@@ -3602,6 +3661,11 @@ func (a *app) runCommand(id string) {
 	case strings.HasPrefix(id, "thread:"):
 		if threadID := strings.TrimPrefix(id, "thread:"); threadID != "" {
 			a.selectThread(threadID)
+		}
+	case strings.HasPrefix(id, "message:"):
+		parts := strings.SplitN(strings.TrimPrefix(id, "message:"), ":", 2)
+		if len(parts) == 2 && parts[0] != "" {
+			a.selectThread(parts[0])
 		}
 	}
 }
@@ -3628,6 +3692,13 @@ func (a *app) commandItems() []base.CommandItem {
 		items = append(items, base.CommandItem{
 			ID: "thread:" + t.ID, Label: t.Title, Description: projects[t.ProjectID], Group: "Threads",
 			Keywords: []string{projects[t.ProjectID], t.Provider},
+		})
+	}
+	for _, hit := range a.searchHits.Get() {
+		items = append(items, base.CommandItem{
+			ID: "message:" + hit.ThreadID + ":" + hit.MessageID, Label: hit.Snippet,
+			Description: hit.ProjectName + " · " + hit.ThreadTitle, Group: "Messages",
+			Keywords: []string{hit.ThreadTitle, hit.ProjectName},
 		})
 	}
 	return items

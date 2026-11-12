@@ -177,6 +177,18 @@ type Provider struct {
 	LoginCommand    string `json:"loginCommand,omitempty"`
 }
 
+// MessageHit is a message matching a search.
+type MessageHit struct {
+	MessageID   string    `json:"messageId"`
+	ThreadID    string    `json:"threadId"`
+	ThreadTitle string    `json:"threadTitle"`
+	ProjectID   string    `json:"projectId,omitempty"`
+	ProjectName string    `json:"projectName,omitempty"`
+	Role        Role      `json:"role"`
+	Snippet     string    `json:"snippet"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
 // UsageTotals is a token and cost total.
 type UsageTotals struct {
 	Runs   int     `json:"runs"`

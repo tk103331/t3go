@@ -463,6 +463,16 @@ func (c *Client) PullBranch(ctx context.Context, threadID string) (string, strin
 	return out.Status, out.RefName, err
 }
 
+// SearchMessages finds message text across visible threads.
+func (c *Client) SearchMessages(ctx context.Context, query string, limit int) ([]proto.MessageHit, error) {
+	var out struct {
+		Messages []proto.MessageHit `json:"messages"`
+	}
+	path := "/api/v1/search/messages?q=" + url.QueryEscape(query) + "&limit=" + fmt.Sprint(limit)
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out.Messages, err
+}
+
 // Usage summarizes runs over the last days.
 func (c *Client) Usage(ctx context.Context, days int) (proto.UsageReport, error) {
 	var out proto.UsageReport

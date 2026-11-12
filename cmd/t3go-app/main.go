@@ -510,8 +510,11 @@ func (a *app) paletteDialog(cx *core.Scope) core.Node {
 		TestID: "palette",
 		Command: ui.Command{
 			Items: a.commandItems, OnSelect: a.runCommand,
-			Placeholder: "Search threads and actions…", SearchLabel: "Search commands",
-			Empty: "No threads or commands match.", Label: "Commands", TestID: "palette-command",
+			OnQueryChange: a.searchMessages,
+			Loading:       func() bool { return a.searchBusy.Get() },
+			Error:         func() string { return a.searchErr.Get() },
+			Placeholder:   "Search threads, messages and actions…", SearchLabel: "Search commands",
+			Empty: "No threads, messages or commands match.", Label: "Commands", TestID: "palette-command",
 		},
 	}
 }

@@ -249,6 +249,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/devices", s.auth(s.handleDevices))
 	mux.HandleFunc("GET /api/v1/preview/servers", s.auth(s.handlePreviewServers))
 	mux.HandleFunc("GET /api/v1/usage", s.auth(s.handleUsage))
+	mux.HandleFunc("GET /api/v1/search/messages", s.auth(s.handleSearchMessages))
 	mux.HandleFunc("POST /api/v1/devices/{id}/boot", s.auth(s.handleDeviceBoot))
 	mux.HandleFunc("POST /api/v1/devices/{id}/shutdown", s.auth(s.handleDeviceShutdown))
 	mux.HandleFunc("GET /api/v1/devices/{id}/screenshot", s.auth(s.handleDeviceScreenshot))
