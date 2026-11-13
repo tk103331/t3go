@@ -36,27 +36,42 @@ func (a *app) connectView(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
 		Padding: core.All(24), Background: colors.Background()}, Children: []core.Node{
-		core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(400), Gap: 10}, Children: []core.Node{
-			core.Text{Content: "T3Go", Style: core.Style{FontSize: 24, FontWeight: ui.Bold}, StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-			core.Text{Content: "Connect to a T3Go environment to open its projects and threads.", Style: core.Style{FontSize: 13, LineHeight: 19},
+		core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420), Gap: 14,
+			Padding: core.All(22), CornerRadius: 14, BorderWidth: 1, BorderColor: ui.Alpha(colors.Muted(), 0.18),
+			Background: colors.Inset()}, Children: []core.Node{
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12}, Children: []core.Node{
+				brandWordmark(cx, 21),
+				core.View{Style: core.Style{Gap: 3}, Children: []core.Node{
+					core.Text{Content: "T3Go", Style: core.Style{FontSize: 21, FontWeight: ui.Bold},
+						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+					core.Text{Content: "Your coding workspace", Style: core.Style{FontSize: 12},
+						StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+				}},
+			}},
+			core.Text{Content: "Connect to an environment", Style: core.Style{FontSize: 15, FontWeight: ui.Semibold},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+			core.Text{Content: "Enter the server address and access token to open your projects and threads.", Style: core.Style{FontSize: 12.5, LineHeight: 18},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-			core.View{Style: core.Style{Height: core.Pt(6)}},
 			ui.Input{Input: base.Input{Value: a.serverURL.Get, OnChange: a.serverURL.Set, Placeholder: "Server, e.g. http://127.0.0.1:4870",
 				Label: "Server address", SubmitBehavior: core.SubmitBehaviorSubmit, OnSubmit: func(string) { a.connect(a.serverURL.Get(), a.token.Get()) }}},
 			ui.Input{Input: base.Input{Value: a.token.Get, OnChange: a.token.Set, Placeholder: "Token, or paste a t3go:// pair link",
 				Label: "Token", Masked: true, SubmitBehavior: core.SubmitBehaviorSubmit,
 				OnSubmit: func(string) { a.connect(a.serverURL.Get(), a.token.Get()) }}},
 			core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node {
-				return ui.Text(a.connErr.Get(), 12, ui.Regular, colors.Danger)
+				return core.View{Style: core.Style{Padding: core.Symmetric(8, 10), CornerRadius: 7,
+					Background: ui.Alpha(colors.Danger(), 0.1)}, Children: []core.Node{
+					ui.Text(a.connErr.Get(), 12, ui.Regular, colors.Danger),
+				}}
 			}},
 			ui.Button{Text: func() string {
 				if a.connecting.Get() {
 					return "Connecting…"
 				}
 				return "Connect"
-			}(), Variant: ui.ButtonPrimary, OnPress: func() { a.connect(a.serverURL.Get(), a.token.Get()) },
+			}(), Icon: lucide.LogIn, Variant: ui.ButtonPrimary, OnPress: func() { a.connect(a.serverURL.Get(), a.token.Get()) },
 				Disabled: a.connecting.Get, Flex: 1},
-			ui.Text("The token is in the environment's data directory, or run `t3go pair`.", 11.5, ui.Regular, colors.Faint),
+			core.Text{Content: "Find the token in the environment data directory, or run `t3go pair`.",
+				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 		}},
 	}}
 }
@@ -434,14 +449,44 @@ func (a *app) content(cx *core.Scope) core.Node {
 
 func (a *app) welcome(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Padding: core.All(24), Gap: 12}, Children: []core.Node{
-		ui.Text("T3Go", 20, ui.Bold, colors.Text),
-		ui.Text("Pick a thread, or start one in a project.", 13, ui.Regular, colors.Muted),
-		core.View{Style: core.Style{Direction: core.Row, Gap: 8, JustifyContent: core.JustifyCenter}, Children: []core.Node{
-			ui.Button{Text: "New project", Icon: lucide.FolderPlus, Variant: ui.ButtonSecondary, TestID: "welcome-new-project", OnPress: a.openNewProject},
-			ui.Button{Text: "New thread", Icon: lucide.MessageSquarePlus, Variant: ui.ButtonPrimary, TestID: "welcome-new-thread", OnPress: a.openNewThread},
+	phone := cx.Env().Window().Width < 520
+	projectCount := len(a.projects.Get())
+	message := "Create a project to give your agent a workspace, or start a thread in one you already have."
+	if projectCount > 0 {
+		message = fmt.Sprintf("You have %d %s ready. Pick a thread from the sidebar or start a fresh one.",
+			projectCount, plural(projectCount, "project", "projects"))
+	}
+	buttons := []core.Node{
+		ui.Button{Text: "New thread", Icon: lucide.MessageSquarePlus, Variant: ui.ButtonPrimary,
+			TestID: "welcome-new-thread", Flex: 1, OnPress: a.openNewThread},
+		ui.Button{Text: "New project", Icon: lucide.FolderPlus, Variant: ui.ButtonSecondary,
+			TestID: "welcome-new-project", Flex: 1, OnPress: a.openNewProject},
+	}
+	buttonStyle := core.Style{Direction: core.Row, Gap: 8, Width: core.Pct(100)}
+	if phone {
+		buttonStyle.Direction = core.Column
+	}
+	return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+		Padding: core.All(24), Background: colors.Background()}, Children: []core.Node{
+		core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(420), AlignItems: core.AlignCenter,
+			Gap: 12, Padding: core.All(24), CornerRadius: 14, BorderWidth: 1,
+			BorderColor: ui.Alpha(colors.Muted(), 0.16), Background: colors.Inset()}, Children: []core.Node{
+			brandWordmark(cx, 24),
+			core.Text{Content: "Welcome to " + a.envName(), MaxLines: 1,
+				Style:     core.Style{FontSize: 19, FontWeight: ui.Bold},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+			core.Text{Content: message, Style: core.Style{FontSize: 12.5, LineHeight: 19, TextAlign: core.TextAlignCenter},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+			core.View{Style: buttonStyle, Children: buttons},
 		}},
 	}}
+}
+
+func plural(n int, singular, multiple string) string {
+	if n == 1 {
+		return singular
+	}
+	return multiple
 }
 
 // narrowView is the phone layout: a list of threads, or the open thread

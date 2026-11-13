@@ -364,6 +364,8 @@ func (a *app) renderMessage(cx *core.Scope, m proto.Message) core.Node {
 	colors := ui.ColorsOf(cx)
 	if m.Role == proto.RoleUser {
 		body := []core.Node{}
+		body = append(body, core.Text{Content: "You", Style: core.Style{FontSize: 10.5, FontWeight: ui.Semibold},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 		if m.Content != "" {
 			body = append(body, core.Text{Content: m.Content, Selectable: core.SelectableOn, Style: core.Style{FontSize: 13, LineHeight: 19},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }})
@@ -381,9 +383,9 @@ func (a *app) renderMessage(cx *core.Scope, m proto.Message) core.Node {
 			}
 			body = append(body, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 8}, Children: files})
 		}
-		return core.View{Style: core.Style{Direction: core.Column, AlignItems: core.AlignEnd, Gap: 2, MinWidth: core.Pt(0)}, Children: []core.Node{
+		return core.View{Style: core.Style{Direction: core.Column, AlignItems: core.AlignEnd, Gap: 3, MinWidth: core.Pt(0)}, Children: []core.Node{
 			core.View{Style: core.Style{MaxWidth: core.Pt(560), Background: colors.Inset(), Padding: core.Symmetric(10, 14), CornerRadius: 14,
-				Direction: core.Column, Gap: 6}, Children: body},
+				Direction: core.Column, Gap: 5, BorderWidth: 1, BorderColor: ui.Alpha(colors.Muted(), 0.12)}, Children: body},
 			a.messageFooter(cx, m),
 		}}
 	}
@@ -413,11 +415,15 @@ func (a *app) renderMessage(cx *core.Scope, m proto.Message) core.Node {
 	body := ui.TextView{MarkdownFunc: func() string { return a.markdownPreview(m.Content, "") }, Selectable: true, OpenLinks: true,
 		CodeBlockActions: []textview.CodeAction{{ID: textview.CopyAction, Label: "Copy code"}}}
 	footer := a.messageFooter(cx, m)
+	identity := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+		Padding: core.Edges{Bottom: 2}}, Children: []core.Node{
+		brandWordmark(cx, 11),
+	}}
 	if m.Status == "cancelled" {
 		return core.View{Style: core.Style{Direction: core.Column, Gap: 3, MinWidth: core.Pt(0)}, Children: []core.Node{
-			body, ui.Text("Stopped.", 11.5, ui.Regular, colors.Faint), footer}}
+			identity, body, ui.Text("Stopped.", 11.5, ui.Regular, colors.Faint), footer}}
 	}
-	return core.View{Style: core.Style{Direction: core.Column, Gap: 3, MinWidth: core.Pt(0)}, Children: []core.Node{body, footer}}
+	return core.View{Style: core.Style{Direction: core.Column, Gap: 3, MinWidth: core.Pt(0)}, Children: []core.Node{identity, body, footer}}
 }
 
 // reasoningCard folds a thinking stream into a disclosure. It opens while
@@ -444,7 +450,8 @@ func (a *app) reasoningCard(cx *core.Scope, m proto.Message) core.Node {
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }}
 		}})
 	}
-	return core.View{Style: core.Style{MinWidth: core.Pt(0), Padding: core.Edges{Left: 2}}, Children: []core.Node{
+	return core.View{Style: core.Style{MinWidth: core.Pt(0), Padding: core.Symmetric(7, 9),
+		Background: colors.Inset(), BorderWidth: 1, BorderColor: ui.Alpha(colors.Muted(), 0.13), CornerRadius: 9}, Children: []core.Node{
 		ui.Collapsible{Variant: ui.CollapsibleArrowLeft, Text: title, Trigger: trigger,
 			Open:         func() bool { return a.isExpanded(key, running) },
 			OnOpenChange: func(open bool) { a.setExpanded(key, open) },
@@ -499,7 +506,8 @@ func (a *app) toolCard(cx *core.Scope, m proto.Message) core.Node {
 	if len(blocks) == 0 {
 		blocks = append(blocks, ui.Text("No output", 11.5, ui.Regular, colors.Faint))
 	}
-	return core.View{Style: core.Style{MinWidth: core.Pt(0)}, Children: []core.Node{
+	return core.View{Style: core.Style{MinWidth: core.Pt(0), Padding: core.Symmetric(6, 9),
+		Background: ui.Alpha(colors.Inset(), 0.72), BorderWidth: 1, BorderColor: ui.Alpha(colors.Muted(), 0.1), CornerRadius: 8}, Children: []core.Node{
 		ui.Collapsible{Variant: ui.CollapsibleArrowLeft, Text: head, Trigger: trigger,
 			Open:         func() bool { return a.isExpanded(key, failed) },
 			OnOpenChange: func(open bool) { a.setExpanded(key, open) },
