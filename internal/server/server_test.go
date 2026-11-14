@@ -2718,6 +2718,16 @@ func TestHostDirs(t *testing.T) {
 			t.Fatalf("entries = %v, want %v", names, want)
 		}
 	}
+	var created proto.HostDirs
+	if code := e.request(t, http.MethodPost, "/api/v1/dirs", map[string]string{"path": root, "name": "created"}, e.token, &created); code != http.StatusCreated {
+		t.Fatalf("create dir = %d", code)
+	}
+	if info, err := os.Stat(filepath.Join(root, "created")); err != nil || !info.IsDir() {
+		t.Fatalf("created dir = %v", err)
+	}
+	if code := e.request(t, http.MethodPost, "/api/v1/dirs", map[string]string{"path": root, "name": "../escape"}, e.token, nil); code != http.StatusBadRequest {
+		t.Fatalf("traversal create dir = %d", code)
+	}
 	if code := e.request(t, http.MethodGet, "/api/v1/dirs?path="+url.QueryEscape(filepath.Join(root, "file.txt")), nil, e.token, nil); code != http.StatusBadRequest {
 		t.Fatalf("file dirs = %d", code)
 	}

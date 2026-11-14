@@ -81,6 +81,8 @@ func (a *app) dirsBody(cx *core.Scope) core.Node {
 				TestID: "dirs-home", OnPress: func() { a.loadDirs("") }},
 			ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
 				TestID: "dirs-refresh", OnPress: func() { a.loadDirs(listing.Path) }},
+			ui.Button{Text: "New folder", Icon: lucide.FolderPlus, Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+				TestID: "dirs-new-folder", OnPress: a.openNewDir},
 			ui.Spacer{},
 			core.Show{When: func() bool { return busy }, Then: func(*core.Scope) core.Node {
 				return ui.Spinner{Size: 11, Label: "Reading folders"}
@@ -95,6 +97,34 @@ func (a *app) dirsBody(cx *core.Scope) core.Node {
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 8},
 		Children: append(head, contents)}
+}
+
+func (a *app) newDirDialog(cx *core.Scope) core.Node {
+	return ui.Dialog{
+		Open: a.showNewDir.Get, OnOpenChange: func(open bool, _ base.Reason) {
+			if !open {
+				a.closeNewDir()
+			}
+		},
+		NoCloseOnBackdropPress: compactSettings(cx),
+		Title:                  "New folder",
+		Description:            "Create a folder in the selected directory.",
+		TestID:                 "new-dir-dialog",
+		Style:                  dialogWidth(cx, 420),
+		Children: []core.Node{
+			ui.Input{Input: base.Input{Value: a.newDirName.Get, OnChange: a.newDirName.Set,
+				Placeholder: "Folder name", Label: "Folder name", SubmitBehavior: core.SubmitBehaviorSubmit,
+				OnSubmit: func(string) { a.createDir() }}},
+			core.Show{When: func() bool { return a.newDirErr.Get() != "" }, Then: func(*core.Scope) core.Node {
+				return ui.Text(a.newDirErr.Get(), 12, ui.Regular, ui.ColorsOf(cx).Danger)
+			}},
+		},
+		Footer: []core.Node{
+			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, TestID: "cancel-new-dir", OnPress: a.closeNewDir},
+			ui.Button{Text: "Create folder", Icon: lucide.FolderPlus, Variant: ui.ButtonPrimary,
+				TestID: "create-dir", Disabled: func() bool { return a.newDirBusy.Get() }, OnPress: a.createDir},
+		},
+	}
 }
 
 // foldersLabel counts a folder's subfolders.

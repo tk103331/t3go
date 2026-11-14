@@ -3056,6 +3056,15 @@ func TestUIMobileBrowseHostDirs(t *testing.T) {
 	})
 	app.WaitFor("id:dirs-entry-alpha", 10*time.Second)
 	app.WaitFor("id:dirs-entry-beta", 10*time.Second)
+	app.Press("id:dirs-new-folder")
+	app.WaitFor("id:new-dir-dialog", 5*time.Second)
+	app.Type("label:Folder name", "created")
+	app.Press("id:create-dir")
+	app.WaitForGone("id:new-dir-dialog", 5*time.Second)
+	app.WaitFor("id:dirs-entry-created", 10*time.Second)
+	if info, err := os.Stat(filepath.Join(root, "created")); err != nil || !info.IsDir() {
+		t.Fatalf("created folder missing: %v", err)
+	}
 	app.WaitUntil(10*time.Second, func() bool {
 		if app.Enabled("id:dirs-use") && app.Find("id:dirs-path").Text == filepath.Join(root, "alpha") {
 			return true

@@ -170,6 +170,14 @@ func (c *Client) Dirs(ctx context.Context, path string) (proto.HostDirs, error) 
 	return out, err
 }
 
+// CreateDir creates one folder in a directory on the environment's machine
+// and returns the refreshed listing for that directory.
+func (c *Client) CreateDir(ctx context.Context, path, name string) (proto.HostDirs, error) {
+	var out proto.HostDirs
+	err := c.do(ctx, http.MethodPost, "/api/v1/dirs", map[string]string{"path": path, "name": name}, &out)
+	return out, err
+}
+
 // CreateProject registers a directory.
 func (c *Client) CreateProject(ctx context.Context, name, path string) (proto.Project, error) {
 	var out proto.Project

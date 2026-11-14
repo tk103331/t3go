@@ -166,11 +166,15 @@ type app struct {
 	projectBusy    *core.Signal[bool]
 
 	// folders on the connected environment's machine
-	showDirs *core.Signal[bool]
-	dirs     *core.Signal[proto.HostDirs]
-	dirsBusy *core.Signal[bool]
-	dirsErr  *core.Signal[string]
-	dirsSeq  int
+	showDirs   *core.Signal[bool]
+	dirs       *core.Signal[proto.HostDirs]
+	dirsBusy   *core.Signal[bool]
+	dirsErr    *core.Signal[string]
+	dirsSeq    int
+	showNewDir *core.Signal[bool]
+	newDirName *core.Signal[string]
+	newDirBusy *core.Signal[bool]
+	newDirErr  *core.Signal[string]
 
 	newThreadTitle  *core.Signal[string]
 	newThreadProv   *core.Signal[string]
@@ -361,8 +365,12 @@ func newApp(cx *core.Scope) *app {
 		dirs: core.NewSignalFunc(cx, proto.HostDirs{}, func(a, b proto.HostDirs) bool {
 			return a.Path == b.Path && a.Parent == b.Parent && a.Home == b.Home && slices.Equal(a.Entries, b.Entries)
 		}),
-		dirsBusy: core.NewSignal(cx, false),
-		dirsErr:  core.NewSignal(cx, ""),
+		dirsBusy:   core.NewSignal(cx, false),
+		dirsErr:    core.NewSignal(cx, ""),
+		showNewDir: core.NewSignal(cx, false),
+		newDirName: core.NewSignal(cx, ""),
+		newDirBusy: core.NewSignal(cx, false),
+		newDirErr:  core.NewSignal(cx, ""),
 
 		newThreadTitle:  core.NewSignal(cx, ""),
 		newThreadProv:   core.NewSignal(cx, ""),
@@ -3462,6 +3470,46 @@ func (a *app) openDirs() {
 // closeDirs hides the environment's folder browser.
 func (a *app) closeDirs() {
 	a.showDirs.Set(false)
+}
+
+func (a *app) openNewDir() {
+	a.newDirName.Set("")
+	a.newDirErr.Set("")
+	a.showNewDir.Set(true)
+}
+
+func (a *app) closeNewDir() {
+	a.showNewDir.Set(false)
+	a.newDirName.Set("")
+	a.newDirErr.Set("")
+}
+
+func (a *app) createDir() {
+	if a.newDirBusy.GetUntracked() {
+		return
+	}
+	name := strings.TrimSpace(a.newDirName.GetUntracked())
+	if name == "" {
+		a.newDirErr.Set("Enter a folder name.")
+		return
+	}
+	a.newDirErr.Set("")
+	a.newDirBusy.Set(true)
+	parent := a.dirs.GetUntracked().Path
+	var listing proto.HostDirs
+	a.call(func(ctx context.Context, c *client.Client) error {
+		var err error
+		listing, err = c.CreateDir(ctx, parent, name)
+		return err
+	}, func(err error) {
+		a.newDirBusy.Set(false)
+		if err != nil {
+			a.newDirErr.Set(friendlyError(err))
+			return
+		}
+		a.dirs.Set(listing)
+		a.closeNewDir()
+	})
 }
 
 // loadDirs reads one folder on the environment's machine.

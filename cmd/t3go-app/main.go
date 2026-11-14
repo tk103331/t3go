@@ -518,7 +518,7 @@ func (a *app) dialogs(cx *core.Scope) core.Node {
 	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.runsDialog(cx),
 		a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx), a.approvalDialog(cx), a.discardDialog(cx),
 		a.editMessageDialog(cx), a.newBranchDialog(cx), a.branchesDialog(cx), a.promptArgsDialog(cx),
-		a.devicesDialog(cx), a.customModelDialog(cx), a.restoreDialog(cx), a.dirsDialog(cx)}
+		a.devicesDialog(cx), a.customModelDialog(cx), a.restoreDialog(cx), a.dirsDialog(cx), a.newDirDialog(cx)}
 }
 
 // approvalDialog asks about the first tool call a supervised run is

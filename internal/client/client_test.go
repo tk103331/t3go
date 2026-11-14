@@ -150,6 +150,13 @@ func TestClientDirs(t *testing.T) {
 	if listing.Entries[0].Name != "child" || listing.Entries[0].Path != filepath.Join(root, "child") {
 		t.Fatalf("entry = %#v", listing.Entries[0])
 	}
+	listing, err = c.CreateDir(ctx, root, "created")
+	if err != nil {
+		t.Fatalf("create dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "created")); err != nil {
+		t.Fatalf("created dir: %v", err)
+	}
 	home, err := c.Dirs(ctx, "")
 	if err != nil {
 		t.Fatalf("home: %v", err)
