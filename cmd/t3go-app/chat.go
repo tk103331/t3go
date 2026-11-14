@@ -75,7 +75,7 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 	)
 	composer := chat.Composer{
 		Draft: a.draft.Get, OnDraftChange: a.setDraft, OnPaste: a.pasteAttachments,
-		Label: "Message", Placeholder: "Ask the agent…", SendLabel: "Send", StopLabel: "Stop",
+		Label: "Message", Placeholder: "Ask the agent…", SendLabel: composerSendLabel(touch), StopLabel: "Stop",
 		Running: a.running.Get, OnSend: a.send, OnStop: a.stop,
 		Attachments:    func(cx *core.Scope) core.Node { return a.attachmentChips(cx) },
 		HasAttachments: func() bool { return len(a.attachments.Get()) > 0 },
@@ -148,6 +148,16 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 			}},
 		}},
 	}}
+}
+
+// composerSendLabel keeps the primary action compact on phones. The short
+// glyph avoids the Android text layout path that can leave the Send label
+// invisible after the draft changes while the press target still works.
+func composerSendLabel(touch bool) string {
+	if touch {
+		return "➤"
+	}
+	return "Send"
 }
 
 // planBanner offers to leave plan mode once a planning turn finishes.
