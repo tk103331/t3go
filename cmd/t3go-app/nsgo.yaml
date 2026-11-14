@@ -2,6 +2,9 @@ name: T3Go
 id: dev.nsgo.t3go
 version: 0.1.0
 
+icon:
+  png: assets/Icon.png
+
 dev:
   target: ios_simulator
   hot_reload: true

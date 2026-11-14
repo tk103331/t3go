@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#0F172A"/>
+  <text x="52" y="322" fill="#00ADD8" font-family="system-ui, sans-serif" font-size="244" font-weight="800" letter-spacing="-12">T3</text>
+  <text x="329" y="322" fill="#94A3B8" font-family="system-ui, sans-serif" font-size="104" font-weight="600" letter-spacing="-4">go</text>
+</svg>
