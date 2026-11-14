@@ -161,9 +161,10 @@ type app struct {
 	pendingRename   *core.Signal[itemTarget]
 	renameName      *core.Signal[string]
 
-	newProjectName *core.Signal[string]
-	newProjectPath *core.Signal[string]
-	projectBusy    *core.Signal[bool]
+	newProjectName   *core.Signal[string]
+	newProjectPath   *core.Signal[string]
+	newProjectRemote *core.Signal[bool]
+	projectBusy      *core.Signal[bool]
 
 	// folders on the connected environment's machine
 	showDirs   *core.Signal[bool]
@@ -357,9 +358,10 @@ func newApp(cx *core.Scope) *app {
 		}),
 		renameName: core.NewSignal(cx, ""),
 
-		newProjectName: core.NewSignal(cx, ""),
-		newProjectPath: core.NewSignal(cx, ""),
-		projectBusy:    core.NewSignal(cx, false),
+		newProjectName:   core.NewSignal(cx, ""),
+		newProjectPath:   core.NewSignal(cx, ""),
+		newProjectRemote: core.NewSignal(cx, false),
+		projectBusy:      core.NewSignal(cx, false),
 
 		showDirs: core.NewSignal(cx, false),
 		dirs: core.NewSignalFunc(cx, proto.HostDirs{}, func(a, b proto.HostDirs) bool {
@@ -3404,12 +3406,17 @@ func (a *app) createProject() {
 		a.connErr.Set("Choose the project's directory.")
 		return
 	}
-	if info, err := os.Stat(path); err != nil {
-		a.connErr.Set("That directory does not exist.")
-		return
-	} else if !info.IsDir() {
-		a.connErr.Set("That path is not a directory.")
-		return
+	// On phones and touch clients, the project path belongs to the
+	// connected environment, not the device running this UI. The host
+	// browser can select those paths, so let the server validate them.
+	if !a.newProjectRemote.GetUntracked() {
+		if info, err := os.Stat(path); err != nil {
+			a.connErr.Set("That directory does not exist.")
+			return
+		} else if !info.IsDir() {
+			a.connErr.Set("That path is not a directory.")
+			return
+		}
 	}
 	if name == "" {
 		name = filepath.Base(filepath.Clean(path))
@@ -3437,6 +3444,7 @@ func (a *app) createProject() {
 		a.showNewProject.Set(false)
 		a.newProjectName.Set("")
 		a.newProjectPath.Set("")
+		a.newProjectRemote.Set(false)
 		a.reload()
 	})
 }
@@ -3452,6 +3460,7 @@ func (a *app) browseProject() {
 		}
 		if path := strings.TrimSpace(dirs[0].Path); path != "" {
 			a.newProjectPath.Set(path)
+			a.newProjectRemote.Set(false)
 			if a.newProjectName.Get() == "" {
 				a.newProjectName.Set(folderName(path))
 			}
@@ -3543,6 +3552,7 @@ func (a *app) useDirs() {
 		return
 	}
 	a.newProjectPath.Set(path)
+	a.newProjectRemote.Set(true)
 	if a.newProjectName.GetUntracked() == "" {
 		a.newProjectName.Set(folderName(path))
 	}
@@ -3634,6 +3644,7 @@ func (a *app) currentProject() string {
 
 func (a *app) openNewProject() {
 	a.connErr.Set("")
+	a.newProjectRemote.Set(false)
 	a.showNewProject.Set(true)
 }
 

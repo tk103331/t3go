@@ -3020,7 +3020,7 @@ func TestUIMobilePalette(t *testing.T) {
 // TestUIMobileBrowseHostDirs browses the connected environment's folders
 // from a phone, whose own file system cannot see them.
 func TestUIMobileBrowseHostDirs(t *testing.T) {
-	_, ts, cfg := startEnv(t)
+	srv, ts, cfg := startEnv(t)
 	root := t.TempDir()
 	for _, name := range []string{"alpha", "beta"} {
 		if err := os.MkdirAll(filepath.Join(root, name), 0o755); err != nil {
@@ -3083,6 +3083,12 @@ func TestUIMobileBrowseHostDirs(t *testing.T) {
 	if name := app.Find("label:Project name").Text; name != "alpha" {
 		t.Fatalf("project name = %q", name)
 	}
+	app.Press("id:create-project")
+	ctx := context.Background()
+	app.WaitUntil(10*time.Second, func() bool {
+		projects, err := srv.Store.Projects(ctx)
+		return err == nil && len(projects) == 1 && projects[0].Path == filepath.Join(root, "alpha")
+	})
 }
 
 // TestParseLoginFragment reads a login from a web link's fragment.
