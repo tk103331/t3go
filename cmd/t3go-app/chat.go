@@ -52,6 +52,7 @@ func groupMessages(messages []proto.Message) []turnGroup {
 
 func (a *app) threadPane(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
+	touch := ui.Touch(cx) && cx.Env().Window().Width < 520
 	groups := core.Each(
 		func() []turnGroup { return groupMessages(a.messages.Get()) },
 		func(g turnGroup) string { return g.ID },
@@ -80,7 +81,7 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 		HasAttachments: func() bool { return len(a.attachments.Get()) > 0 },
 		Accessory: func(cx *core.Scope) core.Node {
 			attach := ui.IconButton{Icon: lucide.Paperclip, Label: "Attach files", TestID: "attach", OnPress: a.pickAttachments}
-			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
+			children := []core.Node{
 				attach,
 				core.Show{When: func() bool { return a.cx.Env().CanRecognizeSpeech() }, Then: func(*core.Scope) core.Node {
 					return ui.IconButton{
@@ -101,11 +102,23 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 						OnPress:  a.toggleDictation,
 					}
 				}},
-			}}
+			}
+			// On phones keep the model/options controls in the flexible
+			// accessory area. The send action is the composer's fixed final
+			// child, so it keeps its space when the row gets tight.
+			if touch {
+				children = append(children, a.composerControls(cx))
+			}
+			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: children}
 		},
 		OnDropFiles: a.attachPaths,
-		Trailing:    a.composerControls,
-		TestID:      "composer-card",
+		Trailing: func(cx *core.Scope) core.Node {
+			if touch {
+				return nil
+			}
+			return a.composerControls(cx)
+		},
+		TestID: "composer-card",
 	}
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
 		core.View{Style: ui.FillRest, Children: []core.Node{

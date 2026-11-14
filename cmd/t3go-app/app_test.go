@@ -2820,13 +2820,14 @@ func TestUISettingsAccent(t *testing.T) {
 // with a long transcript on a phone-sized window.
 func TestUIMobileComposerStaysVisible(t *testing.T) {
 	srv, ts, cfg := startEnv(t)
+	srv.Service.Providers.Register(sideRunner{})
 	ctx := context.Background()
 	project, err := srv.Service.CreateProject(ctx, "Mobile", gitRepo(t))
 	if err != nil {
 		t.Fatalf("project: %v", err)
 	}
 	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
-		ProjectID: project.ID, Title: "Long thread", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+		ProjectID: project.ID, Title: "Long thread", Provider: "side-fake", Model: "side-fake-1", Permission: proto.PermissionFullAccess,
 	})
 	if err != nil {
 		t.Fatalf("thread: %v", err)
@@ -2847,11 +2848,18 @@ func TestUIMobileComposerStaysVisible(t *testing.T) {
 	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
 	app.Press("id:thread-" + thread.ID)
 	app.WaitFor("id:composer-card", 10*time.Second)
+	app.WaitFor("id:composer-model", 10*time.Second)
 	app.Type("label:Message", "hello")
 	app.WaitFor("text:Send", 5*time.Second)
 	composer := app.Find("id:composer-card")
 	if bottom := composer.Frame.Origin.Y + composer.Frame.Size.Height; bottom > 844-300 {
 		t.Fatalf("the composer is covered by the keyboard: %v", composer.Frame)
+	}
+	send := app.Find("text:Send")
+	sendRight := send.Frame.Origin.X + send.Frame.Size.Width
+	composerRight := composer.Frame.Origin.X + composer.Frame.Size.Width
+	if send.Frame.Origin.X < composer.Frame.Origin.X || sendRight > composerRight {
+		t.Fatalf("send button is outside the composer: send=%v composer=%v", send.Frame, composer.Frame)
 	}
 }
 
