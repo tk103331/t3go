@@ -2847,6 +2847,8 @@ func TestUIMobileComposerStaysVisible(t *testing.T) {
 	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
 	app.Press("id:thread-" + thread.ID)
 	app.WaitFor("id:composer-card", 10*time.Second)
+	app.Type("label:Message", "hello")
+	app.WaitFor("text:Send", 5*time.Second)
 	composer := app.Find("id:composer-card")
 	if bottom := composer.Frame.Origin.Y + composer.Frame.Size.Height; bottom > 844-300 {
 		t.Fatalf("the composer is covered by the keyboard: %v", composer.Frame)

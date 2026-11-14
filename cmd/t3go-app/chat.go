@@ -182,9 +182,13 @@ func (a *app) composerControls(cx *core.Scope) core.Node {
 	touch := ui.Touch(cx) && cx.Env().Window().Width < 520
 	var model core.Node = ui.Text(modelLabel, 10.5, ui.Regular, colors.Faint)
 	if len(modelItems) > 0 {
-		trigger := ui.Button{Text: modelLabel, Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Model"}
+		// Keep the composer's secondary controls compact on phones so the
+		// send pill always has room beside them. The controls remain easy to
+		// hit through the surrounding composer layout, while the main form
+		// buttons use the larger touch size.
+		trigger := ui.Button{Text: modelLabel, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Model"}
 		if touch {
-			trigger = ui.Button{Icon: lucide.Cpu, Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Model: " + modelLabel}
+			trigger = ui.Button{Icon: lucide.Cpu, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Model: " + modelLabel}
 		}
 		model = ui.Menu{TestID: "composer-model", MaxHeight: 320, Trigger: trigger, Children: modelItems}
 	}
@@ -220,16 +224,16 @@ func (a *app) composerControls(cx *core.Scope) core.Node {
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
 			model,
 			ui.Menu{TestID: "composer-more", MaxHeight: 320,
-				Trigger:  ui.Button{Icon: lucide.SlidersHorizontal, Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Composer options"},
+				Trigger:  ui.Button{Icon: lucide.SlidersHorizontal, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Composer options"},
 				Children: more},
 		}}
 	}
 	children := []core.Node{
 		model,
 		ui.Menu{TestID: "composer-permission", MaxHeight: 240,
-			Trigger:  ui.Button{Text: string(thread.Permission), Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Permission"},
+			Trigger:  ui.Button{Text: string(thread.Permission), Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Permission"},
 			Children: permItems},
-		ui.Button{Text: "Plan", Variant: planVariant, Size: controlSize(cx), TestID: "composer-plan",
+		ui.Button{Text: "Plan", Variant: planVariant, Size: ui.SizeSmall, TestID: "composer-plan",
 			OnPress: func() { a.setThreadPlan(!thread.Plan) }},
 	}
 	if contextLabel != "" {
