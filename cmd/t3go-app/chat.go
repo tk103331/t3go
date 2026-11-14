@@ -73,52 +73,55 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 			})
 		},
 	)
-	composer := chat.Composer{
-		Draft: a.draft.Get, OnDraftChange: a.setDraft, OnPaste: a.pasteAttachments,
-		Label: "Message", Placeholder: "Ask the agent…", SendLabel: composerSendLabel(touch), StopLabel: "Stop",
-		Running: a.running.Get, OnSend: a.send, OnStop: a.stop,
-		Attachments:    func(cx *core.Scope) core.Node { return a.attachmentChips(cx) },
-		HasAttachments: func() bool { return len(a.attachments.Get()) > 0 },
-		Accessory: func(cx *core.Scope) core.Node {
-			attach := ui.IconButton{Icon: lucide.Paperclip, Label: "Attach files", TestID: "attach", OnPress: a.pickAttachments}
-			children := []core.Node{
-				attach,
-				core.Show{When: func() bool { return a.cx.Env().CanRecognizeSpeech() }, Then: func(*core.Scope) core.Node {
-					return ui.IconButton{
-						IconFunc: func() *core.SVG {
-							if a.dictating.Get() {
-								return lucide.MicOff()
-							}
-							return lucide.Mic()
-						},
-						LabelFunc: func() string {
-							if a.dictating.Get() {
-								return "Stop dictation"
-							}
-							return "Dictate"
-						},
-						Selected: a.dictating.Get,
-						TestID:   "dictate",
-						OnPress:  a.toggleDictation,
-					}
-				}},
-			}
-			// On phones keep the model/options controls in the flexible
-			// accessory area. The send action is the composer's fixed final
-			// child, so it keeps its space when the row gets tight.
-			if touch {
-				children = append(children, a.composerControls(cx))
-			}
-			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: children}
-		},
-		OnDropFiles: a.attachPaths,
-		Trailing: func(cx *core.Scope) core.Node {
-			if touch {
-				return nil
-			}
-			return a.composerControls(cx)
-		},
-		TestID: "composer-card",
+	accessory := func(cx *core.Scope) core.Node {
+		attach := ui.IconButton{Icon: lucide.Paperclip, Label: "Attach files", TestID: "attach", OnPress: a.pickAttachments}
+		children := []core.Node{
+			attach,
+			core.Show{When: func() bool { return a.cx.Env().CanRecognizeSpeech() }, Then: func(*core.Scope) core.Node {
+				return ui.IconButton{
+					IconFunc: func() *core.SVG {
+						if a.dictating.Get() {
+							return lucide.MicOff()
+						}
+						return lucide.Mic()
+					},
+					LabelFunc: func() string {
+						if a.dictating.Get() {
+							return "Stop dictation"
+						}
+						return "Dictate"
+					},
+					Selected: a.dictating.Get,
+					TestID:   "dictate",
+					OnPress:  a.toggleDictation,
+				}
+			}},
+		}
+		if touch {
+			children = append(children, a.composerControls(cx))
+		}
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: children}
+	}
+	var composer core.Node
+	if touch {
+		composer = mobileComposer{
+			Draft: a.draft.Get, OnDraftChange: a.setDraft, OnPaste: a.pasteAttachments,
+			Label: "Message", Placeholder: "Ask the agent…", Accessory: accessory,
+			Attachments:    func(cx *core.Scope) core.Node { return a.attachmentChips(cx) },
+			HasAttachments: func() bool { return len(a.attachments.Get()) > 0 },
+			OnDropFiles:    a.attachPaths, Running: a.running.Get, OnSend: a.send, OnStop: a.stop,
+			TestID: "composer-card",
+		}
+	} else {
+		composer = chat.Composer{
+			Draft: a.draft.Get, OnDraftChange: a.setDraft, OnPaste: a.pasteAttachments,
+			Label: "Message", Placeholder: "Ask the agent…", SendLabel: "Send", StopLabel: "Stop",
+			Running: a.running.Get, OnSend: a.send, OnStop: a.stop,
+			Attachments:    func(cx *core.Scope) core.Node { return a.attachmentChips(cx) },
+			HasAttachments: func() bool { return len(a.attachments.Get()) > 0 },
+			Accessory:      accessory, OnDropFiles: a.attachPaths,
+			Trailing: a.composerControls, TestID: "composer-card",
+		}
 	}
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
 		core.View{Style: ui.FillRest, Children: []core.Node{
@@ -148,16 +151,6 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 			}},
 		}},
 	}}
-}
-
-// composerSendLabel keeps the primary action compact on phones. The short
-// glyph avoids the Android text layout path that can leave the Send label
-// invisible after the draft changes while the press target still works.
-func composerSendLabel(touch bool) string {
-	if touch {
-		return "➤"
-	}
-	return "Send"
 }
 
 // planBanner offers to leave plan mode once a planning turn finishes.
