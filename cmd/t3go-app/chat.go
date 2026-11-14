@@ -119,7 +119,13 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 				groups,
 			}},
 		}},
-		core.View{Style: core.Style{Padding: core.Edges{Top: 8, Right: 16, Bottom: 16, Left: 16}, AlignItems: core.AlignCenter}, Children: []core.Node{
+		// The Android IME overlays the bottom of the surface. Keep the
+		// composer above it while the input is focused.
+		core.View{Style: core.Style{
+			Padding:    core.Edges{Top: 8, Right: 16, Bottom: 16, Left: 16},
+			PaddingEnv: core.EnvEdges{Bottom: core.EnvKeyboard},
+			AlignItems: core.AlignCenter,
+		}, Children: []core.Node{
 			core.View{Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(chat.ContentWidth)}, Children: []core.Node{
 				a.queuedBlock(cx),
 				core.Dynamic(a.planBanner),

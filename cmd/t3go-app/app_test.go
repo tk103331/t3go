@@ -2816,8 +2816,8 @@ func TestUISettingsAccent(t *testing.T) {
 	})
 }
 
-// TestUIMobileComposerStaysVisible keeps the composer on screen with a
-// long transcript on a phone-sized window.
+// TestUIMobileComposerStaysVisible keeps the composer above the keyboard
+// with a long transcript on a phone-sized window.
 func TestUIMobileComposerStaysVisible(t *testing.T) {
 	srv, ts, cfg := startEnv(t)
 	ctx := context.Background()
@@ -2839,7 +2839,7 @@ func TestUIMobileComposerStaysVisible(t *testing.T) {
 		}
 	}
 	app := nsgotest.Start(t, Root, nsgotest.Environment(core.Environment{OS: core.OSAndroid,
-		Idiom: core.IdiomPhone, SafeArea: core.Edges{Top: 24, Bottom: 16}}),
+		Idiom: core.IdiomPhone, KeyboardHeight: 300, SafeArea: core.Edges{Top: 24, Bottom: 16}}),
 		nsgotest.Size(390, 844), nsgotest.Storage(map[string]string{
 			"serverUrl": ts.URL,
 			"token":     cfg.Token,
@@ -2848,8 +2848,8 @@ func TestUIMobileComposerStaysVisible(t *testing.T) {
 	app.Press("id:thread-" + thread.ID)
 	app.WaitFor("id:composer-card", 10*time.Second)
 	composer := app.Find("id:composer-card")
-	if bottom := composer.Frame.Origin.Y + composer.Frame.Size.Height; bottom > 844 {
-		t.Fatalf("the composer is below the window: %v", composer.Frame)
+	if bottom := composer.Frame.Origin.Y + composer.Frame.Size.Height; bottom > 844-300 {
+		t.Fatalf("the composer is covered by the keyboard: %v", composer.Frame)
 	}
 }
 
