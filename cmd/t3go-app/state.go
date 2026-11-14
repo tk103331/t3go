@@ -23,14 +23,36 @@ import (
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/oneo-me/nsgo/ui/chat"
 	"github.com/tk/t3go/internal/client"
+	"github.com/tk/t3go/internal/id"
 	"github.com/tk/t3go/internal/proto"
 )
 
 // app is the desktop client's state: the connection, the environment's
 // snapshot and the selected thread's transcript.
 type app struct {
-	cx    *core.Scope
-	store core.Storage
+	cx                   *core.Scope
+	lifetime             context.Context
+	store                appStorage
+	manager              *environmentManager
+	profile              client.EnvironmentProfile
+	showEnvironments     *core.Signal[bool]
+	forgetEnvironment    *core.Signal[string]
+	renameEnvironment    *core.Signal[string]
+	environmentAlias     *core.Signal[string]
+	queuePaused          *core.Signal[bool]
+	routing              bool
+	eventSeq             int64
+	connectionAttempt    int
+	inflight             map[string]queuedPrompt
+	idempotentMessages   bool
+	transportBlocked     *core.Signal[bool]
+	routeRecovery        routeRecovery
+	receiptChecks        map[string]bool
+	showCredentials      *core.Signal[bool]
+	credentialToken      *core.Signal[string]
+	credentialError      *core.Signal[string]
+	connectionRecovered  *core.Signal[bool]
+	recoveryNoticeCancel func() bool
 
 	// connection
 	serverURL  *core.Signal[string]
@@ -238,9 +260,37 @@ type app struct {
 }
 
 func newApp(cx *core.Scope) *app {
+	return newAppForEnvironment(cx, nil, client.EnvironmentProfile{})
+}
+
+func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile client.EnvironmentProfile) *app {
+	var storage appStorage = cx.Storage()
+	if manager != nil {
+		if manager.migrating && !manager.adding && len(manager.profiles.GetUntracked()) == 0 {
+			profile.Legacy = true
+		}
+		id := profile.ID
+		if id == "" {
+			id = "pending"
+		}
+		storage = environmentStorage{base: manager.store, id: id, legacy: profile.Legacy}
+	}
 	a := &app{
-		cx:    cx,
-		store: cx.Storage(),
+		cx:       cx,
+		lifetime: cx.Context(),
+		store:    storage,
+		manager:  manager, profile: profile,
+		showEnvironments:    core.NewSignal(cx, false),
+		forgetEnvironment:   core.NewSignal(cx, ""),
+		renameEnvironment:   core.NewSignal(cx, ""),
+		environmentAlias:    core.NewSignal(cx, ""),
+		queuePaused:         core.NewSignal(cx, false),
+		inflight:            map[string]queuedPrompt{},
+		transportBlocked:    core.NewSignal(cx, false),
+		showCredentials:     core.NewSignal(cx, false),
+		credentialToken:     core.NewSignal(cx, ""),
+		credentialError:     core.NewSignal(cx, ""),
+		connectionRecovered: core.NewSignal(cx, false),
 
 		serverURL:  core.NewSignal(cx, ""),
 		token:      core.NewSignal(cx, ""),
@@ -436,39 +486,10 @@ func newApp(cx *core.Scope) *app {
 	if raw, ok := a.store.GetItem("editorChoice"); ok && strings.TrimSpace(raw) != "" {
 		a.editorChoice.Set(strings.TrimSpace(raw))
 	}
-	if raw, ok := a.store.GetItem("customModels"); ok {
-		var models map[string][]proto.Model
-		if json.Unmarshal([]byte(raw), &models) == nil {
-			a.customModels.Set(models)
-		}
-	}
+	a.restoreEnvironmentData()
 	if raw, ok := a.store.GetItem("rightWidth"); ok {
 		if w, err := strconv.ParseFloat(raw, 64); err == nil && w > 0 {
 			a.rightWidth.Set(core.Points(w))
-		}
-	}
-	if raw, ok := a.store.GetItem("attachmentDrafts"); ok {
-		var drafts map[string][]proto.Attachment
-		if json.Unmarshal([]byte(raw), &drafts) == nil {
-			a.attachmentDrafts.Set(drafts)
-		}
-	}
-	if raw, ok := a.store.GetItem("drafts"); ok {
-		var drafts map[string]string
-		if json.Unmarshal([]byte(raw), &drafts) == nil {
-			a.drafts.Set(drafts)
-		}
-	}
-	if raw, ok := a.store.GetItem("pinnedThreads"); ok {
-		var pinned map[string]bool
-		if json.Unmarshal([]byte(raw), &pinned) == nil {
-			a.pinned.Set(pinned)
-		}
-	}
-	if raw, ok := a.store.GetItem("sidebarCollapsed"); ok {
-		var collapsed map[string]bool
-		if json.Unmarshal([]byte(raw), &collapsed) == nil {
-			a.sidebarCollapsed.Set(collapsed)
 		}
 	}
 	if raw, ok := a.store.GetItem("sidebarWidth"); ok {
@@ -500,8 +521,22 @@ func newApp(cx *core.Scope) *app {
 	}
 	a.serverURL.Set(url)
 	a.token.Set(token)
-	if url != "" {
-		a.connect(url, token)
+	cx.Cleanup(a.disposeEnvironmentSession)
+	if manager != nil {
+		manager.app = a
+	}
+	a.monitorDirect()
+	if manager != nil && profile.ID != "" && len(profile.Routes) > 0 {
+		a.serverURL.Set(profile.Routes[0].URL)
+		a.token.Set(profile.Token)
+		a.connectProfile(profile)
+	} else if manager == nil || !manager.adding {
+		if url != "" {
+			a.connect(url, token)
+		}
+	} else {
+		a.serverURL.Set("")
+		a.token.Set("")
 	}
 	return a
 }
@@ -510,81 +545,147 @@ func sliceSignal[T any](cx *core.Scope) *core.Signal[[]T] {
 	return core.NewSignalFunc(cx, []T(nil), func(a, b []T) bool { return false })
 }
 
-// connect validates the address by loading the environment's state.
+// connect accepts an explicit address or a paired list of routes.
 func (a *app) connect(url, token string) {
-	url = strings.TrimSpace(url)
-	token = strings.TrimSpace(token)
-	// A pair link pasted into either field fills in both.
-	if u, t, ok := client.ParsePairing(url); ok {
-		url = u
-		if token == "" {
-			token = t
-		}
-	}
-	if u, t, ok := client.ParsePairing(token); ok {
-		if url == "" {
-			url = u
-		}
-		token = t
-	}
-	if url == "" {
-		a.connErr.Set("Enter the server address.")
+	p, err := client.PairingProfile(url, token)
+	if err != nil {
+		a.connErr.Set(err.Error())
 		return
 	}
+	a.connectProfile(p)
+}
+
+func (a *app) connectProfile(profile client.EnvironmentProfile) {
+	wasConnected := a.connected.GetUntracked()
+	if wasConnected {
+		a.saveEnvironmentSession()
+	}
+	a.connectionAttempt++
+	attempt := a.connectionAttempt
 	a.connecting.Set(true)
 	a.connErr.Set("")
-	c := client.New(url, token)
-	a.mu.Lock()
-	a.cli = c
-	a.mu.Unlock()
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(a.lifetime, 15*time.Second)
 		defer cancel()
-		st, err := c.State(ctx)
+		c, st, err := client.ConnectEnvironment(ctx, profile)
 		a.cx.Post(func() {
-			a.connecting.Set(false)
-			if err != nil {
-				a.connErr.Set(friendlyError(err))
+			if attempt != a.connectionAttempt {
 				return
 			}
+			a.connecting.Set(false)
+			if err != nil {
+				if a.showCredentials.GetUntracked() {
+					a.credentialError.Set(friendlyError(err))
+				} else {
+					a.connErr.Set(friendlyError(err))
+				}
+				if wasConnected {
+					if client.IsAuthorizationError(err) {
+						a.blockTransport(err)
+					} else if !a.transportBlocked.GetUntracked() {
+						a.startStream(a.client(), a.eventSeq)
+					}
+				}
+				return
+			}
+			if err := a.adoptEnvironment(profile, c, st); err != nil {
+				message := "Could not save environment: " + err.Error()
+				if a.showCredentials.GetUntracked() {
+					a.credentialError.Set(message)
+				} else {
+					a.connErr.Set(message)
+				}
+				if wasConnected && !a.transportBlocked.GetUntracked() {
+					a.startStream(a.client(), a.eventSeq)
+				}
+				return
+			}
+			a.mu.Lock()
+			a.cli = c
+			a.mu.Unlock()
 			_ = a.store.SetItem("serverUrl", c.BaseURL)
 			_ = a.store.SetItem("token", c.Token)
 			a.serverURL.Set(c.BaseURL)
 			a.token.Set(c.Token)
 			a.applyState(st)
-			a.offline.Set(false)
+			a.transportBlocked.Set(false)
+			a.showCredentials.Set(false)
+			a.credentialToken.Set("")
+			a.credentialError.Set("")
+			a.routeRecovery.enter(time.Now(), routeKind(a.profile.Routes, c.BaseURL))
+			a.eventSeq = st.Seq
+			a.markOnline()
 			a.connected.Set(true)
 			a.startStream(c, st.Seq)
 			a.loadApprovals()
+			if thread, ok := a.store.GetItem("selectedThread"); ok && thread != "" {
+				for _, th := range st.Threads {
+					if th.ID == thread {
+						a.selectThread(thread)
+						break
+					}
+				}
+			}
 		})
 	}()
 }
 
 func (a *app) startStream(c *client.Client, after int64) {
+	if a.transportBlocked.GetUntracked() || c == nil {
+		return
+	}
 	a.mu.Lock()
 	if a.streamCancel != nil {
 		a.streamCancel()
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(a.lifetime)
 	a.streamCancel = cancel
 	a.mu.Unlock()
-	go c.Stream(ctx, after, func(e proto.Event) {
+	go c.StreamWithReady(ctx, after, func() {
 		a.cx.Post(func() {
-			a.offline.Set(false)
+			if ctx.Err() == nil && a.client() == c {
+				a.markOnline()
+			}
+		})
+	}, func(e proto.Event) {
+		a.cx.Post(func() {
+			if ctx.Err() != nil || a.client() != c {
+				return
+			}
+			if e.Seq > 0 && e.Seq <= a.eventSeq {
+				return
+			}
+			a.markOnline()
 			a.applyEvent(e)
+			if e.Seq > a.eventSeq {
+				a.eventSeq = e.Seq
+			}
 		})
 	}, func(err error) {
 		a.cx.Post(func() {
-			if errors.Is(err, client.ErrUnauthorized) {
-				a.connErr.Set("The token is no longer valid.")
+			if ctx.Err() != nil || a.client() != c {
+				return
+			}
+			if client.IsAuthorizationError(err) {
+				a.blockTransport(err)
+				return
+			}
+			if errors.Is(err, client.ErrResyncRequired) {
+				a.resyncEnvironment(c)
 				return
 			}
 			a.offline.Set(true)
+			a.tryAlternateRoute(c, false)
 		})
 	})
 }
 
 func (a *app) disconnect() {
+	if a.manager != nil {
+		a.saveEnvironmentSession()
+		a.manager.activate("")
+		return
+	}
 	// Files the user attached but never sent go with the connection.
 	pending := append([]proto.Attachment(nil), a.attachments.GetUntracked()...)
 	for _, queue := range a.queued {
@@ -604,6 +705,8 @@ func (a *app) disconnect() {
 	a.store.RemoveItem("token")
 	a.connected.Set(false)
 	a.offline.Set(false)
+	a.transportBlocked.Set(false)
+	a.connectionRecovered.Set(false)
 	a.stopDictation()
 	a.queued = map[string][]queuedPrompt{}
 	a.queue.Set(nil)
@@ -621,6 +724,7 @@ func (a *app) client() *client.Client {
 }
 
 func (a *app) applyState(st proto.State) {
+	a.idempotentMessages = slices.Contains(st.Capabilities, proto.CapabilityIdempotentMessages)
 	a.applyAppearance(st.Settings)
 	// One rebuild for the whole snapshot: each signal on its own would
 	// redraw the screen five times.
@@ -641,13 +745,17 @@ func (a *app) reload() {
 		return
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(a.lifetime, 10*time.Second)
 		defer cancel()
 		st, err := c.State(ctx)
 		if err != nil {
 			return
 		}
-		a.cx.Post(func() { a.applyState(st) })
+		a.cx.Post(func() {
+			if a.client() == c {
+				a.applyState(st)
+			}
+		})
 	}()
 }
 
@@ -813,7 +921,7 @@ func (a *app) attachSideFiles(files []core.File) {
 	for _, f := range files {
 		f := f
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			ctx, cancel := context.WithTimeout(a.lifetime, 60*time.Second)
 			defer cancel()
 			src, err := f.Open()
 			if err != nil {
@@ -1234,7 +1342,7 @@ func (a *app) loadApprovals() {
 		return
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(a.lifetime, 10*time.Second)
 		defer cancel()
 		approvals, err := c.Approvals(ctx, "")
 		if err != nil {
@@ -1466,7 +1574,7 @@ func (a *app) call(fn func(ctx context.Context, c *client.Client) error, done fu
 		return
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(a.lifetime, 30*time.Second)
 		defer cancel()
 		err := fn(ctx, c)
 		if done != nil {
@@ -1541,14 +1649,14 @@ func (a *app) loadDetail(id string) {
 		return
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(a.lifetime, 20*time.Second)
 		defer cancel()
 		d, err := c.ThreadDetail(ctx, id)
 		if err != nil {
 			return
 		}
 		a.cx.Post(func() {
-			if a.selected.GetUntracked() != id {
+			if a.selected.GetUntracked() != id || a.client() != c {
 				return
 			}
 			a.detail.Set(d)
@@ -1566,6 +1674,8 @@ func (a *app) loadDetail(id string) {
 type queuedPrompt struct {
 	Text        string
 	Attachments []proto.Attachment
+	Uncertain   bool
+	RequestID   string `json:",omitempty"`
 }
 
 func (a *app) send() {
@@ -1587,7 +1697,8 @@ func (a *app) send() {
 	a.connErr.Set("")
 	// A prompt sent while the agent works waits its turn here; the next
 	// run finishes before the client posts it.
-	if a.running.GetUntracked() {
+	_, submitting := a.inflight[id]
+	if a.running.GetUntracked() || submitting {
 		a.queued[id] = append(a.queued[id], queuedPrompt{Text: text, Attachments: attachments})
 		a.refreshQueue()
 		return
@@ -1597,44 +1708,94 @@ func (a *app) send() {
 
 // sendPrompt posts a prompt to a thread that has no live run.
 func (a *app) sendPrompt(threadID, text string, attachments []proto.Attachment) {
+	prompt := queuedPrompt{Text: text, Attachments: attachments}
+	if a.idempotentMessages {
+		prompt.RequestID = id.New("send")
+	}
+	a.sendRequest(threadID, prompt)
+}
+
+func (a *app) sendRequest(threadID string, prompt queuedPrompt) {
+	reconcile := prompt.Uncertain
+	if a.client() == nil || a.transportBlocked.GetUntracked() {
+		a.queued[threadID] = append([]queuedPrompt{prompt}, a.queued[threadID]...)
+		a.queuePaused.Set(true)
+		a.refreshQueue()
+		return
+	}
+	attachments := prompt.Attachments
 	ids := make([]string, 0, len(attachments))
 	for _, a := range attachments {
 		ids = append(ids, a.ID)
 	}
-	a.running.Set(true)
+	if threadID == a.selected.GetUntracked() {
+		a.running.Set(true)
+	}
+	prompt.Uncertain = true
+	a.inflight[threadID] = prompt
+	if err := a.persistPendingMessages(); err != nil {
+		delete(a.inflight, threadID)
+		prompt.Uncertain = reconcile
+		a.queued[threadID] = append([]queuedPrompt{prompt}, a.queued[threadID]...)
+		a.queuePaused.Set(true)
+		if threadID == a.selected.GetUntracked() {
+			a.running.Set(false)
+		}
+		a.refreshQueue()
+		a.connErr.Set("Could not save the pending message. It has not been sent: " + err.Error())
+		return
+	}
 	a.call(func(ctx context.Context, c *client.Client) error {
-		_, err := c.SendWith(ctx, threadID, text, ids)
+		_, err := c.SendWithRequest(ctx, threadID, prompt.Text, ids, prompt.RequestID)
 		return err
 	}, func(err error) {
+		delete(a.inflight, threadID)
 		if err != nil {
-			a.running.Set(false)
+			if threadID == a.selected.GetUntracked() {
+				a.running.Set(false)
+			}
 			a.connErr.Set(friendlyError(err))
 			// Keep the prompt rather than losing it to a failed request.
-			next := queuedPrompt{Text: text, Attachments: attachments}
-			a.queued[threadID] = append([]queuedPrompt{next}, a.queued[threadID]...)
+			a.queued[threadID] = append([]queuedPrompt{prompt}, a.queued[threadID]...)
+			a.queuePaused.Set(true)
+			a.connErr.Set("Delivery could not be confirmed. Check the thread before editing and resending this message.")
+			if client.IsAuthorizationError(err) {
+				a.blockTransport(err)
+			}
 			a.refreshQueue()
+		} else {
+			if reconcile && threadID == a.selected.GetUntracked() {
+				a.loadDetail(threadID)
+			} else {
+				a.maybeFlush(threadID)
+			}
 		}
+		a.persistPendingMessages()
 	})
 }
 
 // maybeFlush starts the thread's next queued prompt once it is idle and
 // on screen.
 func (a *app) maybeFlush(threadID string) {
-	if threadID != a.selected.GetUntracked() || a.running.GetUntracked() {
+	if threadID != a.selected.GetUntracked() || a.running.GetUntracked() || a.queuePaused.GetUntracked() || a.transportBlocked.GetUntracked() {
 		return
 	}
 	queue := a.queued[threadID]
-	if len(queue) == 0 {
+	if len(queue) == 0 || queue[0].Uncertain {
+		return
+	}
+	if _, waiting := a.inflight[threadID]; waiting {
 		return
 	}
 	next := queue[0]
 	a.queued[threadID] = queue[1:]
-	a.refreshQueue()
 	a.sendPrompt(threadID, next.Text, next.Attachments)
+	a.refreshQueue()
 }
 
 // refreshQueue shows the open thread's queued prompts.
 func (a *app) refreshQueue() {
+	a.persistPendingMessages()
 	queue := a.queued[a.selected.GetUntracked()]
 	if len(queue) == 0 {
 		a.queue.Set(nil)
@@ -1643,6 +1804,70 @@ func (a *app) refreshQueue() {
 	next := make([]queuedPrompt, len(queue))
 	copy(next, queue)
 	a.queue.Set(next)
+}
+
+// checkQueuedDelivery reads only. A missing receipt is not proof that an
+// earlier POST cannot still commit; the original key must be retained.
+func (a *app) checkQueuedDelivery(threadID, requestID string) {
+	if requestID == "" || !a.idempotentMessages || a.client() == nil || a.transportBlocked.GetUntracked() {
+		return
+	}
+	key := threadID + "/" + requestID
+	if a.receiptChecks[key] {
+		return
+	}
+	if a.receiptChecks == nil {
+		a.receiptChecks = map[string]bool{}
+	}
+	a.receiptChecks[key] = true
+	a.call(func(ctx context.Context, c *client.Client) error {
+		_, err := c.MessageReceipt(ctx, threadID, requestID)
+		return err
+	}, func(err error) {
+		delete(a.receiptChecks, key)
+		if err != nil {
+			var apiErr *client.APIError
+			if errors.As(err, &apiErr) && apiErr.Status == 404 {
+				a.connErr.Set("No receipt yet. Retry the same request to confirm delivery without starting it twice.")
+			} else if client.IsAuthorizationError(err) {
+				a.blockTransport(err)
+			} else {
+				a.connErr.Set(friendlyError(err))
+			}
+			return
+		}
+		for i, prompt := range a.queued[threadID] {
+			if prompt.RequestID == requestID {
+				queue := a.queued[threadID]
+				a.queued[threadID] = append(queue[:i:i], queue[i+1:]...)
+				break
+			}
+		}
+		a.connErr.Set("")
+		a.refreshQueue()
+		if threadID == a.selected.GetUntracked() {
+			a.loadDetail(threadID)
+		}
+	})
+}
+
+func (a *app) retryQueuedRequest(threadID, requestID string) {
+	if requestID == "" || !a.idempotentMessages || a.transportBlocked.GetUntracked() || a.client() == nil {
+		return
+	}
+	if _, waiting := a.inflight[threadID]; waiting {
+		return
+	}
+	for i, prompt := range a.queued[threadID] {
+		if prompt.RequestID == requestID && prompt.Uncertain {
+			queue := a.queued[threadID]
+			a.queued[threadID] = append(queue[:i:i], queue[i+1:]...)
+			a.connErr.Set("")
+			a.sendRequest(threadID, prompt)
+			a.refreshQueue()
+			return
+		}
+	}
 }
 
 // dropQueued removes the queued prompt at i.
@@ -1655,7 +1880,9 @@ func (a *app) dropQueued(i int) {
 	removed := queue[i]
 	a.queued[id] = append(queue[:i:i], queue[i+1:]...)
 	a.refreshQueue()
-	a.discardAttachments(removed.Attachments)
+	if !removed.Uncertain {
+		a.discardAttachments(removed.Attachments)
+	}
 }
 
 // pickAttachments opens the system's file picker for the composer.
@@ -1712,7 +1939,7 @@ func (a *app) attachFiles(files []core.File) {
 	for _, f := range files {
 		f := f
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			ctx, cancel := context.WithTimeout(a.lifetime, 60*time.Second)
 			defer cancel()
 			src, err := f.Open()
 			if err != nil {
@@ -1843,7 +2070,7 @@ func (a *app) discardAttachments(attachments []proto.Attachment) {
 	for _, attachment := range attachments {
 		id := attachment.ID
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(a.lifetime, 10*time.Second)
 			defer cancel()
 			_ = c.DeleteUpload(ctx, id)
 		}()
@@ -1860,7 +2087,9 @@ func (a *app) stop() {
 	a.queued[id] = nil
 	a.refreshQueue()
 	for _, prompt := range queued {
-		a.discardAttachments(prompt.Attachments)
+		if !prompt.Uncertain {
+			a.discardAttachments(prompt.Attachments)
+		}
 	}
 	a.call(func(ctx context.Context, c *client.Client) error {
 		_, err := c.Stop(ctx, id)
@@ -1937,7 +2166,7 @@ func (a *app) runGitAction(action proto.GitAction) {
 	a.gitNote.Set("Working…")
 	a.gitPR.Set("")
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(a.lifetime, 2*time.Minute)
 		defer cancel()
 		res, err := c.GitAction(ctx, id, in)
 		a.cx.Post(func() {
@@ -2140,7 +2369,7 @@ func (a *app) ensureAgentCommands() {
 	}
 	a.agentCommandsBusy.Set(true)
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(a.lifetime, 20*time.Second)
 		defer cancel()
 		commands, err := c.AgentCommands(ctx, id)
 		a.cx.Post(func() {
@@ -2166,7 +2395,7 @@ func (a *app) ensureFileIndex() {
 	}
 	a.fileIndexBusy.Set(true)
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(a.lifetime, 30*time.Second)
 		defer cancel()
 		entries, err := c.FilesRecursive(ctx, id)
 		a.cx.Post(func() {

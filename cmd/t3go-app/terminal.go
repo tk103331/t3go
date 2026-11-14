@@ -18,6 +18,9 @@ var xtermFitJS string
 // terminalHTML is the page the terminal surface loads: xterm.js wired to
 // the environment's terminal WebSocket.
 func (a *app) terminalHTML(sessionID string) string {
+	// Rebuild the WebView source when the same environment changes route,
+	// keeping the selected remote terminal rather than creating another shell.
+	_ = a.serverURL.Get()
 	c := a.client()
 	if c == nil {
 		return ""

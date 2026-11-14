@@ -41,6 +41,8 @@ func run(args []string) int {
 		return cmdServe(args[1:])
 	case "pair":
 		return cmdPair(args[1:])
+	case "relay":
+		return cmdRelay(args[1:])
 	case "doctor":
 		return cmdDoctor(args[1:])
 	case "mcp":
@@ -62,8 +64,9 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `t3go %s - a Go T3 Code environment
 
 Usage:
-  t3go serve    [--home DIR] [--listen HOST:PORT] [--no-auth] [--web DIR]
-  t3go pair     [--home DIR] [--listen HOST:PORT]
+  t3go serve    [--home DIR] [--listen HOST:PORT] [--no-auth] [--web DIR] [--relay] [--connect-relay]
+  t3go pair     [--home DIR] [--listen HOST:PORT] [--relay]
+  t3go relay    --server URL --admin-token-file FILE [--direct-url URL] [--home DIR]
   t3go doctor   [--home DIR]
   t3go version
 
@@ -80,8 +83,14 @@ func cmdServe(args []string) int {
 	noAuth := fs.Bool("no-auth", false, "disable auth; requires a loopback listen address")
 	quiet := fs.Bool("quiet", false, "only log warnings")
 	web := fs.String("web", "", "directory of the built web client to serve at /")
+	relayHub := fs.Bool("relay", false, "enable authenticated environment relay on this server")
+	connectRelay := fs.Bool("connect-relay", false, "connect this environment to its registered relay")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	if *noAuth && (*relayHub || *connectRelay) {
+		fmt.Fprintln(os.Stderr, "t3go: relay requires authentication")
+		return 1
 	}
 	cfg, err := config.Load(*home, *listen, *noAuth)
 	if err != nil {
@@ -89,6 +98,7 @@ func cmdServe(args []string) int {
 		return 1
 	}
 	cfg.Version = version
+	cfg.Relay = *relayHub
 	if *web != "" {
 		dir, err := filepath.Abs(*web)
 		if err != nil {
@@ -135,6 +145,13 @@ func cmdServe(args []string) int {
 			fmt.Printf("  t3      %s\n", upstreamPairingURL(ln.Addr().String(), cfg.Token))
 		}
 	}
+	if *connectRelay {
+		if err := startRelayConnector(ctx, cfg.Home, srv.Identity.ID, ln.Addr().String(), func(err error) { logger.Printf("relay: %v", err) }); err != nil {
+			_ = ln.Close()
+			fmt.Fprintf(os.Stderr, "t3go: connect relay: %v\n", err)
+			return 1
+		}
+	}
 	if err := srv.Serve(ctx, ln); err != nil {
 		fmt.Fprintf(os.Stderr, "t3go: serve: %v\n", err)
 		return 1
@@ -150,6 +167,7 @@ func cmdPair(args []string) int {
 	home := fs.String("home", "", "data directory (default $T3GO_HOME or ~/.t3go)")
 	listen := fs.String("listen", "", "server address as clients reach it (default 127.0.0.1:4870)")
 	jsonOut := fs.Bool("json", false, "print the URL and token as JSON")
+	useRelay := fs.Bool("relay", false, "print the registered relay pairing link")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -159,6 +177,14 @@ func cmdPair(args []string) int {
 		return 1
 	}
 	url := pairingURL(cfg.Listen, cfg.Token)
+	if *useRelay {
+		credentials, err := loadRelay(cfg.Home)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "t3go pair: no saved relay configuration")
+			return 1
+		}
+		url = relayPairing(credentials, cfg.Token)
+	}
 	if *jsonOut {
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"url": cfg.Listen, "token": cfg.Token,
 			"pairing": url, "t3": upstreamPairingURL(cfg.Listen, cfg.Token)})

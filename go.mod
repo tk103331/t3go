@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/coder/websocket v1.8.15
+	github.com/hashicorp/yamux v0.1.2
 	github.com/oneo-me/nsgo v0.0.0-20261109153452-87e1fba091b9
 	modernc.org/sqlite v1.62.0
 )

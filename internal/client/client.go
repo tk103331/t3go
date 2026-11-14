@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -39,6 +40,15 @@ type Client struct {
 	BaseURL string
 	Token   string
 	HTTP    *http.Client
+	// Zero uses the default stream deadlines (8s headers, 55s idle).
+	StreamHeaderTimeout time.Duration
+	StreamIdleTimeout   time.Duration
+}
+
+// IsAuthorizationError includes both authentication and permission rejections.
+func IsAuthorizationError(err error) bool {
+	var apiErr *APIError
+	return errors.Is(err, ErrUnauthorized) || (errors.As(err, &apiErr) && apiErr.Status == http.StatusForbidden)
 }
 
 // New returns a client. baseURL may be a bare host, an http(s) URL or a
@@ -55,7 +65,8 @@ func New(baseURL, token string) *Client {
 	if baseURL != "" && !strings.Contains(baseURL, "://") {
 		baseURL = "http://" + baseURL
 	}
-	return &Client{BaseURL: baseURL, Token: token, HTTP: &http.Client{Timeout: 0}}
+	return &Client{BaseURL: baseURL, Token: token, HTTP: &http.Client{Timeout: 0,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 
 // ParsePairing reads a t3go://pair?url=...&token=... link.
@@ -260,10 +271,22 @@ func (c *Client) Send(ctx context.Context, threadID, prompt string) (proto.Run, 
 
 // SendWith sends a prompt with the attachments it names.
 func (c *Client) SendWith(ctx context.Context, threadID, prompt string, attachmentIDs []string) (proto.Run, error) {
+	return c.SendWithRequest(ctx, threadID, prompt, attachmentIDs, "")
+}
+
+// SendWithRequest keeps the same request ID across an explicitly retried send.
+// Callers must check the environment's idempotentMessages capability first.
+func (c *Client) SendWithRequest(ctx context.Context, threadID, prompt string, attachmentIDs []string, requestID string) (proto.Run, error) {
 	var out proto.Run
 	err := c.do(ctx, http.MethodPost, "/api/v1/threads/"+url.PathEscape(threadID)+"/messages", map[string]any{
-		"content": prompt, "attachmentIds": attachmentIDs,
+		"content": prompt, "attachmentIds": attachmentIDs, "requestId": requestID,
 	}, &out)
+	return out, err
+}
+
+func (c *Client) MessageReceipt(ctx context.Context, threadID, requestID string) (proto.MessageReceipt, error) {
+	var out proto.MessageReceipt
+	err := c.do(ctx, http.MethodGet, "/api/v1/threads/"+url.PathEscape(threadID)+"/receipts/"+url.PathEscape(requestID), nil, &out)
 	return out, err
 }
 

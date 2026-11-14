@@ -53,6 +53,11 @@ func (s *Store) Path() string { return s.path }
 
 func (s *Store) migrate(ctx context.Context) error {
 	const schema = `
+CREATE TABLE IF NOT EXISTS environment_identity (
+  singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+  id TEXT NOT NULL UNIQUE,
+  private_key BLOB NOT NULL
+);
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -95,6 +100,14 @@ CREATE TABLE IF NOT EXISTS runs (
   usage TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS runs_thread ON runs(thread_id, started_at);
+CREATE TABLE IF NOT EXISTS message_receipts (
+  thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+  request_id TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  accepted_at TEXT NOT NULL,
+  PRIMARY KEY(thread_id,request_id)
+);
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
   thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
@@ -342,7 +355,11 @@ func (s *Store) Thread(ctx context.Context, id string) (proto.Thread, error) {
 
 // UpdateThread writes a thread's mutable fields.
 func (s *Store) UpdateThread(ctx context.Context, t proto.Thread) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE threads SET title=?,provider=?,model=?,permission=?,plan=?,branch=?,worktree_path=?,status=?,
+	return updateThread(ctx, s.db, t)
+}
+
+func updateThread(ctx context.Context, db executor, t proto.Thread) error {
+	res, err := db.ExecContext(ctx, `UPDATE threads SET title=?,provider=?,model=?,permission=?,plan=?,branch=?,worktree_path=?,status=?,
 		provider_session=?,summary=?,archived=?,updated_at=?,last_error=? WHERE id=?`,
 		t.Title, t.Provider, t.Model, t.Permission, boolInt(t.Plan), t.Branch, t.WorktreePath, t.Status, t.ProviderSession, t.Summary,
 		boolInt(t.Archived), t.UpdatedAt.UTC().Format(time.RFC3339Nano), t.LastError, t.ID)
@@ -518,7 +535,11 @@ func (s *Store) InterruptRuns(ctx context.Context, reason string, now time.Time)
 
 // CreateRun inserts a run.
 func (s *Store) CreateRun(ctx context.Context, r proto.Run) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO runs(id,thread_id,status,provider,model,permission,prompt,started_at,ended_at,error,checkpoint,usage)
+	return createRun(ctx, s.db, r)
+}
+
+func createRun(ctx context.Context, db executor, r proto.Run) error {
+	_, err := db.ExecContext(ctx, `INSERT INTO runs(id,thread_id,status,provider,model,permission,prompt,started_at,ended_at,error,checkpoint,usage)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, r.ID, r.ThreadID, r.Status, r.Provider, r.Model, r.Permission, r.Prompt,
 		r.StartedAt.UTC().Format(time.RFC3339Nano), nullableTime(r.EndedAt), r.Error, r.Checkpoint, usageJSON(r.Usage))
 	if err != nil {
@@ -634,13 +655,17 @@ func (s *Store) DeleteUpload(ctx context.Context, id string) error {
 
 // AppendMessage inserts a message and returns its sequence.
 func (s *Store) AppendMessage(ctx context.Context, m proto.Message) (int64, error) {
+	return appendMessage(ctx, s.db, m)
+}
+
+func appendMessage(ctx context.Context, db executor, m proto.Message) (int64, error) {
 	var seq int64
-	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0)+1 FROM messages WHERE thread_id=?`, m.ThreadID).Scan(&seq)
+	err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0)+1 FROM messages WHERE thread_id=?`, m.ThreadID).Scan(&seq)
 	if err != nil {
 		return 0, err
 	}
 	rawAttachments, _ := json.Marshal(m.Attachments)
-	_, err = s.db.ExecContext(ctx, `INSERT INTO messages(id,thread_id,run_id,role,kind,content,title,detail,status,attachments,seq,created_at)
+	_, err = db.ExecContext(ctx, `INSERT INTO messages(id,thread_id,run_id,role,kind,content,title,detail,status,attachments,seq,created_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, m.ID, m.ThreadID, m.RunID, m.Role, m.Kind, m.Content, m.Title, m.Detail, m.Status,
 		string(rawAttachments), seq, m.CreatedAt.UTC().Format(time.RFC3339Nano))
 	if err != nil {
@@ -783,6 +808,12 @@ func (s *Store) PruneEvents(ctx context.Context, retain int) error {
 }
 
 // LastEventSeq is the newest event's sequence, 0 when none.
+func (s *Store) FirstEventSeq(ctx context.Context) (int64, error) {
+	var seq int64
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MIN(seq),0) FROM events`).Scan(&seq)
+	return seq, err
+}
+
 func (s *Store) LastEventSeq(ctx context.Context) (int64, error) {
 	var seq int64
 	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM events`).Scan(&seq)

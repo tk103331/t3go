@@ -2089,6 +2089,11 @@ func TestUITerminalExitedShell(t *testing.T) {
 // TestUIDevices lists a simulator, boots it and shows its screen.
 func TestUIDevices(t *testing.T) {
 	dir := t.TempDir()
+	for _, tool := range []string{"adb", "emulator"} {
+		if err := os.WriteFile(filepath.Join(dir, tool), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	state := filepath.Join(dir, "booted")
 	logPath := filepath.Join(dir, "device.log")
 	script := `#!/bin/sh
@@ -3094,7 +3099,12 @@ func TestUIMobileBrowseHostDirs(t *testing.T) {
 	app.WaitFor("id:new-dir-dialog", 5*time.Second)
 	app.Type("label:Folder name", "created")
 	app.Press("id:create-dir")
-	app.WaitForGone("id:new-dir-dialog", 5*time.Second)
+	app.WaitUntil(5*time.Second, func() bool {
+		// The server response closes the sheet asynchronously; advance its
+		// exit animation on nsgotest's manual clock after the response arrives.
+		app.Advance(250 * time.Millisecond)
+		return !app.Exists("id:new-dir-dialog")
+	})
 	app.WaitFor("id:dirs-entry-created", 10*time.Second)
 	if info, err := os.Stat(filepath.Join(root, "created")); err != nil || !info.IsDir() {
 		t.Fatalf("created folder missing: %v", err)

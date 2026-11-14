@@ -23,12 +23,19 @@ func main() {
 // Root builds the app: a connection screen until an environment answers,
 // then the projects and threads in it.
 func Root(cx *core.Scope) core.Node {
-	a := newApp(cx)
+	manager := newEnvironmentManager(cx)
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		if !a.connected.Get() {
-			return a.connectView(cx)
-		}
-		return a.mainView(cx)
+		_ = manager.revision.Get()
+		var a *app
+		// Storage reads initialize a session; they must not subscribe this
+		// switch boundary to every later draft or preference write.
+		cx.Untrack(func() { a = newAppForEnvironment(cx, manager, manager.find(manager.current)) })
+		return core.Group{core.Dynamic(a.environmentDialog), core.Func(a.credentialsDialog), core.Dynamic(func(cx *core.Scope) core.Node {
+			if !a.connected.Get() {
+				return a.connectView(cx)
+			}
+			return a.mainView(cx)
+		})}
 	})
 }
 
@@ -73,6 +80,8 @@ func (a *app) connectView(cx *core.Scope) core.Node {
 				Disabled: a.connecting.Get, Flex: 1},
 			core.Text{Content: "Find the token in the environment data directory, or run `t3go pair`.",
 				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+			ui.Button{Text: "Saved environments", Icon: lucide.Network, Variant: ui.ButtonGhost,
+				TestID: "environments", Size: controlSize(cx), OnPress: func() { a.showEnvironments.Set(true) }},
 		}},
 	}}
 }
@@ -83,9 +92,11 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 	var layout core.Node
 	if wide {
 		layout = ui.SidebarShell{
-			Sidebar: []core.Node{a.sidebar(cx)},
-			Header:  []core.Node{a.contentHeader(cx)},
-			Content: []core.Node{a.content(cx)},
+			// Keep asynchronous detail/header updates from replacing the input
+			// while the user types in the conversation.
+			Sidebar: []core.Node{core.Dynamic(a.sidebar)},
+			Header:  []core.Node{core.Dynamic(a.contentHeader)},
+			Content: []core.Node{core.Dynamic(a.content)},
 			Open:    a.sidebarOpen.Get, OnOpenChange: a.setSidebarOpen,
 			ToggleLabel: "Toggle sidebar",
 			Width:       a.sidebarWidth.Get, OnWidthChange: a.setSidebarWidth,
@@ -93,7 +104,7 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 			ResizeLabel: "Resize sidebar",
 		}
 	} else {
-		layout = a.narrowView(cx)
+		layout = core.Dynamic(a.narrowView)
 	}
 	body := layout
 	if wide {
@@ -111,31 +122,25 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 		style.PaddingEnv = core.EnvAll(core.EnvSafeArea)
 	}
 	return core.View{Style: style, Children: []core.Node{
-		core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node { return a.errorBanner(cx) }},
-		core.Show{When: a.offline.Get, Then: func(*core.Scope) core.Node { return a.offlineBanner(cx) }},
+		core.Dynamic(a.environmentHeader),
+		core.Show{When: func() bool { return a.connErr.Get() != "" && !a.transportBlocked.Get() },
+			Then: func(*core.Scope) core.Node { return core.Dynamic(a.errorBanner) }},
+		core.Dynamic(a.connectionBanner),
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0),
-			Overflow: core.Hidden}, Children: []core.Node{body, a.dialogs(cx)}},
+			Overflow: core.Hidden}, Children: []core.Node{body, core.Dynamic(a.dialogs)}},
 	}}
 }
 
 // envName is what the environment calls itself, the brand until it is
 // renamed in settings.
 func (a *app) envName() string {
+	if a.profile.Alias != "" {
+		return a.profile.Alias
+	}
 	if name := a.settings.Get().Title; name != "" {
 		return name
 	}
 	return "T3Go"
-}
-
-// offlineBanner says the event stream dropped and is retrying.
-func (a *app) offlineBanner(cx *core.Scope) core.Node {
-	colors := ui.ColorsOf(cx)
-	return core.View{TestID: "offline", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
-		Padding: core.Symmetric(6, 12), Background: colors.Inset()}, Children: []core.Node{
-		ui.Spinner{Size: 12, Label: "Reconnecting"},
-		core.Text{Content: "Connection lost. Reconnecting…", Style: core.Style{FontSize: 12},
-			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-	}}
 }
 
 // errorBanner shows an action's failure above the content, with a way to
@@ -357,6 +362,7 @@ func (a *app) sidebarFooter(cx *core.Scope) core.Node {
 		ui.IconButton{Icon: lucide.FolderPlus, Label: "New project", Size: iconButtonSize(cx), TestID: "new-project", OnPress: a.openNewProject},
 		ui.IconButton{Icon: lucide.MessageSquarePlus, Label: "New thread", Size: iconButtonSize(cx), TestID: "new-thread", OnPress: a.openNewThread},
 		ui.Spacer{},
+		a.environmentButton(cx),
 		ui.IconButton{IconFunc: func() *core.SVG {
 			if a.showArchived.Get() {
 				return lucide.ArchiveRestore()
@@ -500,7 +506,7 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexShrink: 0,
 					Padding: core.Symmetric(8, 8), Gap: 8}, Children: []core.Node{
 					ui.IconButton{Icon: lucide.ChevronLeft, Label: "Back to threads", OnPress: func() { a.selected.Set("") }},
-					core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{a.contentHeader(cx)}},
+					core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{core.Dynamic(a.contentHeader)}},
 				}},
 				core.View{Style: ui.FillRest, Children: []core.Node{a.threadPane(cx)}},
 			}}
@@ -511,7 +517,7 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 			Padding: core.Symmetric(8, 12), Gap: 8}, Children: []core.Node{
 			ui.Text(a.envName(), 16, ui.Bold, colors.Text), ui.Spacer{},
 		}},
-		core.View{Style: ui.FillRest, Children: []core.Node{a.sidebar(cx)}},
+		core.View{Style: ui.FillRest, Children: []core.Node{core.Dynamic(a.sidebar)}},
 	}}
 }
 
@@ -615,6 +621,7 @@ func (a *app) newProjectDialog(cx *core.Scope) core.Node {
 	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showNewProject.Get, OnOpenChange: closeDialog(a.showNewProject), Title: "New project",
 		Description: "Register a directory the agent can work in. The folder must already exist.",
 		TestID:      "new-project-dialog", Style: dialogWidth(cx, 520), Children: []core.Node{
+			a.environmentContext(cx, "project-environment"),
 			mobileInput{Scope: cx, Input: base.Input{Value: a.newProjectName.Get, OnChange: a.newProjectName.Set,
 				Placeholder: "Defaults to the folder's name", Label: "Project name"}},
 			core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{

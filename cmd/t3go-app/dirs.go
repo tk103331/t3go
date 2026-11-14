@@ -23,7 +23,7 @@ func (a *app) dirsDialog(cx *core.Scope) core.Node {
 		Description:            "Folders on the machine running T3Go.",
 		TestID:                 "dirs-dialog",
 		Style:                  dialogWidth(cx, 520),
-		Children:               []core.Node{core.Dynamic(a.dirsBody)},
+		Children:               []core.Node{a.environmentContext(cx, "dirs-environment"), core.Dynamic(a.dirsBody)},
 		Footer: []core.Node{
 			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "dirs-cancel", OnPress: a.closeDirs},
 			ui.Button{Text: "Use this folder", Icon: lucide.FolderOpen, Variant: ui.ButtonPrimary, Size: controlSize(cx), TestID: "dirs-use",
@@ -38,20 +38,24 @@ func (a *app) dirsBody(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	listing := a.dirs.Get()
 	busy := a.dirsBusy.Get()
+	rowHeight, iconSize, fontSize := core.Points(30), core.Points(13), core.Points(12.5)
+	if ui.Touch(cx) {
+		rowHeight, iconSize, fontSize = 44, 18, 15
+	}
 	rows := make([]core.Node, 0, len(listing.Entries))
 	for _, dir := range listing.Entries {
 		dir := dir
 		rows = append(rows, base.Button{
 			Label: dir.Name, TestID: "dirs-entry-" + dir.Name,
 			OnPress: func(core.PressEvent) { a.loadDirs(dir.Path) },
-			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pct(100),
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Width: core.Pct(100), MinHeight: core.Pt(rowHeight),
 				Padding: core.Symmetric(6, 7), CornerRadius: 6, Cursor: core.CursorDefault},
 			StyleFunc: func() core.Style {
 				return core.Style{Hover: &core.Style{Background: colors.Inset()}, Focus: ui.FocusRing(cx, -2)}
 			},
 			Children: []core.Node{
-				ui.Icon(lucide.Folder, 13, colors.Muted),
-				core.Text{Content: dir.Name, MaxLines: 1, Style: core.Style{FontSize: 12.5, FlexGrow: 1},
+				ui.Icon(lucide.Folder, iconSize, colors.Muted),
+				core.Text{Content: dir.Name, MaxLines: 1, Style: core.Style{FontSize: fontSize, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 			},
 		})
@@ -65,25 +69,37 @@ func (a *app) dirsBody(cx *core.Scope) core.Node {
 	case len(rows) == 0:
 		contents = ui.Text("This folder has no subfolders.", 12, ui.Regular, colors.Faint)
 	default:
-		contents = core.Scroll{Style: core.Style{MaxHeight: core.Pt(dirsBodyHeight(cx)), MinHeight: core.Pt(0)},
+		contents = core.Scroll{TestID: "dirs-list", Style: core.Style{MaxHeight: core.Pt(dirsBodyHeight(cx)), MinHeight: core.Pt(0)},
 			Children: []core.Node{core.View{Style: core.Style{Direction: core.Column, Gap: 1,
 				Padding: core.Edges{Right: 8}}, Children: rows}}}
+	}
+	actions := []core.Node{
+		ui.Button{Text: "Up", Icon: lucide.ArrowUp, Variant: ui.ButtonSecondary, Size: controlSize(cx),
+			TestID: "dirs-up", Disabled: func() bool { return a.dirs.GetUntracked().Parent == "" },
+			OnPress: func() { a.loadDirs(a.dirs.GetUntracked().Parent) }},
+		ui.Button{Text: "New folder", Icon: lucide.FolderPlus, Variant: ui.ButtonSecondary, Size: controlSize(cx),
+			TestID: "dirs-new-folder", OnPress: a.openNewDir},
+	}
+	if compactSettings(cx) {
+		actions = append(actions, ui.Menu{TestID: "dirs-more",
+			Trigger: ui.Button{Text: "More", Variant: ui.ButtonGhost, Size: controlSize(cx)},
+			Children: []core.Node{
+				ui.MenuItem{Text: "Home", Icon: lucide.House, TestID: "dirs-home", OnSelect: func() { a.loadDirs("") }},
+				ui.MenuItem{Text: "Refresh", Icon: lucide.RefreshCw, TestID: "dirs-refresh", OnSelect: func() { a.loadDirs(listing.Path) }},
+			}})
+	} else {
+		actions = append(actions,
+			ui.Button{Text: "Home", Icon: lucide.House, Variant: ui.ButtonSecondary, Size: controlSize(cx),
+				TestID: "dirs-home", OnPress: func() { a.loadDirs("") }},
+			ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: controlSize(cx),
+				TestID: "dirs-refresh", OnPress: func() { a.loadDirs(listing.Path) }})
 	}
 	head := []core.Node{
 		core.Text{Content: listing.Path, MaxLines: 2, TestID: "dirs-path",
 			Style:     core.Style{FontSize: 11.5, FontFamily: "Menlo, monospace"},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+		core.View{TestID: "dirs-toolbar", Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 6}, Children: actions},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-			ui.Button{Text: "Up", Icon: lucide.ArrowUp, Variant: ui.ButtonSecondary, Size: controlSize(cx),
-				TestID: "dirs-up", Disabled: func() bool { return a.dirs.GetUntracked().Parent == "" },
-				OnPress: func() { a.loadDirs(a.dirs.GetUntracked().Parent) }},
-			ui.Button{Text: "Home", Icon: lucide.House, Variant: ui.ButtonSecondary, Size: controlSize(cx),
-				TestID: "dirs-home", OnPress: func() { a.loadDirs("") }},
-			ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: controlSize(cx),
-				TestID: "dirs-refresh", OnPress: func() { a.loadDirs(listing.Path) }},
-			ui.Button{Text: "New folder", Icon: lucide.FolderPlus, Variant: ui.ButtonSecondary, Size: controlSize(cx),
-				TestID: "dirs-new-folder", OnPress: a.openNewDir},
-			ui.Spacer{},
 			core.Show{When: func() bool { return busy }, Then: func(*core.Scope) core.Node {
 				return ui.Spinner{Size: 11, Label: "Reading folders"}
 			}},
@@ -112,6 +128,7 @@ func (a *app) newDirDialog(cx *core.Scope) core.Node {
 		TestID:                 "new-dir-dialog",
 		Style:                  dialogWidth(cx, 420),
 		Children: []core.Node{
+			a.environmentContext(cx, "new-dir-environment"),
 			mobileInput{Scope: cx, Input: base.Input{Value: a.newDirName.Get, OnChange: a.newDirName.Set,
 				Placeholder: "Folder name", Label: "Folder name", SubmitBehavior: core.SubmitBehaviorSubmit,
 				OnSubmit: func(string) { a.createDir() }}},
@@ -138,7 +155,9 @@ func foldersLabel(n int) string {
 // dirsBodyHeight caps the folder list where a sheet's footer leaves room.
 func dirsBodyHeight(cx *core.Scope) core.Points {
 	if compactSettings(cx) {
-		return cx.Env().Window().Height * 0.5
+		safe := cx.Env().SafeArea()
+		available := cx.Env().Window().Height - cx.Env().KeyboardHeight() - safe.Top - safe.Bottom
+		return max(44, min(320, available-300))
 	}
 	return 320
 }

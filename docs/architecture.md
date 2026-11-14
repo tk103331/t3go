@@ -10,6 +10,12 @@ T3Go 由三部分组成：
 
 CLI（`cmd/t3go`）只是环境的启动器；它和客户端可以在同一台机器，也可以分离部署。
 
+环境身份保存在 SQLite 中，独立于每次启动的 `Server.ID`。客户端以环境 ID
+隔离会话，验证候选路线后优先直连；`internal/relay` 用 WebSocket + yamux
+承载出站隧道，将 `/e/{environmentId}/...` 转发到电脑上固定的 T3Go 监听端口。
+使用方式、当前边界与后续设计见
+[environments-and-relay.md](environments-and-relay.md)。
+
 ## 数据模型
 
 ```
@@ -27,10 +33,11 @@ project 1─n thread 1─n run 1─n message
 
 ```
 client POST /threads/{id}/messages
-  └─ Service.Send
+  └─ Service.SendWithRequest
+       ├─ 有 requestId 时查已有回执，同键同内容返回原 run
        ├─ 校验线程、provider、project 目录
-       ├─ 创建 run + 用户消息 + 运行中的 assistant 消息
-       ├─ 标记线程 running，登记 active run
+       ├─ 事务提交 run、用户/assistant 消息、线程 running 状态与可选回执
+       ├─ 登记 active run
        ├─ 发布 run.started / thread.updated / message.updated
        └─ go execute(...)
             ├─ git.Checkpoint（stash create + refs/t3go/checkpoints/...）
@@ -48,6 +55,11 @@ client POST /threads/{id}/messages
 服务启动时把上次异常退出遗留的 `running` run 和线程标成失败（原因是环境重启），
 关闭时先结束 SSE/WebSocket 推送、取消活动 run 并等待它们落库，再关闭数据库。
 
+`GET /state` 的 `idempotentMessages` 能力允许主聊天客户端在提交前保存请求 ID。
+接收结果不明时暂停队列，可通过 `GET /threads/{id}/receipts/{requestId}` 确认，
+或显式以原请求 ID 和原内容重试。回执随线程保留，删除 run 历史不删除接收记录。
+这保证同一数据库中同线程请求不会重新创建任务，不承诺外部工具副作用恰好一次。
+
 每次状态变化都会先写 `events` 表再广播，因此新客户端可以用 `after` 重放
 最近的窗口；窗口之外的旧事件由快照（`GET /state`、`GET /threads/{id}`）补齐。
 `GET /state` 返回快照构建时的 `seq`，客户端从该 `seq` 之后订阅事件，既不会
@@ -57,6 +69,8 @@ client POST /threads/{id}/messages
 
 - SSE：`GET /api/v1/events?after=<seq>`。连接时先订阅实时 channel，再分页重放
   `after` 之后的事件，按 `seq` 去重，每 20 秒发一个 keepalive 注释。
+  客户端有响应头与空闲超时，订阅成功即恢复在线显示；旧流取消后的回调丢弃。
+  权限拒绝终止自动恢复，游标缺口重新加载快照。换路线采用冷却和直连连续成功阈值。
 - WebSocket：`GET /ws`。服务端先发 `hello`（协议版本、server id、lastSeq），
   然后推送 `event` 帧。客户端可发 `ping`、`subscribe`、`unsubscribe` 做线程过滤。
 - 两个通道都不接受写操作，避免同一业务出现第二套入口。
@@ -133,9 +147,3 @@ NSGo UI（`cmd/t3go-app`）把信号和事件分开：
   按消息/线程 ID 保持行身份。
 - transcript 按 `runId` 分组，组内消息间距小，组间使用聊天气泡的节奏。
 - 宽度 ≥ 760pt 时使用 `ui.SidebarShell`；窄屏在“列表 ↔ 线程”两个页面间切换。
-
-## 为什么不用 Web 目标
-
-NSGo 的 `js/wasm` 目标不能直接使用 `net/http`。当前客户端面向原生多端
-（macOS/iOS/Android/Windows/Linux）。Web 端需要一层浏览器网络适配（fetch +
-EventSource 或 WebSocket），这不在当前 MVP 内。

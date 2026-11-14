@@ -27,12 +27,14 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/tk/t3go/internal/config"
+	"github.com/tk/t3go/internal/environment"
 	"github.com/tk/t3go/internal/events"
 	"github.com/tk/t3go/internal/git"
 	"github.com/tk/t3go/internal/id"
 	"github.com/tk/t3go/internal/orchestrator"
 	"github.com/tk/t3go/internal/proto"
 	"github.com/tk/t3go/internal/provider"
+	"github.com/tk/t3go/internal/relay"
 	"github.com/tk/t3go/internal/store"
 	"github.com/tk/t3go/internal/terminal"
 	"github.com/tk/t3go/internal/upstream"
@@ -49,6 +51,8 @@ type Server struct {
 
 	ID        string
 	StartedAt time.Time
+	Identity  *environment.Identity
+	Relay     *relay.Hub
 
 	mu       sync.Mutex
 	http     *http.Server
@@ -70,12 +74,28 @@ func New(cfg config.Config, logger *log.Logger) (*Server, error) {
 		return nil, err
 	}
 	bus := events.New(st)
+	identity, err := st.EnvironmentIdentity(context.Background())
+	if err != nil {
+		_ = st.Close()
+		return nil, err
+	}
 	providers := provider.NewRegistry()
 	svc := orchestrator.New(st, providers, bus, cfg.Home, logger)
 	svc.ApprovalToken = cfg.Token
 	s := &Server{Config: cfg, Store: st, Service: svc, Bus: bus, Terminals: terminal.NewManager(),
 		Log: logger, ID: id.New("env"), StartedAt: time.Now(),
-		closing: make(chan struct{}), tickets: map[string]time.Time{}}
+		closing: make(chan struct{}), tickets: map[string]time.Time{}, Identity: identity}
+	if cfg.Relay {
+		if cfg.NoAuth {
+			_ = st.Close()
+			return nil, errors.New("relay cannot run without authentication")
+		}
+		s.Relay, err = relay.New(cfg.Home, cfg.Token)
+		if err != nil {
+			_ = st.Close()
+			return nil, err
+		}
+	}
 	s.Terminals.OnExit = func(session *terminal.Session) {
 		s.Bus.Publish(context.Background(), proto.Event{Type: proto.EventTerminalExit,
 			Data: map[string]string{"sessionId": session.ID, "threadId": session.ThreadID}})
@@ -152,7 +172,12 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 // stopStreaming ends the live SSE and WebSocket handlers, which would
 // otherwise hold Shutdown open until its deadline.
 func (s *Server) stopStreaming() {
-	s.stopOnce.Do(func() { close(s.closing) })
+	s.stopOnce.Do(func() {
+		close(s.closing)
+		if s.Relay != nil {
+			s.Relay.Close()
+		}
+	})
 }
 
 // Close stops the HTTP server, the live runs and the database.
@@ -194,7 +219,11 @@ func (s *Server) PairingURL() string {
 // Handler returns the HTTP handler.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	if s.Relay != nil {
+		s.Relay.Mount(mux)
+	}
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
+	mux.HandleFunc("GET /api/v1/environment", s.handleEnvironment)
 	mux.HandleFunc("POST /oauth/token", s.handleOAuthToken)
 	mux.HandleFunc("GET /api/auth/session", s.auth(s.handleAuthSession))
 	mux.HandleFunc("POST /api/auth/websocket-ticket", s.auth(s.handleWebsocketTicket))
@@ -215,6 +244,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/v1/threads/{id}", s.auth(s.handleUpdateThread))
 	mux.HandleFunc("DELETE /api/v1/threads/{id}", s.auth(s.handleDeleteThread))
 	mux.HandleFunc("POST /api/v1/threads/{id}/messages", s.auth(s.handleSend))
+	mux.HandleFunc("GET /api/v1/threads/{id}/receipts/{requestId}", s.auth(s.handleMessageReceipt))
 	mux.HandleFunc("POST /api/v1/threads/{id}/stop", s.auth(s.handleStop))
 	mux.HandleFunc("POST /api/v1/threads/{id}/retry", s.auth(s.handleRetry))
 	mux.HandleFunc("POST /api/v1/threads/{id}/fork", s.auth(s.handleFork))
@@ -415,7 +445,9 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	settings := s.Service.Settings(ctx)
 	writeJSON(w, 200, proto.State{
 		Version: proto.ProtocolVersion, Seq: seq, ServerID: s.ID, Name: settings.Title,
-		Projects: nonNil(projects), Threads: nonNil(threads),
+		EnvironmentID: s.Identity.ID, IdentityKey: s.Identity.PublicKey(),
+		Capabilities: []string{proto.CapabilityIdempotentMessages},
+		Projects:     nonNil(projects), Threads: nonNil(threads),
 		Providers: providers, Models: s.Service.Providers.Models(ctx), Settings: settings, ServerTime: time.Now(),
 	})
 }
@@ -589,17 +621,39 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Content       string   `json:"content"`
 		AttachmentIDs []string `json:"attachmentIds"`
+		RequestID     string   `json:"requestId,omitempty"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		writeError(w, 400, "invalid", err.Error())
 		return
 	}
-	run, err := s.Service.SendWith(r.Context(), r.PathValue("id"), in.Content, in.AttachmentIDs)
+	run, err := s.Service.SendWithRequest(r.Context(), r.PathValue("id"), in.Content, in.AttachmentIDs, in.RequestID)
 	if err != nil {
-		writeError(w, statusFor(err), "run", err.Error())
+		code := "run"
+		if errors.Is(err, orchestrator.ErrRequestConflict) {
+			code = "request_conflict"
+		} else if errors.Is(err, orchestrator.ErrAcceptedRunGone) {
+			code = "accepted_run_removed"
+		}
+		writeError(w, statusFor(err), code, err.Error())
 		return
 	}
 	writeJSON(w, 202, run)
+}
+
+func (s *Server) handleMessageReceipt(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	requestID := r.PathValue("requestId")
+	if !orchestrator.ValidRequestID(requestID) {
+		writeError(w, 400, "invalid", orchestrator.ErrInvalidRequestID.Error())
+		return
+	}
+	receipt, _, err := s.Store.MessageReceipt(r.Context(), r.PathValue("id"), requestID)
+	if err != nil {
+		writeError(w, statusFor(err), "receipt", err.Error())
+		return
+	}
+	writeJSON(w, 200, receipt)
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
@@ -2449,9 +2503,9 @@ func statusFor(err error) int {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return 404
-	case errors.Is(err, orchestrator.ErrBusy):
+	case errors.Is(err, orchestrator.ErrBusy), errors.Is(err, orchestrator.ErrRequestConflict), errors.Is(err, orchestrator.ErrAcceptedRunGone):
 		return 409
-	case errors.Is(err, orchestrator.ErrEmpty), errors.Is(err, orchestrator.ErrBadPath), errors.Is(err, orchestrator.ErrBadAttachment):
+	case errors.Is(err, orchestrator.ErrEmpty), errors.Is(err, orchestrator.ErrBadPath), errors.Is(err, orchestrator.ErrBadAttachment), errors.Is(err, orchestrator.ErrInvalidRequestID):
 		return 400
 	case errors.Is(err, orchestrator.ErrArchived), errors.Is(err, orchestrator.ErrNoProvider):
 		return 422

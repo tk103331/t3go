@@ -2382,6 +2382,11 @@ func TestTerminalInput(t *testing.T) {
 
 func TestDeviceEndpoints(t *testing.T) {
 	dir := t.TempDir()
+	for _, tool := range []string{"adb", "emulator"} {
+		if err := os.WriteFile(filepath.Join(dir, tool), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	state := filepath.Join(dir, "booted")
 	logPath := filepath.Join(dir, "device.log")
 	script := `#!/bin/sh

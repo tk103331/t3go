@@ -22,7 +22,16 @@ func (s *Service) Send(ctx context.Context, threadID, prompt string) (proto.Run,
 
 // SendWith starts a run for prompt and the attachments it names.
 func (s *Service) SendWith(ctx context.Context, threadID, prompt string, attachmentIDs []string) (proto.Run, error) {
-	return s.start(ctx, threadID, prompt, attachmentIDs, true)
+	return s.SendWithRequest(ctx, threadID, prompt, attachmentIDs, "")
+}
+
+// SendWithRequest deduplicates an optional request ID within this thread.
+// Acceptance and execution are distinct: a retry never starts an accepted run again.
+func (s *Service) SendWithRequest(ctx context.Context, threadID, prompt string, attachmentIDs []string, requestID string) (proto.Run, error) {
+	if requestID != "" && !ValidRequestID(requestID) {
+		return proto.Run{}, ErrInvalidRequestID
+	}
+	return s.start(ctx, threadID, prompt, attachmentIDs, true, requestID)
 }
 
 // Retry reruns a turn's prompt in the same thread, adding only a new
@@ -42,7 +51,7 @@ func (s *Service) Retry(ctx context.Context, threadID, runID string) (proto.Run,
 	if strings.TrimSpace(prompt) == "" {
 		return proto.Run{}, ErrEmpty
 	}
-	return s.start(ctx, threadID, prompt, nil, false)
+	return s.start(ctx, threadID, prompt, nil, false, "")
 }
 
 // sideChatHandoff summarizes the parent thread for its side chat's first
@@ -91,8 +100,12 @@ func (s *Service) sideChatHandoff(ctx context.Context, side proto.Thread) string
 		"\n\nUse this context to answer the side question. The side chat is separate from that thread."
 }
 
-func (s *Service) start(ctx context.Context, threadID, prompt string, attachmentIDs []string, recordUser bool) (proto.Run, error) {
+func (s *Service) start(ctx context.Context, threadID, prompt string, attachmentIDs []string, recordUser bool, requestID string) (proto.Run, error) {
 	prompt = strings.TrimSpace(prompt)
+	hash := messageHash(prompt, attachmentIDs)
+	if run, found, err := s.acceptedRequest(ctx, threadID, requestID, hash); found || err != nil {
+		return run, err
+	}
 	if prompt == "" {
 		return proto.Run{}, ErrEmpty
 	}
@@ -131,6 +144,11 @@ func (s *Service) start(ctx context.Context, threadID, prompt string, attachment
 	}
 
 	s.mu.Lock()
+	// Another request may have committed while provider/files were checked.
+	if run, found, err := s.acceptedRequest(ctx, threadID, requestID, hash); found || err != nil {
+		s.mu.Unlock()
+		return run, err
+	}
 	if _, busy := s.active[threadID]; busy {
 		s.mu.Unlock()
 		return proto.Run{}, ErrBusy
@@ -144,20 +162,6 @@ func (s *Service) start(ctx context.Context, threadID, prompt string, attachment
 		Content: prompt, Attachments: attachments, CreatedAt: now}
 	assistant := proto.Message{ID: id.New("msg"), ThreadID: t.ID, RunID: run.ID, Role: proto.RoleAssistant, Kind: proto.KindText,
 		Status: "running", CreatedAt: now.Add(time.Millisecond)}
-	if err := s.Store.CreateRun(ctx, run); err != nil {
-		s.mu.Unlock()
-		return proto.Run{}, err
-	}
-	if recordUser {
-		if _, err := s.Store.AppendMessage(ctx, userMsg); err != nil {
-			s.mu.Unlock()
-			return proto.Run{}, err
-		}
-	}
-	if _, err := s.Store.AppendMessage(ctx, assistant); err != nil {
-		s.mu.Unlock()
-		return proto.Run{}, err
-	}
 	if recordUser && (t.Title == "New thread" || t.Title == "") {
 		t.Title = titleFromPrompt(prompt)
 	}
@@ -170,7 +174,11 @@ func (s *Service) start(ctx context.Context, threadID, prompt string, attachment
 		}
 	}
 	t.UpdatedAt = time.Now()
-	if err := s.Store.UpdateThread(ctx, t); err != nil {
+	messages := []proto.Message{assistant}
+	if recordUser {
+		messages = append([]proto.Message{userMsg}, messages...)
+	}
+	if err := s.Store.StartTurn(ctx, t, run, messages, requestID, hash); err != nil {
 		s.mu.Unlock()
 		return proto.Run{}, err
 	}
@@ -179,12 +187,16 @@ func (s *Service) start(ctx context.Context, threadID, prompt string, attachment
 	s.active[threadID] = &activeRun{cancel: cancel, runID: run.ID, done: done}
 	s.mu.Unlock()
 
-	s.publish(ctx, proto.Event{Type: proto.EventRunStarted, ThreadID: t.ID, Data: run})
-	s.publish(ctx, proto.Event{Type: proto.EventThreadUpdated, ThreadID: t.ID, Data: t})
+	// Once acceptance commits, a dropped HTTP connection must not suppress the
+	// start events or cancel execution. Bound event publication independently.
+	publishCtx, publishCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer publishCancel()
+	s.publish(publishCtx, proto.Event{Type: proto.EventRunStarted, ThreadID: t.ID, Data: run})
+	s.publish(publishCtx, proto.Event{Type: proto.EventThreadUpdated, ThreadID: t.ID, Data: t})
 	if recordUser {
-		s.publish(ctx, proto.Event{Type: proto.EventMessage, ThreadID: t.ID, Data: userMsg})
+		s.publish(publishCtx, proto.Event{Type: proto.EventMessage, ThreadID: t.ID, Data: userMsg})
 	}
-	s.publish(ctx, proto.Event{Type: proto.EventMessage, ThreadID: t.ID, Data: assistant})
+	s.publish(publishCtx, proto.Event{Type: proto.EventMessage, ThreadID: t.ID, Data: assistant})
 
 	go s.execute(runCtx, t, dir, runner, run, providerPrompt, assistant, done)
 	return run, nil

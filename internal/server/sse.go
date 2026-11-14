@@ -32,6 +32,16 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 			after = v
 		}
 	}
+	first, err := s.Store.FirstEventSeq(r.Context())
+	if err != nil {
+		writeError(w, 500, "store", "could not check replay window")
+		return
+	}
+	last := s.Bus.LastSeq(r.Context())
+	if after < 0 || after > last || (after > 0 && first > after+1) {
+		writeError(w, 409, "resync_required", "event cursor is outside the replay window; reload the environment snapshot")
+		return
+	}
 
 	// Subscribe before replaying so nothing published during the replay is
 	// lost. Events seen in both paths are skipped by sequence number.
@@ -104,6 +114,11 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 			}
 			flusher.Flush()
 		case <-heartbeat.C:
+			// A full subscriber buffer may have dropped the last event.
+			// Reconnect from the cursor even if no later event exposes a gap.
+			if s.Bus.LastSeq(r.Context()) > sent {
+				return
+			}
 			if _, err := fmt.Fprintf(w, ": keepalive %d\n\n", time.Now().Unix()); err != nil {
 				return
 			}

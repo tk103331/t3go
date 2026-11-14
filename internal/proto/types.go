@@ -423,15 +423,27 @@ type State struct {
 	Version int `json:"version"`
 	// Seq is the newest event the environment recorded when it built the
 	// snapshot; a client streams after it to catch what changed since.
-	Seq        int64      `json:"seq"`
-	ServerID   string     `json:"serverId"`
-	Name       string     `json:"name"`
-	Projects   []Project  `json:"projects"`
-	Threads    []Thread   `json:"threads"`
-	Providers  []Provider `json:"providers"`
-	Models     []Model    `json:"models"`
-	Settings   Settings   `json:"settings"`
-	ServerTime time.Time  `json:"serverTime"`
+	Seq           int64      `json:"seq"`
+	ServerID      string     `json:"serverId"`
+	EnvironmentID string     `json:"environmentId,omitempty"`
+	IdentityKey   string     `json:"identityKey,omitempty"`
+	Capabilities  []string   `json:"capabilities,omitempty"`
+	Name          string     `json:"name"`
+	Projects      []Project  `json:"projects"`
+	Threads       []Thread   `json:"threads"`
+	Providers     []Provider `json:"providers"`
+	Models        []Model    `json:"models"`
+	Settings      Settings   `json:"settings"`
+	ServerTime    time.Time  `json:"serverTime"`
+}
+
+const CapabilityIdempotentMessages = "idempotentMessages"
+
+// MessageReceipt confirms durable acceptance, independently of run execution.
+type MessageReceipt struct {
+	RequestID  string    `json:"requestId"`
+	RunID      string    `json:"runId"`
+	AcceptedAt time.Time `json:"acceptedAt"`
 }
 
 // ThreadDetail is one thread and its history.

@@ -57,7 +57,7 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 		func() []turnGroup { return groupMessages(a.messages.Get()) },
 		func(g turnGroup) string { return g.ID },
 		func(cx *core.Scope, item func() turnGroup, _ func() int) core.Node {
-			return core.Func(func(cx *core.Scope) core.Node {
+			return core.Dynamic(func(cx *core.Scope) core.Node {
 				g := item()
 				rows := make([]core.Node, 0, len(g.Messages)+2)
 				if g.Day != "" {
@@ -98,7 +98,7 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 			}},
 		}
 		if touch {
-			children = append(children, a.composerControls(cx))
+			children = append(children, core.Dynamic(a.composerControls))
 		}
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: children}
 	}
@@ -120,7 +120,7 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 			Attachments:    func(cx *core.Scope) core.Node { return a.attachmentChips(cx) },
 			HasAttachments: func() bool { return len(a.attachments.Get()) > 0 },
 			Accessory:      accessory, OnDropFiles: a.attachPaths,
-			Trailing: a.composerControls, TestID: "composer-card",
+			Trailing: func(cx *core.Scope) core.Node { return core.Dynamic(a.composerControls) }, TestID: "composer-card",
 		}
 	}
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
@@ -362,11 +362,22 @@ func humanSize(size int64) string {
 // queuedBlock shows the prompts waiting for the running turn to end.
 func (a *app) queuedBlock(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	return core.Show{When: func() bool { return len(a.queue.Get()) > 0 }, Then: func(*core.Scope) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
 		queue := a.queue.Get()
+		if len(queue) == 0 {
+			return core.View{}
+		}
 		rows := make([]core.Node, 0, len(queue))
+		if a.queuePaused.Get() {
+			rows = append(rows, ui.Button{Text: "Resume queued messages", TestID: "queue-resume",
+				Variant: ui.ButtonSecondary, Size: controlSize(cx), OnPress: func() {
+					a.queuePaused.Set(false)
+					a.maybeFlush(a.selected.GetUntracked())
+				}})
+		}
 		for i, prompt := range queue {
 			i, prompt := i, prompt
+			threadID := a.selected.GetUntracked()
 			lines := []core.Node{
 				core.Text{Content: prompt.Text, MaxLines: 2, Style: core.Style{FontSize: 12, LineHeight: 17},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
@@ -374,16 +385,47 @@ func (a *app) queuedBlock(cx *core.Scope) core.Node {
 			if len(prompt.Attachments) > 0 {
 				lines = append(lines, ui.Text(attachmentSummary(prompt.Attachments), 11, ui.Regular, colors.Faint))
 			}
-			rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
-				Padding: core.Symmetric(6, 10), Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{
-				ui.Text("Queued", 11, ui.Semibold, colors.Faint),
-				core.View{Style: core.Style{Direction: core.Column, Gap: 2, FlexGrow: 1, MinWidth: core.Pt(0)}, Children: lines},
+			label := "Queued"
+			if prompt.Uncertain {
+				label = "Check delivery"
+			}
+			var actions []core.Node
+			if prompt.Uncertain && prompt.RequestID != "" && a.idempotentMessages {
+				actions = append(actions,
+					ui.Button{Text: "Check receipt", Variant: ui.ButtonGhost, Size: controlSize(cx),
+						TestID: fmt.Sprintf("queued-check-%d", i), OnPress: func() { a.checkQueuedDelivery(threadID, prompt.RequestID) }},
+					ui.Button{Text: "Retry same request", Variant: ui.ButtonSecondary, Size: controlSize(cx),
+						TestID: fmt.Sprintf("queued-retry-%d", i), OnPress: func() { a.retryQueuedRequest(threadID, prompt.RequestID) }})
+			} else {
+				actions = append(actions,
+					ui.Button{Text: "Edit", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: fmt.Sprintf("queued-edit-%d", i),
+						OnPress: func() {
+							if strings.TrimSpace(a.draft.GetUntracked()) != "" {
+								a.connErr.Set("Save or send the current draft before editing a queued message.")
+								return
+							}
+							id := a.selected.GetUntracked()
+							current := a.queued[id]
+							a.queued[id] = append(current[:i:i], current[i+1:]...)
+							a.draft.Set(prompt.Text)
+							a.attachments.Set(prompt.Attachments)
+							a.persistDrafts()
+							a.saveAttachmentDraft()
+							a.refreshQueue()
+						}})
+			}
+			actions = append(actions,
 				ui.Button{Text: "×", Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Remove queued message",
-					TestID: fmt.Sprintf("queued-remove-%d", i), OnPress: func() { a.dropQueued(i) }},
+					TestID: fmt.Sprintf("queued-remove-%d", i), OnPress: func() { a.dropQueued(i) }})
+			rows = append(rows, core.View{Style: core.Style{Gap: 4,
+				Padding: core.Symmetric(6, 10), Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{
+				ui.Text(label, 11, ui.Semibold, colors.Faint),
+				core.View{Style: core.Style{Gap: 2, MinWidth: core.Pt(0)}, Children: lines},
+				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: actions},
 			}})
 		}
 		return core.View{TestID: "queued", Style: core.Style{Gap: 4, Padding: core.Edges{Bottom: 6}}, Children: rows}
-	}}
+	})
 }
 
 func (a *app) renderMessage(cx *core.Scope, m proto.Message) core.Node {

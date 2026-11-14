@@ -24,6 +24,7 @@ type Config struct {
 	Version string
 	// WebDir, when set, holds the built web client to serve at /.
 	WebDir string
+	Relay  bool
 }
 
 // HomeDir returns T3GO_HOME, or ~/.t3go.

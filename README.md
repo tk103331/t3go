@@ -17,7 +17,10 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - Git：工作区状态、每个 run 的 checkpoint（`git stash create` + 隐藏 ref）、run diff、worktree、提交/推送、经本机 `gh` 创建或复用 PR、分支列表与切换
 - HTTP REST API、SSE 事件流、WebSocket 事件流、Bearer token 鉴权、CORS
 - Web 客户端：同一份 NSGo 代码用 `GOOS=js GOARCH=wasm` 构建，由 `t3go serve --web` 直接提供
-- `t3go` CLI：`serve`、`pair`、`doctor`、`version`
+- `t3go` CLI：`serve`、`pair`、`relay`、`doctor`、`version`
+- 多环境管理：持久化身份、环境别名与默认环境、按环境隔离草稿和排队消息；
+  局域网直连优先、中继回退、出站反向隧道，使用说明见
+  [docs/environments-and-relay.md](docs/environments-and-relay.md)
 - 交互式权限审批：supervised 模式下 Claude Code 通过本地 MCP 询问 T3Go 客户端，允许/拒绝工具调用
 - NSGo 客户端：连接页、项目/线程侧栏（线程预览与相对时间、运行/失败/未读状态、每线程草稿与 Draft 标记、固定线程、搜索、可折叠项目并记住状态）、右侧 Surfaces 面板（可拖动宽度、多 Tab；Browser 内嵌网页；Preview 列出本机开发服务器并一键打开；Linked pull requests；Device 列出 iOS 模拟器与 Android 模拟器、启动/关闭并自动刷新截图（可暂停）；Side chat 隐藏线程继承主线程近况、独立问答，支持模型/权限选择、附件与拖放；文件浏览与预览：Markdown 渲染、图片、JSON/文本、代码语法高亮（Chroma）、二进制外开；文件列表、文件内容、终端与 Git graph 均有可拖动滚动条；带行号和颜色标记的代码 Diff（文件列表、stage/discard、split view）、Git graph、Pull request；内置终端（PTY/ConPTY + xterm.js，无额外工具栏、明暗主题跟随、滚动条、退出提示与一键重启、重开回放））、聊天流（日期分隔、消息时间与复制、代码块复制、编辑/重试/分叉、run 用量页脚、思考/工具卡片与工具变更文件摘要、聊天内相对图片）、Composer 上下文（`@file` 提及与文件 chip、工作区 Skills/自定义命令、MCP prompts（含参数输入）与斜杠命令、粘贴图片/文件、图片附件缩略图、每线程附件草稿、内联 model/permission/plan 选择、plan 完成提示、上下文余量（provider 报告的窗口优先，其次模型目录））、新建/重命名/删除项目与线程（新建项目校验目录并自动命名；移动端浏览连接主机的目录）、新建线程可选项目、provider、模型、权限、worktree 分支与 base ref、线程归档与筛选、命令面板（线程、消息全文搜索、动作）与快捷键、记住侧栏宽度与显隐、设置（加宽布局；General/Providers/Usage/Worktrees/Shortcuts/About 分区；环境名、默认 provider/model/权限、主题与强调色、provider 状态、登录状态与模型、自定义模型、一键安装/登录命令（在终端中执行）、worktree 列表、按天与 provider 的 token/成本统计）、运行历史、逐次 diff 与回滚到 checkpoint（先自动备份当前文件）、顶部分支工具栏（切换/新建/pull）、Open in editor（Zed/VS Code/Cursor/Finder）、Changes 对话框（提交/推送/PR/切分支）、运行中排队发送、附件（选择或拖入文件并随消息发送）、语音听写、审批对话框、断线重连提示、窄屏布局、错误提示条
 - 测试：store、orchestrator（fake provider）、provider 流解析、HTTP/SSE/WS、Go 客户端、NSGo UI 集成
@@ -28,8 +31,12 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - 上游 T3 Code 协议的完整兼容：已实现发现、配置、生命周期和线程列表，线程
   详情/发送/事件投影尚未完成，见 [docs/upstream-compat.md](docs/upstream-compat.md)
 - Codex / OpenCode 的交互式审批（两者目前按各自的沙箱/自动策略运行）
+- 环境的单设备授权与撤销、平台安全凭证存储、局域网自动发现、多副本中继
 
-排队消息保存在客户端内存里，退出客户端会丢失；服务端仍是一次只跑一个 run。
+排队消息按环境保存在客户端，重新打开后暂停，需明确恢复；发送结果不明的消息
+保留原请求 ID，可查询服务端回执或明确重试同一请求，同一线程内不会重复创建 run。
+需服务端声明 `idempotentMessages` 能力；旧服务端的未知结果仍需手动检查。
+每个线程同时只跑一个 run。网络恢复支持 SSE 心跳超时、路线冷却和连续探测后恢复直连。
 
 ## 环境要求
 
