@@ -773,9 +773,14 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 	bodyStyle := core.Style{MaxHeight: core.Pct(60), Padding: core.Edges{Right: 16}}
 	if compactSettings(cx) {
 		// A phone sheet has no room beside the footer: cap the body by a
-		// point height it can resolve, still short enough for the footer.
+		// point height it can resolve, still short enough for the footer and
+		// the software keyboard when it is open.
 		gap = 8
-		bodyStyle = core.Style{MaxHeight: core.Pt(cx.Env().Window().Height * 0.62),
+		availableHeight := cx.Env().Window().Height - cx.Env().KeyboardHeight()
+		if availableHeight < 0 {
+			availableHeight = 0
+		}
+		bodyStyle = core.Style{MaxHeight: core.Pt(availableHeight * 0.62),
 			FlexShrink: 1, MinHeight: core.Pt(0)}
 	}
 	return core.Scroll{Style: bodyStyle,
@@ -805,7 +810,9 @@ func settingsDialogStyle(cx *core.Scope) core.Style {
 // where the sheet already fills the screen.
 func dialogWidth(cx *core.Scope, width core.Points) core.Style {
 	if compactSettings(cx) {
-		return core.Style{}
+		// ui.Dialog is a bottom sheet on phones. Keep its panel above the
+		// software keyboard while it is visible.
+		return core.Style{MarginEnv: core.EnvEdges{Bottom: core.EnvKeyboard}}
 	}
 	return core.Style{Width: core.Pt(width)}
 }

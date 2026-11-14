@@ -2897,7 +2897,8 @@ func TestUIMobileSettings(t *testing.T) {
 	app.WaitFor("id:settings-disconnect", 5*time.Second)
 }
 
-// TestUIMobileDialogsFit keeps the fixed-width dialogs inside a phone.
+// TestUIMobileDialogsFit keeps the dialogs inside a phone and above the
+// software keyboard.
 func TestUIMobileDialogsFit(t *testing.T) {
 	srv, ts, cfg := startEnv(t)
 	ctx := context.Background()
@@ -2905,7 +2906,7 @@ func TestUIMobileDialogsFit(t *testing.T) {
 		t.Fatalf("project: %v", err)
 	}
 	app := nsgotest.Start(t, Root, nsgotest.Environment(core.Environment{OS: core.OSAndroid,
-		Idiom: core.IdiomPhone, SafeArea: core.Edges{Top: 24, Bottom: 16}}),
+		Idiom: core.IdiomPhone, KeyboardHeight: 300, SafeArea: core.Edges{Top: 24, Bottom: 16}}),
 		nsgotest.Size(390, 844), nsgotest.Storage(map[string]string{
 			"serverUrl": ts.URL,
 			"token":     cfg.Token,
@@ -2927,6 +2928,12 @@ func TestUIMobileDialogsFit(t *testing.T) {
 	if create.Origin.X < 0 || create.Origin.X+create.Size.Width > 390 {
 		t.Fatalf("create button overflows: %v", create)
 	}
+	if create.Origin.Y+create.Size.Height > 844-300 {
+		t.Fatalf("create button is covered by the keyboard: %v", create)
+	}
+	if dialog.Origin.Y+dialog.Size.Height > 844-300 {
+		t.Fatalf("new thread dialog is covered by the keyboard: %v", dialog)
+	}
 	app.Press("id:cancel-thread")
 	app.WaitForGone("id:new-thread-dialog", 5*time.Second)
 
@@ -2941,6 +2948,9 @@ func TestUIMobileDialogsFit(t *testing.T) {
 	projectDialog := app.Find("id:new-project-dialog").Frame
 	if projectDialog.Origin.X < 0 || projectDialog.Origin.X+projectDialog.Size.Width > 390 {
 		t.Fatalf("new project dialog overflows: %v", projectDialog)
+	}
+	if projectDialog.Origin.Y+projectDialog.Size.Height > 844-300 {
+		t.Fatalf("new project dialog is covered by the keyboard: %v", projectDialog)
 	}
 }
 
