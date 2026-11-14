@@ -2849,6 +2849,8 @@ func TestUIMobileComposerStaysVisible(t *testing.T) {
 	app.Press("id:thread-" + thread.ID)
 	app.WaitFor("id:composer-card", 10*time.Second)
 	app.WaitFor("id:composer-model", 10*time.Second)
+	app.WaitFor("text:Send", 5*time.Second)
+	emptySend := app.Find("text:Send").Frame
 	app.Type("label:Message", "hello")
 	app.WaitFor("text:Send", 5*time.Second)
 	composer := app.Find("id:composer-card")
@@ -2860,6 +2862,9 @@ func TestUIMobileComposerStaysVisible(t *testing.T) {
 	composerRight := composer.Frame.Origin.X + composer.Frame.Size.Width
 	if send.Frame.Origin.X < composer.Frame.Origin.X || sendRight > composerRight {
 		t.Fatalf("send button is outside the composer: send=%v composer=%v", send.Frame, composer.Frame)
+	}
+	if emptySend.Size.Width == 0 || send.Frame.Size.Width == 0 {
+		t.Fatalf("send button collapsed during draft transition: empty=%v typed=%v", emptySend, send.Frame)
 	}
 }
 
@@ -3021,6 +3026,11 @@ func TestUIMobilePalette(t *testing.T) {
 			"token":     cfg.Token,
 		}))
 	app.WaitFor("id:open-palette", 15*time.Second)
+	for _, id := range []string{"new-project", "new-thread", "open-palette", "settings"} {
+		if frame := app.Find("id:" + id).Frame; frame.Size.Width < 34 || frame.Size.Height < 34 {
+			t.Fatalf("%s touch icon is too small: %v", id, frame)
+		}
+	}
 	app.WaitUntil(10*time.Second, func() bool {
 		if app.Exists("id:palette") {
 			return true

@@ -15,6 +15,15 @@ func controlSize(cx *core.Scope) ui.Size {
 	return ui.SizeSmall
 }
 
+// iconButtonSize gives touch toolbars a little more room without making
+// desktop toolbars unnecessarily loose.
+func iconButtonSize(cx *core.Scope) core.Points {
+	if ui.Touch(cx) {
+		return 34
+	}
+	return 28
+}
+
 // mobileInput is the app's larger touch-friendly text field. NSGo's standard
 // ui.Input is intentionally dense for desktop toolbars, while form fields on
 // Android need a larger hit target and a little more breathing room.

@@ -354,17 +354,17 @@ func (a *app) archivedLabel() string {
 
 func (a *app) sidebarFooter(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, Width: core.Pct(100), Padding: core.Symmetric(6, 4), Gap: 4, AlignItems: core.AlignCenter}, Children: []core.Node{
-		ui.IconButton{Icon: lucide.FolderPlus, Label: "New project", TestID: "new-project", OnPress: a.openNewProject},
-		ui.IconButton{Icon: lucide.MessageSquarePlus, Label: "New thread", TestID: "new-thread", OnPress: a.openNewThread},
+		ui.IconButton{Icon: lucide.FolderPlus, Label: "New project", Size: iconButtonSize(cx), TestID: "new-project", OnPress: a.openNewProject},
+		ui.IconButton{Icon: lucide.MessageSquarePlus, Label: "New thread", Size: iconButtonSize(cx), TestID: "new-thread", OnPress: a.openNewThread},
 		ui.Spacer{},
 		ui.IconButton{IconFunc: func() *core.SVG {
 			if a.showArchived.Get() {
 				return lucide.ArchiveRestore()
 			}
 			return lucide.Archive()
-		}, LabelFunc: a.archivedLabel, TestID: "toggle-archived", OnPress: a.toggleShowArchived},
-		ui.IconButton{Icon: lucide.Search, Label: "Search", TestID: "open-palette", OnPress: a.openPalette},
-		ui.IconButton{Icon: lucide.Settings, Label: "Settings", TestID: "settings", OnPress: a.openSettings},
+		}, LabelFunc: a.archivedLabel, Size: iconButtonSize(cx), TestID: "toggle-archived", OnPress: a.toggleShowArchived},
+		ui.IconButton{Icon: lucide.Search, Label: "Search", Size: iconButtonSize(cx), TestID: "open-palette", OnPress: a.openPalette},
+		ui.IconButton{Icon: lucide.Settings, Label: "Settings", Size: iconButtonSize(cx), TestID: "settings", OnPress: a.openSettings},
 	}}
 }
 
