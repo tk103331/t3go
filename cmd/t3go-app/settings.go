@@ -88,7 +88,7 @@ func (a *app) settingsBody(cx *core.Scope) core.Node {
 			if item.ID == section {
 				variant = ui.ButtonPrimary
 			}
-			chips = append(chips, ui.Button{Text: item.Label, Variant: variant, Size: ui.SizeSmall,
+			chips = append(chips, ui.Button{Text: item.Label, Variant: variant, Size: controlSize(cx),
 				TestID: "settings-nav-" + item.ID, OnPress: func() { a.setSettingsSection(item.ID) }})
 		}
 		height := core.Points(cx.Env().Window().Height * 0.62)
@@ -204,22 +204,22 @@ func (a *app) settingsProviders(cx *core.Scope) core.Node {
 				Style:     core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 			actions = append(actions, ui.Button{Text: "Install", Icon: lucide.Download, Variant: ui.ButtonSecondary,
-				Size: ui.SizeSmall, TestID: "settings-install-" + provider.ID,
+				Size: controlSize(cx), TestID: "settings-install-" + provider.ID,
 				OnPress: func() { a.runProviderCommand(provider.InstallCommand) }})
 		}
 		if provider.Installed && provider.CanAuthenticate && provider.AuthStatus != "authenticated" && provider.LoginCommand != "" {
 			actions = append(actions, ui.Button{Text: "Sign in", Icon: lucide.LogIn, Variant: ui.ButtonSecondary,
-				Size: ui.SizeSmall, TestID: "settings-login-" + provider.ID,
+				Size: controlSize(cx), TestID: "settings-login-" + provider.ID,
 				OnPress: func() { a.runProviderCommand(provider.LoginCommand) }})
 		}
-		actions = append(actions, ui.Button{Text: "Add model", Icon: lucide.Plus, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+		actions = append(actions, ui.Button{Text: "Add model", Icon: lucide.Plus, Variant: ui.ButtonGhost, Size: controlSize(cx),
 			TestID: "settings-add-model-" + provider.ID, OnPress: func() { a.openCustomModelDialog(provider.ID) }})
 		body = append(body, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4,
 			Padding: core.Edges{Top: 2}}, Children: actions})
 		cards = append(cards, core.View{Style: core.Style{Direction: core.Column, Gap: 5, Padding: core.Symmetric(8, 10),
 			Background: colors.Inset(), CornerRadius: 8}, Children: body})
 	}
-	refresh := ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+	refresh := ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: controlSize(cx),
 		TestID: "settings-refresh-providers", OnPress: a.refreshProviders}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: []core.Node{
 		settingsSectionTitle(cx, "Providers", "Agent CLIs T3Go can run. Install a CLI and keep it on PATH to use it."),
@@ -243,7 +243,7 @@ func (a *app) settingsUsage(cx *core.Scope) core.Node {
 		if option == days {
 			variant = ui.ButtonPrimary
 		}
-		ranges = append(ranges, ui.Button{Text: fmt.Sprintf("%dd", option), Variant: variant, Size: ui.SizeSmall,
+		ranges = append(ranges, ui.Button{Text: fmt.Sprintf("%dd", option), Variant: variant, Size: controlSize(cx),
 			TestID: fmt.Sprintf("settings-usage-%d", option), OnPress: func() { a.loadUsage(option) }})
 	}
 	totals := core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
@@ -405,7 +405,7 @@ func (a *app) settingsAbout(cx *core.Scope) core.Node {
 			MaxLines: 4, Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 	}
 	if compactSettings(cx) {
-		body = append(body, ui.Button{Text: "Disconnect environment", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+		body = append(body, ui.Button{Text: "Disconnect environment", Variant: ui.ButtonGhost, Size: controlSize(cx),
 			TestID: "settings-disconnect", OnPress: func() { a.closeSettings(); a.disconnect() }})
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: body}

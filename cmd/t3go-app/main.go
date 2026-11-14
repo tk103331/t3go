@@ -52,9 +52,9 @@ func (a *app) connectView(cx *core.Scope) core.Node {
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 			core.Text{Content: "Enter the server address and access token to open your projects and threads.", Style: core.Style{FontSize: 12.5, LineHeight: 18},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-			ui.Input{Input: base.Input{Value: a.serverURL.Get, OnChange: a.serverURL.Set, Placeholder: "Server, e.g. http://127.0.0.1:4870",
+			mobileInput{Scope: cx, Input: base.Input{Value: a.serverURL.Get, OnChange: a.serverURL.Set, Placeholder: "Server, e.g. http://127.0.0.1:4870",
 				Label: "Server address", SubmitBehavior: core.SubmitBehaviorSubmit, OnSubmit: func(string) { a.connect(a.serverURL.Get(), a.token.Get()) }}},
-			ui.Input{Input: base.Input{Value: a.token.Get, OnChange: a.token.Set, Placeholder: "Token, or paste a t3go:// pair link",
+			mobileInput{Scope: cx, Input: base.Input{Value: a.token.Get, OnChange: a.token.Set, Placeholder: "Token, or paste a t3go:// pair link",
 				Label: "Token", Masked: true, SubmitBehavior: core.SubmitBehaviorSubmit,
 				OnSubmit: func(string) { a.connect(a.serverURL.Get(), a.token.Get()) }}},
 			core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node {
@@ -68,7 +68,8 @@ func (a *app) connectView(cx *core.Scope) core.Node {
 					return "Connecting…"
 				}
 				return "Connect"
-			}(), Icon: lucide.LogIn, Variant: ui.ButtonPrimary, OnPress: func() { a.connect(a.serverURL.Get(), a.token.Get()) },
+			}(), Icon: lucide.LogIn, Variant: ui.ButtonPrimary, Size: controlSize(cx),
+				OnPress:  func() { a.connect(a.serverURL.Get(), a.token.Get()) },
 				Disabled: a.connecting.Get, Flex: 1},
 			core.Text{Content: "Find the token in the environment data directory, or run `t3go pair`.",
 				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
@@ -145,14 +146,14 @@ func (a *app) errorBanner(cx *core.Scope) core.Node {
 		Padding: core.Symmetric(6, 12), Background: colors.Inset()}, Children: []core.Node{
 		core.Text{Content: a.connErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 12, FlexGrow: 1},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }},
-		ui.Button{Text: "Dismiss", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: func() { a.connErr.Set("") }},
+		ui.Button{Text: "Dismiss", Variant: ui.ButtonGhost, Size: controlSize(cx), OnPress: func() { a.connErr.Set("") }},
 	}}
 }
 
 func (a *app) sidebar(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
 		core.View{Style: core.Style{Padding: core.Edges{Top: 4, Right: 10, Bottom: 2, Left: 10}}, Children: []core.Node{
-			ui.Input{Input: base.Input{Value: a.sidebarQuery.Get, OnChange: a.sidebarQuery.Set,
+			mobileInput{Scope: cx, Input: base.Input{Value: a.sidebarQuery.Get, OnChange: a.sidebarQuery.Set,
 				Placeholder: "Search threads", Label: "Search threads"}},
 		}},
 		core.View{Style: ui.FillRest, Children: []core.Node{
@@ -224,7 +225,7 @@ func (a *app) sidebarSections(cx *core.Scope) []ui.SidebarSection {
 		}
 		section.Actions = ui.Menu{
 			TestID:  "project-menu-" + p.ID,
-			Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Project actions", TestID: "project-actions-" + p.ID},
+			Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Project actions", TestID: "project-actions-" + p.ID},
 			Children: []core.Node{
 				ui.MenuItem{Text: "New thread…", TestID: "new-thread-in-" + p.ID, OnSelect: func() { a.openNewThreadIn(p.ID) }},
 				ui.MenuItem{Text: "Rename project…", TestID: "rename-project-" + p.ID, OnSelect: func() { a.askRenameProject(p) }},
@@ -393,7 +394,7 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 			ui.IconButton{Icon: lucide.GitBranch, Label: "Branches", TestID: "branch-menu",
 				OnPress: func() { a.showBranches.Set(true) }},
 			ui.Menu{TestID: "thread-actions", Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost,
-				Size: ui.SizeSmall, Label: "Thread actions", TestID: "thread-actions"},
+				Size: controlSize(cx), Label: "Thread actions", TestID: "thread-actions"},
 				Children: []core.Node{
 					ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread", OnSelect: func() { a.askRenameThread(d.Thread) }},
 					ui.MenuItem{Text: "Run history", TestID: "history", OnSelect: a.openRuns},
@@ -436,7 +437,7 @@ func (a *app) branchMenu(cx *core.Scope, detail proto.ThreadDetail) core.Node {
 	if branch == "" {
 		branch = "detached"
 	}
-	return ui.Button{Text: branch, Icon: lucide.GitBranch, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+	return ui.Button{Text: branch, Icon: lucide.GitBranch, Variant: ui.ButtonGhost, Size: controlSize(cx),
 		Label: "Branch", TestID: "branch-menu", OnPress: func() { a.showBranches.Set(true) }}
 }
 
@@ -556,10 +557,10 @@ func (a *app) approvalDialog(cx *core.Scope) core.Node {
 		Children:     children,
 		TestID:       "approval-dialog",
 		Footer: []core.Node{
-			ui.Button{Text: "Deny", Icon: lucide.X, Variant: ui.ButtonGhost, TestID: "approval-deny", OnPress: func() {
+			ui.Button{Text: "Deny", Icon: lucide.X, Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "approval-deny", OnPress: func() {
 				a.resolveApproval(request.ID, false, "Denied by the person running T3Go.")
 			}},
-			ui.Button{Text: "Allow", Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "approval-allow", OnPress: func() {
+			ui.Button{Text: "Allow", Icon: lucide.Check, Variant: ui.ButtonPrimary, Size: controlSize(cx), TestID: "approval-allow", OnPress: func() {
 				a.resolveApproval(request.ID, true, "")
 			}},
 		},
@@ -592,12 +593,15 @@ func (a *app) paletteDialog(cx *core.Scope) core.Node {
 		if keyboard := cx.Env().KeyboardHeight(); keyboard > 0 {
 			style.Margin = core.Edges{Bottom: keyboard}
 		}
-		footer = []core.Node{ui.Button{Text: "Close", Variant: ui.ButtonGhost, TestID: "palette-close",
+		footer = []core.Node{ui.Button{Text: "Close", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "palette-close",
 			OnPress: func() { a.showPalette.Set(false) }}}
 	}
 	return ui.Dialog{Open: a.showPalette.Get, OnOpenChange: closeDialog(a.showPalette),
 		TestID: "palette", Label: "Commands", Bare: true, Style: style, Footer: footer,
-		NoCloseOnBackdropPress: compactSettings(cx),
+		// Let a tap outside dismiss the palette on phones too. The command
+		// field may have the IME focused, so relying on the system back action
+		// alone can leave the sheet visible after the keyboard is dismissed.
+		NoCloseOnBackdropPress: false,
 		Children:               []core.Node{command},
 	}
 }
@@ -611,11 +615,11 @@ func (a *app) newProjectDialog(cx *core.Scope) core.Node {
 	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showNewProject.Get, OnOpenChange: closeDialog(a.showNewProject), Title: "New project",
 		Description: "Register a directory the agent can work in. The folder must already exist.",
 		TestID:      "new-project-dialog", Style: dialogWidth(cx, 520), Children: []core.Node{
-			ui.Input{Input: base.Input{Value: a.newProjectName.Get, OnChange: a.newProjectName.Set,
+			mobileInput{Scope: cx, Input: base.Input{Value: a.newProjectName.Get, OnChange: a.newProjectName.Set,
 				Placeholder: "Defaults to the folder's name", Label: "Project name"}},
 			core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{
 				core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-					ui.Input{Input: base.Input{Value: a.newProjectPath.Get, OnChange: a.newProjectPath.Set,
+					mobileInput{Scope: cx, Input: base.Input{Value: a.newProjectPath.Get, OnChange: a.newProjectPath.Set,
 						Placeholder: "/path/to/project", Label: "Project path", SubmitBehavior: core.SubmitBehaviorSubmit,
 						OnSubmit: func(string) { a.createProject() }}},
 				}},
@@ -629,9 +633,9 @@ func (a *app) newProjectDialog(cx *core.Scope) core.Node {
 				return ui.Text(a.connErr.Get(), 12, ui.Regular, colors.Danger)
 			}},
 		}, Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, TestID: "cancel-project",
+			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "cancel-project",
 				OnPress: func() { a.showNewProject.Set(false) }},
-			ui.Button{Text: "Add project", Icon: lucide.FolderPlus, Variant: ui.ButtonPrimary,
+			ui.Button{Text: "Add project", Icon: lucide.FolderPlus, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 				TestID: "create-project", Disabled: func() bool { return a.projectBusy.Get() }, OnPress: a.createProject},
 		}}
 }
@@ -642,9 +646,9 @@ func (a *app) newThreadDialog(cx *core.Scope) core.Node {
 		TestID:      "new-thread-dialog", Style: dialogWidth(cx, 540),
 		Children: []core.Node{core.Dynamic(a.newThreadBody)},
 		Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, TestID: "cancel-thread",
+			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "cancel-thread",
 				OnPress: func() { a.showNewThread.Set(false) }},
-			ui.Button{Text: "Create thread", Icon: lucide.MessageSquarePlus, Variant: ui.ButtonPrimary,
+			ui.Button{Text: "Create thread", Icon: lucide.MessageSquarePlus, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 				TestID: "create-thread", Disabled: func() bool { return a.threadBusy.Get() }, OnPress: a.createThread},
 		}}
 }
@@ -665,7 +669,7 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 		if !p.Installed {
 			label += " (missing)"
 		}
-		providerButtons = append(providerButtons, ui.Button{Text: label, Variant: variant, Size: ui.SizeSmall,
+		providerButtons = append(providerButtons, ui.Button{Text: label, Variant: variant, Size: controlSize(cx),
 			TestID:   "new-thread-provider-" + p.ID,
 			Disabled: func() bool { return !p.Installed }, OnPress: func() {
 				a.newThreadProv.Set(p.ID)
@@ -694,7 +698,7 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 	var modelField core.Node = ui.Text("No models for this provider", 12, ui.Regular, colors.Faint)
 	if len(modelItems) > 0 {
 		modelField = ui.Menu{TestID: "new-thread-model",
-			Trigger:   ui.Button{Text: modelLabel, Variant: ui.ButtonSecondary, Size: ui.SizeSmall},
+			Trigger:   ui.Button{Text: modelLabel, Variant: ui.ButtonSecondary, Size: controlSize(cx)},
 			MaxHeight: 320, Children: modelItems}
 	}
 	permissions := []proto.PermissionMode{proto.PermissionSupervised, proto.PermissionAcceptEdits, proto.PermissionAuto, proto.PermissionFullAccess}
@@ -705,7 +709,7 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 		if p == a.newThreadPerm.Get() {
 			variant = ui.ButtonPrimary
 		}
-		permButtons = append(permButtons, ui.Button{Text: string(p), Variant: variant, Size: ui.SizeSmall,
+		permButtons = append(permButtons, ui.Button{Text: string(p), Variant: variant, Size: controlSize(cx),
 			TestID: "new-thread-perm-" + string(p), OnPress: func() { a.newThreadPerm.Set(p) }})
 	}
 	worktree := "Off"
@@ -721,7 +725,7 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 		if pr.ID == projectID {
 			variant = ui.ButtonPrimary
 		}
-		projectButtons = append(projectButtons, ui.Button{Text: pr.Name, Variant: variant, Size: ui.SizeSmall,
+		projectButtons = append(projectButtons, ui.Button{Text: pr.Name, Variant: variant, Size: controlSize(cx),
 			TestID: "new-thread-project-" + pr.ID, OnPress: func() { a.newThreadProj.Set(pr.ID) }})
 	}
 	projectPath := ""
@@ -731,7 +735,7 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 		}
 	}
 	fields := []core.Node{
-		ui.Input{Input: base.Input{Value: a.newThreadTitle.Get, OnChange: a.newThreadTitle.Set,
+		mobileInput{Scope: cx, Input: base.Input{Value: a.newThreadTitle.Get, OnChange: a.newThreadTitle.Set,
 			Placeholder: "What is this thread about? (optional)", Label: "Thread title"}},
 		ui.Text("Project", 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: projectButtons},
@@ -748,7 +752,7 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 		modelField,
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
 			ui.Text("Own worktree", 12, ui.Regular, colors.Muted), ui.Spacer{},
-			ui.Button{Text: worktree, Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "toggle-worktree", OnPress: func() {
+			ui.Button{Text: worktree, Variant: ui.ButtonSecondary, Size: controlSize(cx), TestID: "toggle-worktree", OnPress: func() {
 				a.newThreadWT.Set(!a.newThreadWT.GetUntracked())
 			}},
 		}},
@@ -757,9 +761,9 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 	)
 	if a.newThreadWT.Get() {
 		fields = append(fields,
-			ui.Input{Input: base.Input{Value: a.newThreadBranch.Get, OnChange: a.newThreadBranch.Set,
+			mobileInput{Scope: cx, Input: base.Input{Value: a.newThreadBranch.Get, OnChange: a.newThreadBranch.Set,
 				Placeholder: "t3go/<slug>", Label: "Branch (optional)", TestID: "new-thread-branch"}},
-			ui.Input{Input: base.Input{Value: a.newThreadBase.Get, OnChange: a.newThreadBase.Set,
+			mobileInput{Scope: cx, Input: base.Input{Value: a.newThreadBase.Get, OnChange: a.newThreadBase.Set,
 				Placeholder: "origin/main", Label: "Base ref (optional)", TestID: "new-thread-base"}},
 			core.Text{Content: "Empty uses the project's current HEAD. The branch defaults to t3go/ + the title.",
 				Style:     core.Style{FontSize: 10.5},
@@ -864,7 +868,7 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 		if !p.Installed {
 			label += " (missing)"
 		}
-		providerButtons = append(providerButtons, ui.Button{Text: label, Variant: variant, Size: ui.SizeSmall,
+		providerButtons = append(providerButtons, ui.Button{Text: label, Variant: variant, Size: controlSize(cx),
 			Disabled: func() bool { return !p.Installed }, TestID: "settings-provider-" + p.ID, OnPress: func() {
 				update(func(s *proto.Settings) {
 					s.DefaultProvider = p.ID
@@ -895,7 +899,7 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 	var modelField core.Node = ui.Text("No models for this provider", 12, ui.Regular, colors.Faint)
 	if len(modelItems) > 0 {
 		modelField = ui.Menu{TestID: "settings-model",
-			Trigger:   ui.Button{Text: modelLabel, Variant: ui.ButtonSecondary, Size: ui.SizeSmall},
+			Trigger:   ui.Button{Text: modelLabel, Variant: ui.ButtonSecondary, Size: controlSize(cx)},
 			MaxHeight: 320, Children: modelItems}
 	}
 	perm := proto.PermissionMode(draft.DefaultPermission)
@@ -910,7 +914,7 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 		if p == perm {
 			variant = ui.ButtonPrimary
 		}
-		permButtons = append(permButtons, ui.Button{Text: string(p), Variant: variant, Size: ui.SizeSmall,
+		permButtons = append(permButtons, ui.Button{Text: string(p), Variant: variant, Size: controlSize(cx),
 			TestID: "settings-perm-" + string(p), OnPress: func() {
 				update(func(s *proto.Settings) { s.DefaultPermission = string(p) })
 			}})
@@ -922,7 +926,7 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 		if theme == draft.Theme {
 			variant = ui.ButtonPrimary
 		}
-		themeButtons = append(themeButtons, ui.Button{Text: theme, Variant: variant, Size: ui.SizeSmall,
+		themeButtons = append(themeButtons, ui.Button{Text: theme, Variant: variant, Size: controlSize(cx),
 			TestID: "settings-theme-" + theme, OnPress: func() {
 				update(func(s *proto.Settings) { s.Theme = theme })
 			}})
@@ -934,7 +938,7 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 		if choice == a.editorChoice.Get() {
 			variant = ui.ButtonPrimary
 		}
-		editorButtons = append(editorButtons, ui.Button{Text: choice, Variant: variant, Size: ui.SizeSmall,
+		editorButtons = append(editorButtons, ui.Button{Text: choice, Variant: variant, Size: controlSize(cx),
 			TestID: "settings-editor-" + choice, OnPress: func() { a.setEditor(choice) }})
 	}
 	type accentChoice struct {
@@ -970,7 +974,7 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 			}})
 	}
 	fields := []core.Node{
-		ui.Input{Input: base.Input{Value: a.settingsTitle.Get, OnChange: a.settingsTitle.Set,
+		mobileInput{Scope: cx, Input: base.Input{Value: a.settingsTitle.Get, OnChange: a.settingsTitle.Set,
 			Placeholder: "Environment name", Label: "Environment name"}},
 		ui.Text("Default provider", 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: providerButtons},
@@ -1008,7 +1012,7 @@ func (a *app) promptArgsDialog(cx *core.Scope) core.Node {
 			placeholder = "Value"
 		}
 		rows = append(rows, core.Dynamic(func(cx *core.Scope) core.Node {
-			return ui.Input{Input: base.Input{
+			return mobileInput{Scope: cx, Input: base.Input{
 				Value: func() string {
 					state := a.promptArgValues.Get()
 					if index < len(state.Values) {
@@ -1055,7 +1059,7 @@ func (a *app) branchesDialog(cx *core.Scope) core.Node {
 		if ref.Current {
 			label += "  ✓"
 		}
-		rows = append(rows, ui.Button{Text: label, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+		rows = append(rows, ui.Button{Text: label, Variant: ui.ButtonGhost, Size: controlSize(cx),
 			TestID: "header-branch-" + ref.Name, Flex: 1, OnPress: func() {
 				a.showBranches.Set(false)
 				a.switchBranch(ref.Name)
@@ -1099,9 +1103,9 @@ func (a *app) customModelDialog(cx *core.Scope) core.Node {
 	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showCustomModel.Get, OnOpenChange: closeDialog(a.showCustomModel),
 		Title: "Add model to " + provider, Description: "Use the model id the CLI expects.",
 		TestID: "custom-model-dialog", Style: dialogWidth(cx, 520), Children: []core.Node{
-			ui.Input{Input: base.Input{Value: a.customModelID.Get, OnChange: a.customModelID.Set,
+			mobileInput{Scope: cx, Input: base.Input{Value: a.customModelID.Get, OnChange: a.customModelID.Set,
 				Placeholder: "model-id", Label: "Model id", TestID: "custom-model-id"}},
-			ui.Input{Input: base.Input{Value: a.customModelName.Get, OnChange: a.customModelName.Set,
+			mobileInput{Scope: cx, Input: base.Input{Value: a.customModelName.Get, OnChange: a.customModelName.Set,
 				Placeholder: "Display name (optional)", Label: "Model name", TestID: "custom-model-name"}},
 			core.Show{When: func() bool { return a.customModelErr.Get() != "" }, Then: func(*core.Scope) core.Node {
 				return core.Text{Content: a.customModelErr.Get(), MaxLines: 2, Style: core.Style{FontSize: 11.5},
@@ -1166,7 +1170,7 @@ func (a *app) newBranchDialog(cx *core.Scope) core.Node {
 	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showBranch.Get, OnOpenChange: closeDialog(a.showBranch), Title: "New branch",
 		Description: "Create a branch in this thread's checkout and switch to it.", TestID: "new-branch-dialog",
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
-			return ui.Input{Input: base.Input{Value: a.branchName.Get, OnChange: a.branchName.Set,
+			return mobileInput{Scope: cx, Input: base.Input{Value: a.branchName.Get, OnChange: a.branchName.Set,
 				Placeholder: "t3go/<slug>", Label: "Branch name"}}
 		})}, Footer: []core.Node{
 			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showBranch.Set(false) }},
@@ -1221,7 +1225,7 @@ func (a *app) diffBody(cx *core.Scope) core.Node {
 					OnSelect: func() { a.switchBranch(ref.Name) }})
 			}
 			branchField = ui.Menu{TestID: "git-branch",
-				Trigger:   ui.Button{Text: branch, Icon: lucide.GitBranch, Variant: ui.ButtonGhost, Size: ui.SizeSmall},
+				Trigger:   ui.Button{Text: branch, Icon: lucide.GitBranch, Variant: ui.ButtonGhost, Size: controlSize(cx)},
 				MaxHeight: 320, Children: items}
 		}
 		line := []core.Node{branchField}
@@ -1237,17 +1241,17 @@ func (a *app) diffBody(cx *core.Scope) core.Node {
 		}}
 	}
 	buttons := core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-		ui.Button{Text: "Commit", Icon: lucide.Check, Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+		ui.Button{Text: "Commit", Icon: lucide.Check, Variant: ui.ButtonSecondary, Size: controlSize(cx),
 			TestID: "git-commit", Disabled: a.gitBusy.Get, OnPress: func() { a.runGitAction(proto.GitCommit) }},
-		ui.Button{Text: "Push", Icon: lucide.ArrowUp, Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+		ui.Button{Text: "Push", Icon: lucide.ArrowUp, Variant: ui.ButtonSecondary, Size: controlSize(cx),
 			TestID: "git-push", Disabled: a.gitBusy.Get, OnPress: func() { a.runGitAction(proto.GitPush) }},
-		ui.Button{Text: "Create PR", Icon: lucide.GitPullRequest, Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+		ui.Button{Text: "Create PR", Icon: lucide.GitPullRequest, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 			TestID: "git-pr", Disabled: a.gitBusy.Get, OnPress: func() { a.runGitAction(proto.GitCommitPR) }},
 		core.Show{When: a.gitBusy.Get, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 14, Label: "Running git action"} }},
 	}}
 	fields := []core.Node{
 		status,
-		ui.Input{Input: base.Input{Value: a.gitMessage.Get, OnChange: a.gitMessage.Set,
+		mobileInput{Scope: cx, Input: base.Input{Value: a.gitMessage.Get, OnChange: a.gitMessage.Set,
 			Placeholder: "Commit message (defaults to an update)", Label: "Commit message"}},
 		buttons,
 	}
@@ -1259,7 +1263,7 @@ func (a *app) diffBody(cx *core.Scope) core.Node {
 		fields = append(fields, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinWidth: core.Pt(0)}, Children: []core.Node{
 			core.Text{Content: pr, MaxLines: 1, Style: core.Style{FontSize: 11.5, FlexGrow: 1},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Accent()} }},
-			ui.Button{Text: "Open", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "git-open-pr",
+			ui.Button{Text: "Open", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "git-open-pr",
 				OnPress: a.openPR},
 		}})
 	}
@@ -1305,9 +1309,9 @@ func (a *app) runsDialog(cx *core.Scope) core.Node {
 		}}
 		if r.Checkpoint != "" {
 			line.Children = append(line.Children,
-				ui.Button{Text: "Diff", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				ui.Button{Text: "Diff", Variant: ui.ButtonGhost, Size: controlSize(cx),
 					TestID: "run-diff-" + r.ID, OnPress: func() { a.openRunDiff(r.ID) }},
-				ui.Button{Text: "Restore", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				ui.Button{Text: "Restore", Variant: ui.ButtonGhost, Size: controlSize(cx),
 					TestID: "run-restore-" + r.ID, OnPress: func() { a.askRestoreRun(r.ID) }})
 		}
 		rows = append(rows, core.View{Style: core.Style{Gap: 3, Padding: core.Symmetric(8, 10), Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{
@@ -1361,7 +1365,7 @@ func (a *app) renameDialog(cx *core.Scope) core.Node {
 		Title:       title,
 		Description: "The new name is saved for everyone connected to this environment.",
 		Children: []core.Node{
-			ui.Input{Input: base.Input{Value: a.renameName.Get, OnChange: a.renameName.Set, Placeholder: label, Label: label,
+			mobileInput{Scope: cx, Input: base.Input{Value: a.renameName.Get, OnChange: a.renameName.Set, Placeholder: label, Label: label,
 				SubmitBehavior: core.SubmitBehaviorSubmit, OnSubmit: func(string) { a.confirmRename() }}},
 		},
 		Footer: []core.Node{

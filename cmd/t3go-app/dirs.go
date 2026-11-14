@@ -25,8 +25,8 @@ func (a *app) dirsDialog(cx *core.Scope) core.Node {
 		Style:                  dialogWidth(cx, 520),
 		Children:               []core.Node{core.Dynamic(a.dirsBody)},
 		Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, TestID: "dirs-cancel", OnPress: a.closeDirs},
-			ui.Button{Text: "Use this folder", Icon: lucide.FolderOpen, Variant: ui.ButtonPrimary, TestID: "dirs-use",
+			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "dirs-cancel", OnPress: a.closeDirs},
+			ui.Button{Text: "Use this folder", Icon: lucide.FolderOpen, Variant: ui.ButtonPrimary, Size: controlSize(cx), TestID: "dirs-use",
 				Disabled: func() bool { return a.dirsBusy.Get() || a.dirs.GetUntracked().Path == "" },
 				OnPress:  a.useDirs},
 		},
@@ -74,14 +74,14 @@ func (a *app) dirsBody(cx *core.Scope) core.Node {
 			Style:     core.Style{FontSize: 11.5, FontFamily: "Menlo, monospace"},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-			ui.Button{Text: "Up", Icon: lucide.ArrowUp, Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+			ui.Button{Text: "Up", Icon: lucide.ArrowUp, Variant: ui.ButtonSecondary, Size: controlSize(cx),
 				TestID: "dirs-up", Disabled: func() bool { return a.dirs.GetUntracked().Parent == "" },
 				OnPress: func() { a.loadDirs(a.dirs.GetUntracked().Parent) }},
-			ui.Button{Text: "Home", Icon: lucide.House, Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+			ui.Button{Text: "Home", Icon: lucide.House, Variant: ui.ButtonSecondary, Size: controlSize(cx),
 				TestID: "dirs-home", OnPress: func() { a.loadDirs("") }},
-			ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: controlSize(cx),
 				TestID: "dirs-refresh", OnPress: func() { a.loadDirs(listing.Path) }},
-			ui.Button{Text: "New folder", Icon: lucide.FolderPlus, Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+			ui.Button{Text: "New folder", Icon: lucide.FolderPlus, Variant: ui.ButtonSecondary, Size: controlSize(cx),
 				TestID: "dirs-new-folder", OnPress: a.openNewDir},
 			ui.Spacer{},
 			core.Show{When: func() bool { return busy }, Then: func(*core.Scope) core.Node {
@@ -112,7 +112,7 @@ func (a *app) newDirDialog(cx *core.Scope) core.Node {
 		TestID:                 "new-dir-dialog",
 		Style:                  dialogWidth(cx, 420),
 		Children: []core.Node{
-			ui.Input{Input: base.Input{Value: a.newDirName.Get, OnChange: a.newDirName.Set,
+			mobileInput{Scope: cx, Input: base.Input{Value: a.newDirName.Get, OnChange: a.newDirName.Set,
 				Placeholder: "Folder name", Label: "Folder name", SubmitBehavior: core.SubmitBehaviorSubmit,
 				OnSubmit: func(string) { a.createDir() }}},
 			core.Show{When: func() bool { return a.newDirErr.Get() != "" }, Then: func(*core.Scope) core.Node {
@@ -120,8 +120,8 @@ func (a *app) newDirDialog(cx *core.Scope) core.Node {
 			}},
 		},
 		Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, TestID: "cancel-new-dir", OnPress: a.closeNewDir},
-			ui.Button{Text: "Create folder", Icon: lucide.FolderPlus, Variant: ui.ButtonPrimary,
+			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "cancel-new-dir", OnPress: a.closeNewDir},
+			ui.Button{Text: "Create folder", Icon: lucide.FolderPlus, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 				TestID: "create-dir", Disabled: func() bool { return a.newDirBusy.Get() }, OnPress: a.createDir},
 		},
 	}

@@ -300,7 +300,7 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 			body = core.View{Style: core.Style{Direction: core.Column, Gap: 8, AlignItems: core.AlignStart}, Children: []core.Node{
 				ui.Icon(lucide.FileText, 24, colors.Faint),
 				ui.Text("No preview for this file.", 12, ui.Regular, colors.Faint),
-				ui.Button{Text: "Open outside T3Go", Icon: lucide.ExternalLink, Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+				ui.Button{Text: "Open outside T3Go", Icon: lucide.ExternalLink, Variant: ui.ButtonSecondary, Size: controlSize(cx),
 					TestID: "file-open-binary", OnPress: func() { a.cx.OpenURL(a.rawFileURL(selected), nil) }},
 			}}
 		case file.Content == "":
@@ -403,7 +403,7 @@ func (a *app) rightDiff(cx *core.Scope) core.Node {
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 		ui.IconButton{Icon: lucide.Columns2, Label: "Toggle split view", TestID: "diff-split",
 			Selected: func() bool { return split }, OnPress: func() { a.diffSplit.Set(!a.diffSplit.GetUntracked()) }},
-		ui.Button{Text: "Changes…", Variant: ui.ButtonGhost, Size: ui.SizeSmall, OnPress: a.openDiff},
+		ui.Button{Text: "Changes…", Variant: ui.ButtonGhost, Size: controlSize(cx), OnPress: a.openDiff},
 		ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh diff", TestID: "right-diff-refresh", OnPress: func() {
 			if id := a.selected.GetUntracked(); id != "" {
 				a.loadWorkingDiff(id)
@@ -497,7 +497,7 @@ func (a *app) rightLinkedPRs(cx *core.Scope) core.Node {
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 				core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 10.5, FlexGrow: 1},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-				ui.Button{Text: "Open", Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				ui.Button{Text: "Open", Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: controlSize(cx),
 					TestID: "open-linked-pr-url-" + fmt.Sprint(pr.Number), OnPress: func() { a.cx.OpenURL(pr.URL, nil) }},
 			}},
 			core.Text{Content: pr.HeadBranch + " → " + pr.BaseBranch, MaxLines: 1, Style: core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
@@ -558,7 +558,7 @@ func (a *app) rightSideChat(cx *core.Scope) core.Node {
 			note = message
 		}
 		var action core.Node = ui.Button{Text: "Start side chat", Icon: lucide.MessageCircleMore, Variant: ui.ButtonPrimary,
-			Size: ui.SizeSmall, TestID: "side-start", OnPress: a.openSideChat}
+			Size: controlSize(cx), TestID: "side-start", OnPress: a.openSideChat}
 		if a.sideBusy.Get() {
 			action = ui.Spinner{Size: 14, Label: "Starting side chat"}
 		}
@@ -618,7 +618,7 @@ func (a *app) rightSideChat(cx *core.Scope) core.Node {
 		core.Show{When: func() bool { return a.sideBusy.Get() }, Then: func(*core.Scope) core.Node {
 			return ui.Spinner{Size: 12, Label: "Working on the side chat"}
 		}},
-		ui.Button{Text: "Reset", Variant: ui.ButtonGhost, Size: ui.SizeSmall, TestID: "side-reset",
+		ui.Button{Text: "Reset", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "side-reset",
 			OnPress: func() { a.resetSideChat(); a.sideFor.Set(""); a.openSideChat() }},
 	}}
 	var modelItems []core.Node
@@ -639,7 +639,7 @@ func (a *app) rightSideChat(cx *core.Scope) core.Node {
 	var modelControl core.Node = ui.Text(modelLabel, 10.5, ui.Regular, colors.Faint)
 	if len(modelItems) > 0 {
 		modelControl = ui.Menu{TestID: "side-model", MaxHeight: 320,
-			Trigger:  ui.Button{Text: modelLabel, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Side chat model"},
+			Trigger:  ui.Button{Text: modelLabel, Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Side chat model"},
 			Children: modelItems}
 	}
 	var permissionItems []core.Node
@@ -651,14 +651,14 @@ func (a *app) rightSideChat(cx *core.Scope) core.Node {
 			OnSelect: func() { a.setSidePermission(permission) }})
 	}
 	permissionControl := ui.Menu{TestID: "side-permission", MaxHeight: 240,
-		Trigger:  ui.Button{Text: string(thread.Permission), Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Side chat permission"},
+		Trigger:  ui.Button{Text: string(thread.Permission), Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Side chat permission"},
 		Children: permissionItems}
 	var submit core.Node
 	if a.sideRunning.Get() {
-		submit = ui.Button{Text: "Stop", Variant: ui.ButtonSecondary, Size: ui.SizeSmall, TestID: "side-stop",
+		submit = ui.Button{Text: "Stop", Variant: ui.ButtonSecondary, Size: controlSize(cx), TestID: "side-stop",
 			OnPress: a.stopSideChat}
 	} else {
-		submit = ui.Button{Text: "Send", Icon: lucide.Send, Variant: ui.ButtonPrimary, Size: ui.SizeSmall, TestID: "side-send",
+		submit = ui.Button{Text: "Send", Icon: lucide.Send, Variant: ui.ButtonPrimary, Size: controlSize(cx), TestID: "side-send",
 			Disabled: func() bool { return strings.TrimSpace(a.sideDraft.Get()) == "" }, OnPress: a.sendSideChat}
 	}
 	if message := a.sideErr.Get(); message != "" {
@@ -671,7 +671,7 @@ func (a *app) rightSideChat(cx *core.Scope) core.Node {
 			core.Show{When: func() bool { return len(a.sideAttachments.Get()) > 0 }, Then: func(cx *core.Scope) core.Node {
 				return a.sideAttachmentChips(cx)
 			}},
-			ui.Input{Input: base.Input{Multiline: true, Value: a.sideDraft.Get, OnChange: a.sideDraft.Set,
+			mobileInput{Scope: cx, Input: base.Input{Multiline: true, Value: a.sideDraft.Get, OnChange: a.sideDraft.Set,
 				Placeholder: "Ask a side question…", Label: "Side question", TestID: "side-input"}},
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
 				modelControl,
@@ -707,7 +707,7 @@ func (a *app) rightDevices(cx *core.Scope) core.Node {
 	}
 	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
 		Padding: core.Edges{Top: 4, Right: 10, Bottom: 4, Left: 10}}, Children: []core.Node{
-		ui.Button{Text: selector, Icon: lucide.MonitorSmartphone, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+		ui.Button{Text: selector, Icon: lucide.MonitorSmartphone, Variant: ui.ButtonGhost, Size: controlSize(cx),
 			Label: "Devices", TestID: "device-select", OnPress: func() { a.showDevices.Set(true) }},
 		core.Text{Content: strings.ToLower(selected.State), MaxLines: 1, Style: core.Style{FontSize: 10},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
@@ -760,10 +760,10 @@ func (a *app) rightDevices(cx *core.Scope) core.Node {
 						Width: core.Pct(100)}},
 			}},
 			core.View{Style: core.Style{Direction: core.Row, Gap: 4, Padding: core.Edges{Top: 6}}, Children: []core.Node{
-				ui.Button{Text: "Refresh screen", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				ui.Button{Text: "Refresh screen", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: controlSize(cx),
 					TestID: "device-refresh", OnPress: a.refreshDeviceShot},
 				ui.Spacer{},
-				ui.Button{Text: "Shut down", Icon: lucide.Power, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				ui.Button{Text: "Shut down", Icon: lucide.Power, Variant: ui.ButtonGhost, Size: controlSize(cx),
 					TestID: "device-shutdown", OnPress: func() { a.shutdownDevice(selected.ID) }},
 			}},
 		}})
@@ -774,7 +774,7 @@ func (a *app) rightDevices(cx *core.Scope) core.Node {
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 			core.Text{Content: selected.OS + " · " + strings.ToLower(selected.State), Style: core.Style{FontSize: 10.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-			ui.Button{Text: "Boot", Icon: lucide.Play, Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+			ui.Button{Text: "Boot", Icon: lucide.Play, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 				TestID: "device-boot", OnPress: func() { a.bootDevice(selected.ID) }},
 		}})
 	}
@@ -878,38 +878,38 @@ func (a *app) rightPullRequestDetail(cx *core.Scope) core.Node {
 	}
 	if strings.EqualFold(pr.State, "open") {
 		fields = append(fields, ui.Text("Review or comment", 10.5, ui.Semibold, colors.Faint),
-			ui.Input{Input: base.Input{Multiline: true, Value: a.prNote.Get, OnChange: a.prNote.Set,
+			mobileInput{Scope: cx, Input: base.Input{Multiline: true, Value: a.prNote.Get, OnChange: a.prNote.Set,
 				Placeholder: "Leave a note…", Label: "Note", TestID: "pr-note"}},
 			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: []core.Node{
-				ui.Button{Text: "Approve", Icon: lucide.CircleCheck, Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+				ui.Button{Text: "Approve", Icon: lucide.CircleCheck, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 					TestID: "pr-review-approve", OnPress: func() { a.submitPRReview("approve") }},
-				ui.Button{Text: "Request changes", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+				ui.Button{Text: "Request changes", Variant: ui.ButtonSecondary, Size: controlSize(cx),
 					TestID: "pr-review-request-changes", OnPress: func() { a.submitPRReview("request-changes") }},
-				ui.Button{Text: "Add comment", Icon: lucide.MessageCircle, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+				ui.Button{Text: "Add comment", Icon: lucide.MessageCircle, Variant: ui.ButtonGhost, Size: controlSize(cx),
 					TestID: "pr-comment", OnPress: a.submitPRComment},
 			}},
 		)
 	}
 	var actions []core.Node
 	if pr.URL != "" {
-		actions = append(actions, ui.Button{Text: "Open on GitHub", Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+		actions = append(actions, ui.Button{Text: "Open on GitHub", Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: controlSize(cx),
 			TestID: "pr-open-url", OnPress: func() { a.cx.OpenURL(pr.URL, nil) }})
 	}
 	if strings.EqualFold(pr.State, "open") {
 		if pr.Draft {
-			actions = append(actions, ui.Button{Text: "Ready", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+			actions = append(actions, ui.Button{Text: "Ready", Variant: ui.ButtonSecondary, Size: controlSize(cx),
 				TestID: "pr-action-ready", OnPress: func() { a.changePullRequestState("ready") }})
 		} else if detail.Mergeable == "MERGEABLE" || detail.Mergeable == "" {
 			for _, method := range []string{"merge", "squash", "rebase"} {
 				method := method
-				actions = append(actions, ui.Button{Text: strings.Title(method), Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+				actions = append(actions, ui.Button{Text: strings.Title(method), Variant: ui.ButtonPrimary, Size: controlSize(cx),
 					TestID: "pr-merge-" + method, OnPress: func() { a.mergePullRequest(method) }})
 			}
 		}
-		actions = append(actions, ui.Button{Text: "Close", Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+		actions = append(actions, ui.Button{Text: "Close", Variant: ui.ButtonGhost, Size: controlSize(cx),
 			TestID: "pr-action-close", OnPress: func() { a.changePullRequestState("close") }})
 	} else {
-		actions = append(actions, ui.Button{Text: "Reopen", Variant: ui.ButtonSecondary, Size: ui.SizeSmall,
+		actions = append(actions, ui.Button{Text: "Reopen", Variant: ui.ButtonSecondary, Size: controlSize(cx),
 			TestID: "pr-action-reopen", OnPress: func() { a.changePullRequestState("reopen") }})
 	}
 	if len(actions) > 0 {
@@ -920,7 +920,7 @@ func (a *app) rightPullRequestDetail(cx *core.Scope) core.Node {
 		if a.prDeleteBranch.Get() {
 			deleteLabel = "Delete branch"
 		}
-		fields = append(fields, ui.Button{Text: deleteLabel, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+		fields = append(fields, ui.Button{Text: deleteLabel, Variant: ui.ButtonGhost, Size: controlSize(cx),
 			TestID: "pr-delete-branch", OnPress: func() { a.prDeleteBranch.Set(!a.prDeleteBranch.GetUntracked()) }})
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 8, Padding: core.All(10), FlexGrow: 1, MinHeight: core.Pt(0)},
@@ -955,7 +955,7 @@ func (a *app) rightPullRequest(cx *core.Scope) core.Node {
 			core.Text{Content: pr.URL, MaxLines: 2, Selectable: core.SelectableOn, Style: core.Style{FontSize: 11.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Accent()} }},
 			core.View{Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Edges{Top: 4}}, Children: []core.Node{
-				ui.Button{Text: "Open pull request", Icon: lucide.GitPullRequest, Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+				ui.Button{Text: "Open pull request", Icon: lucide.GitPullRequest, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 					TestID: "right-pr-open", OnPress: func() { a.cx.OpenURL(pr.URL, nil) }},
 				ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh pull request", TestID: "right-pr-refresh",
 					OnPress: func() { a.loadPullRequest(a.selected.GetUntracked()) }},
@@ -978,7 +978,7 @@ func (a *app) rightPullRequest(cx *core.Scope) core.Node {
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 		}
 		fields = append(fields, core.View{Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Edges{Top: 4}}, Children: []core.Node{
-			ui.Button{Text: "Create PR", Icon: lucide.GitPullRequest, Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+			ui.Button{Text: "Create PR", Icon: lucide.GitPullRequest, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 				TestID: "right-pr-create", Disabled: a.gitBusy.Get, OnPress: func() { a.runGitAction(proto.GitCommitPR) }},
 			ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh pull request", TestID: "right-pr-refresh",
 				OnPress: func() { a.loadPullRequest(a.selected.GetUntracked()) }},
@@ -1022,7 +1022,7 @@ func (a *app) rightTerminal(cx *core.Scope) core.Node {
 			Padding: core.Symmetric(4, 10), Background: colors.Inset()}, Children: []core.Node{
 			core.Text{Content: "Shell exited", MaxLines: 1, Style: core.Style{FontSize: 11.5, FlexGrow: 1},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-			ui.Button{Text: "Restart", Icon: lucide.RotateCcw, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			ui.Button{Text: "Restart", Icon: lucide.RotateCcw, Variant: ui.ButtonGhost, Size: controlSize(cx),
 				TestID: "terminal-restart-exited", OnPress: a.restartTerminal},
 		}})
 	}
@@ -1042,7 +1042,7 @@ func (a *app) rightTerminal(cx *core.Scope) core.Node {
 		body = append(body, core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
 			Children: []core.Node{
 				ui.Text("No terminal open", 12.5, ui.Regular, colors.Faint),
-				ui.Button{Text: "New terminal", Icon: lucide.Plus, Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+				ui.Button{Text: "New terminal", Icon: lucide.Plus, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 					TestID: "terminal-start", OnPress: a.newTerminal},
 			}})
 	default:
@@ -1085,7 +1085,7 @@ func (a *app) rightPreview(cx *core.Scope) core.Node {
 				core.Text{Content: server.URL, MaxLines: 1, Style: core.Style{FontSize: 10, FontFamily: "Menlo, monospace"},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 			}},
-			ui.Button{Text: "Open", Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+			ui.Button{Text: "Open", Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: controlSize(cx),
 				TestID:  fmt.Sprintf("preview-open-%d", server.Port),
 				OnPress: func() { a.openPreviewServer(server.URL) }},
 		}})
@@ -1148,7 +1148,7 @@ func (a *app) browserToolbar(cx *core.Scope) core.Node {
 		ui.IconButton{Icon: lucide.RefreshCw, Label: "Reload", TestID: "browser-reload", Size: 24, IconSize: 13,
 			OnPress: func() { a.browserRef.Reload() }},
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-			ui.Input{Input: base.Input{Value: a.browserInput.Get, OnChange: a.browserInput.Set,
+			mobileInput{Scope: cx, Input: base.Input{Value: a.browserInput.Get, OnChange: a.browserInput.Set,
 				Placeholder: "https://example.com", Label: "Address"}},
 		}},
 		ui.IconButton{Icon: lucide.ArrowRight, Label: "Go", TestID: "browser-go", Size: 24, IconSize: 13,
@@ -1163,7 +1163,7 @@ func (a *app) browserStart(cx *core.Scope) core.Node {
 	var quick []core.Node
 	for _, link := range links {
 		link := link
-		quick = append(quick, ui.Button{Text: link, Variant: ui.ButtonGhost, Size: ui.SizeSmall,
+		quick = append(quick, ui.Button{Text: link, Variant: ui.ButtonGhost, Size: controlSize(cx),
 			OnPress: func() { a.goBrowser(link) }})
 	}
 	return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
@@ -1256,7 +1256,7 @@ func (a *app) editMessageDialog(cx *core.Scope) core.Node {
 	}, Title: "Edit message", Description: "The thread branches before this message, then sends the edited prompt.", TestID: "edit-message-dialog",
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: []core.Node{
-				ui.Input{Input: base.Input{Multiline: true, Value: a.editDraft.Get, OnChange: a.editDraft.Set,
+				mobileInput{Scope: cx, Input: base.Input{Multiline: true, Value: a.editDraft.Get, OnChange: a.editDraft.Set,
 					Label: "Message", Placeholder: "Edit the prompt"}},
 				core.Text{Content: "The new thread copies the transcript before this message.", Style: core.Style{FontSize: 11},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},

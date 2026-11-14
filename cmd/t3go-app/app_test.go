@@ -2928,11 +2928,18 @@ func TestUIMobileDialogsFit(t *testing.T) {
 	if create.Origin.X < 0 || create.Origin.X+create.Size.Width > 390 {
 		t.Fatalf("create button overflows: %v", create)
 	}
+	if create.Size.Height < 32 {
+		t.Fatalf("create button is still using a dense touch size: %v", create)
+	}
 	if create.Origin.Y+create.Size.Height > 844-300 {
 		t.Fatalf("create button is covered by the keyboard: %v", create)
 	}
 	if dialog.Origin.Y+dialog.Size.Height > 844-300 {
 		t.Fatalf("new thread dialog is covered by the keyboard: %v", dialog)
+	}
+	threadTitle := app.Find("label:Thread title").Frame
+	if threadTitle.Size.Height < 44 {
+		t.Fatalf("thread title input is still using a dense touch size: %v", threadTitle)
 	}
 	app.Press("id:cancel-thread")
 	app.WaitForGone("id:new-thread-dialog", 5*time.Second)
@@ -3014,6 +3021,13 @@ func TestUIMobilePalette(t *testing.T) {
 	})
 	app.WaitFor("id:palette-close", 5*time.Second)
 	app.Press("id:palette-close")
+	app.WaitForGone("id:palette", 5*time.Second)
+
+	// The Android back action must dismiss the palette itself, even though
+	// its search field has opened the software keyboard.
+	app.Press("id:open-palette")
+	app.WaitFor("id:palette", 5*time.Second)
+	app.Back()
 	app.WaitForGone("id:palette", 5*time.Second)
 }
 

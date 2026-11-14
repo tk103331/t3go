@@ -150,7 +150,7 @@ func (a *app) planBanner(cx *core.Scope) core.Node {
 		core.Text{Content: "Plan ready — review it, then start implementing.", MaxLines: 2,
 			Style:     core.Style{FontSize: 11.5, FlexGrow: 1, FlexShrink: 1},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-		ui.Button{Text: "Implement", Icon: lucide.ClipboardCheck, Variant: ui.ButtonPrimary, Size: ui.SizeSmall,
+		ui.Button{Text: "Implement", Icon: lucide.ClipboardCheck, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 			TestID: "plan-implement", OnPress: a.approvePlan},
 	}}
 }
@@ -182,9 +182,9 @@ func (a *app) composerControls(cx *core.Scope) core.Node {
 	touch := ui.Touch(cx) && cx.Env().Window().Width < 520
 	var model core.Node = ui.Text(modelLabel, 10.5, ui.Regular, colors.Faint)
 	if len(modelItems) > 0 {
-		trigger := ui.Button{Text: modelLabel, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Model"}
+		trigger := ui.Button{Text: modelLabel, Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Model"}
 		if touch {
-			trigger = ui.Button{Icon: lucide.Cpu, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Model: " + modelLabel}
+			trigger = ui.Button{Icon: lucide.Cpu, Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Model: " + modelLabel}
 		}
 		model = ui.Menu{TestID: "composer-model", MaxHeight: 320, Trigger: trigger, Children: modelItems}
 	}
@@ -220,16 +220,16 @@ func (a *app) composerControls(cx *core.Scope) core.Node {
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
 			model,
 			ui.Menu{TestID: "composer-more", MaxHeight: 320,
-				Trigger:  ui.Button{Icon: lucide.SlidersHorizontal, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Composer options"},
+				Trigger:  ui.Button{Icon: lucide.SlidersHorizontal, Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Composer options"},
 				Children: more},
 		}}
 	}
 	children := []core.Node{
 		model,
 		ui.Menu{TestID: "composer-permission", MaxHeight: 240,
-			Trigger:  ui.Button{Text: string(thread.Permission), Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Permission"},
+			Trigger:  ui.Button{Text: string(thread.Permission), Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Permission"},
 			Children: permItems},
-		ui.Button{Text: "Plan", Variant: planVariant, Size: ui.SizeSmall, TestID: "composer-plan",
+		ui.Button{Text: "Plan", Variant: planVariant, Size: controlSize(cx), TestID: "composer-plan",
 			OnPress: func() { a.setThreadPlan(!thread.Plan) }},
 	}
 	if contextLabel != "" {
@@ -303,7 +303,7 @@ func (a *app) attachmentChips(cx *core.Scope) core.Node {
 		children := append(lead,
 			core.Text{Content: f.Name + " · " + humanSize(f.Size), MaxLines: 1, Style: core.Style{FontSize: 11.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-			ui.Button{Text: "×", Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Remove attachment",
+			ui.Button{Text: "×", Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Remove attachment",
 				TestID: "remove-attachment-" + f.ID, OnPress: func() { a.removeAttachment(f.ID) }},
 		)
 		rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
@@ -358,7 +358,7 @@ func (a *app) queuedBlock(cx *core.Scope) core.Node {
 				Padding: core.Symmetric(6, 10), Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{
 				ui.Text("Queued", 11, ui.Semibold, colors.Faint),
 				core.View{Style: core.Style{Direction: core.Column, Gap: 2, FlexGrow: 1, MinWidth: core.Pt(0)}, Children: lines},
-				ui.Button{Text: "×", Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Remove queued message",
+				ui.Button{Text: "×", Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Remove queued message",
 					TestID: fmt.Sprintf("queued-remove-%d", i), OnPress: func() { a.dropQueued(i) }},
 			}})
 		}
