@@ -19,6 +19,7 @@ type mobileComposer struct {
 	Label, Placeholder     string
 	Accessory, Attachments func(*core.Scope) core.Node
 	Controls               func(*core.Scope) core.Node
+	TrailingControls       func(*core.Scope) core.Node
 	HasAttachments         func() bool
 	OnPaste                func(core.PasteEvent)
 	OnDropFiles            func([]string)
@@ -102,12 +103,16 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 			},
 			Children: []core.Node{core.Func(m.Accessory)},
 		},
-		send,
 	}
+	if m.TrailingControls != nil {
+		row = append(row, core.Func(m.TrailingControls))
+	}
+	row = append(row, send)
 
 	var body []core.Node
 	if m.Controls != nil {
-		body = append(body, core.View{Style: core.Style{Padding: core.Edges{Left: 10, Right: 10, Bottom: 6}},
+		body = append(body, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
+			Padding: core.Edges{Left: 10, Right: 10, Bottom: 6}},
 			Children: []core.Node{core.Func(m.Controls)}})
 	}
 	if m.Attachments != nil {

@@ -104,10 +104,11 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 		composer = mobileComposer{
 			Draft: a.draft.Get, OnDraftChange: a.setDraft, OnPaste: a.pasteAttachments,
 			Label: "Message", Placeholder: "Ask the agent…", Accessory: accessory,
-			Controls:       func(cx *core.Scope) core.Node { return core.Dynamic(a.composerControls) },
-			Attachments:    func(cx *core.Scope) core.Node { return a.attachmentChips(cx) },
-			HasAttachments: func() bool { return len(a.attachments.Get()) > 0 },
-			OnDropFiles:    a.attachPaths, Running: a.running.Get, OnSend: a.send, OnStop: a.stop,
+			Controls:         func(cx *core.Scope) core.Node { return core.Dynamic(a.composerModelControl) },
+			TrailingControls: func(cx *core.Scope) core.Node { return core.Dynamic(a.composerTrailingControls) },
+			Attachments:      func(cx *core.Scope) core.Node { return a.attachmentChips(cx) },
+			HasAttachments:   func() bool { return len(a.attachments.Get()) > 0 },
+			OnDropFiles:      a.attachPaths, Running: a.running.Get, OnSend: a.send, OnStop: a.stop,
 			TestID: "composer-card",
 		}
 	} else {
@@ -169,8 +170,8 @@ func (a *app) planBanner(cx *core.Scope) core.Node {
 	}}
 }
 
-// composerControls are the thread's model and permission pickers.
-func (a *app) composerControls(cx *core.Scope) core.Node {
+// composerModelControl chooses the thread's model.
+func (a *app) composerModelControl(cx *core.Scope) core.Node {
 	thread := a.detail.Get().Thread
 	if thread.ID == "" {
 		return core.View{}
@@ -193,39 +194,69 @@ func (a *app) composerControls(cx *core.Scope) core.Node {
 			},
 			OnSelect: func() { a.setThreadModel(model) }})
 	}
-	touch := ui.Touch(cx) && cx.Env().Window().Width < 520
 	var model core.Node = ui.Text(modelLabel, 10.5, ui.Regular, colors.Faint)
-	if touch && len(modelItems) == 0 {
-		modelItems = append(modelItems, ui.MenuItem{Text: "No models detected. Refresh Providers in Settings.",
-			Disabled: func() bool { return true }})
-	}
 	if len(modelItems) > 0 {
-		// Phones place a visible model name on its own row above the input.
-		trigger := ui.Button{Text: modelLabel, Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Model"}
-		model = ui.Menu{TestID: "composer-model", MaxHeight: 320, Trigger: trigger, Children: modelItems,
-			Open: a.modelMenuOpen.Get,
+		model = ui.Menu{TestID: "composer-model", MaxHeight: 360,
+			Trigger: ui.Button{Text: modelLabel, Label: "Choose model: " + modelLabel, Flex: 1},
+			Face: core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
+				MinHeight: core.Pt(44), MinWidth: core.Pt(0), Gap: 8, Padding: core.Symmetric(0, 8)},
+				Children: []core.Node{
+					ui.Icon(lucide.Cpu, 20, colors.Muted),
+					core.Text{Content: modelLabel, TestID: "composer-model-name", MaxLines: 1,
+						Style:     core.Style{FontSize: 14, FlexShrink: 1, MinWidth: core.Pt(0)},
+						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+					ui.Icon(lucide.ChevronDown, 16, colors.Muted),
+				}},
+			Children: modelItems,
+			Open:     a.modelMenuOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) {
 				a.modelMenuGuard.change(open, a.modelMenuOpen.Set)
 			}}
-		if touch {
-			model = ui.Menu{TestID: "composer-model", MaxHeight: 360,
-				Trigger: ui.Button{Text: modelLabel, Label: "Choose model: " + modelLabel, Flex: 1},
-				Face: core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
-					MinHeight: core.Pt(44), MinWidth: core.Pt(0), Gap: 8, Padding: core.Symmetric(0, 8)},
-					Children: []core.Node{
-						ui.Icon(lucide.Cpu, 20, colors.Muted),
-						core.Text{Content: modelLabel, TestID: "composer-model-name", MaxLines: 1,
-							Style:     core.Style{FontSize: 14, FlexShrink: 1, MinWidth: core.Pt(0)},
-							StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-						ui.Icon(lucide.ChevronDown, 16, colors.Muted),
-					}},
-				Children: modelItems,
-				Open:     a.modelMenuOpen.Get,
-				OnOpenChange: func(open bool, _ base.Reason) {
-					a.modelMenuGuard.change(open, a.modelMenuOpen.Set)
-				}}
-		}
 	}
+	return model
+}
+
+// composerTrailingControls shows the phone composer's mode picker beside
+// its send button.
+func (a *app) composerTrailingControls(cx *core.Scope) core.Node {
+	thread := a.detail.Get().Thread
+	if thread.ID == "" {
+		return core.View{}
+	}
+	var permItems []core.Node
+	for _, permission := range []proto.PermissionMode{proto.PermissionSupervised, proto.PermissionAcceptEdits,
+		proto.PermissionAuto, proto.PermissionFullAccess} {
+		permission := permission
+		permItems = append(permItems, ui.MenuItem{Text: string(permission), TestID: "composer-perm-" + string(permission),
+			Checked:  func() bool { return a.detail.Get().Thread.Permission == permission },
+			OnSelect: func() { a.setThreadPermission(permission) }})
+	}
+	if ui.Touch(cx) && cx.Env().Window().Width < 520 {
+		var items []core.Node
+		items = append(items, ui.MenuItem{Text: "Permission", Disabled: func() bool { return true }})
+		items = append(items, permItems...)
+		items = append(items, ui.MenuItem{Text: "Plan mode", TestID: "composer-plan",
+			Checked:  func() bool { return a.detail.Get().Thread.Plan },
+			OnSelect: func() { a.setThreadPlan(!a.detail.Get().Thread.Plan) }})
+		return ui.Menu{TestID: "composer-more", MaxHeight: 320,
+			Trigger: ui.Button{Icon: lucide.SlidersHorizontal, Variant: ui.ButtonGhost, Side: 44, IconSize: 22,
+				Label: "Composer options"},
+			Children: items,
+			Open:     a.composerMenuOpen.Get,
+			OnOpenChange: func(open bool, _ base.Reason) {
+				a.composerMenuGuard.change(open, a.composerMenuOpen.Set)
+			}}
+	}
+	return core.View{}
+}
+
+// composerControls are the desktop thread's model and permission pickers.
+func (a *app) composerControls(cx *core.Scope) core.Node {
+	thread := a.detail.Get().Thread
+	if thread.ID == "" {
+		return core.View{}
+	}
+	colors := ui.ColorsOf(cx)
 	var permItems []core.Node
 	for _, permission := range []proto.PermissionMode{proto.PermissionSupervised, proto.PermissionAcceptEdits,
 		proto.PermissionAuto, proto.PermissionFullAccess} {
@@ -246,26 +277,7 @@ func (a *app) composerControls(cx *core.Scope) core.Node {
 		}
 		contextLabel = humanTokens(remaining) + " left"
 	}
-	if touch {
-		more := []core.Node{ui.MenuItem{Text: "Permission", Disabled: func() bool { return true }}}
-		more = append(more, permItems...)
-		more = append(more, ui.MenuItem{Text: "Plan mode", TestID: "composer-plan",
-			Checked:  func() bool { return a.detail.Get().Thread.Plan },
-			OnSelect: func() { a.setThreadPlan(!a.detail.Get().Thread.Plan) }})
-		if contextLabel != "" {
-			more = append(more, ui.MenuItem{Text: "Context · " + contextLabel, Disabled: func() bool { return true }})
-		}
-		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
-			model,
-			ui.Menu{TestID: "composer-more", MaxHeight: 320,
-				Trigger:  ui.Button{Icon: lucide.SlidersHorizontal, Variant: ui.ButtonGhost, Side: 44, IconSize: 22, Label: "Composer options"},
-				Children: more,
-				Open:     a.composerMenuOpen.Get,
-				OnOpenChange: func(open bool, _ base.Reason) {
-					a.composerMenuGuard.change(open, a.composerMenuOpen.Set)
-				}},
-		}}
-	}
+	model := core.Func(a.composerModelControl)
 	children := []core.Node{
 		model,
 		ui.Menu{TestID: "composer-permission", MaxHeight: 240,

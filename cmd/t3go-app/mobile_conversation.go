@@ -92,7 +92,7 @@ func (a *app) openMobileSurface(name string) {
 func (a *app) mobileSurfaceView(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{TestID: "mobile-surface", Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
-		Overflow: core.Hidden, PaddingEnv: core.EnvEdges{Bottom: core.EnvKeyboard}}, Children: []core.Node{
+		Height: core.Pct(100), Overflow: core.Hidden, PaddingEnv: core.EnvEdges{Bottom: core.EnvKeyboard}}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Padding: core.Symmetric(8, 12), Gap: 8}, Children: []core.Node{
 			ui.IconButton{Icon: lucide.ArrowLeft, Label: "Back to conversation", TestID: "mobile-surface-back", Size: 44,
 				OnPress: func() { a.mobileSurface.Set("") }},
@@ -101,6 +101,11 @@ func (a *app) mobileSurfaceView(cx *core.Scope) core.Node {
 			}),
 		}},
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Overflow: core.Hidden, CornerRadius: 24,
-			Background: colors.Surface()}, Children: []core.Node{core.Dynamic(a.rightBody)}},
+			Background: colors.Surface()}, Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
+			if a.mobileSurface.Get() == "diff" && compactSettings(cx) {
+				return a.mobileChangesView(cx)
+			}
+			return a.rightBody(cx)
+		})}},
 	}}
 }

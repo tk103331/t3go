@@ -660,7 +660,7 @@ func (a *app) dialogs(cx *core.Scope) core.Node {
 		core.Dynamic(a.editMessageDialog), core.Dynamic(a.newBranchDialog), core.Dynamic(a.branchesDialog),
 		core.Dynamic(a.promptArgsDialog), core.Dynamic(a.devicesDialog),
 		core.Dynamic(a.restoreDialog), core.Dynamic(a.dirsDialog), core.Dynamic(a.newDirDialog),
-		core.Dynamic(a.mobileNewThreadOptions),
+		core.Dynamic(a.mobileNewThreadOptions), core.Dynamic(a.mobileCommitDialog),
 	}
 	if a.manager == nil {
 		dialogs = append(dialogs, core.Dynamic(a.customModelDialog))

@@ -330,6 +330,54 @@ func TestUIMobileConversationSurfacesPreserveDraft(t *testing.T) {
 	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "Keep this draft" })
 }
 
+func TestUIMobileReviewAndCommitChanges(t *testing.T) {
+	alpha := newSettingsFixture(t, "Alpha")
+	app, _ := startMobilePages(t, alpha)
+	app.Press("id:thread-same-thread")
+	app.WaitFor("label:Message", 5*time.Second)
+	app.Press("id:branch-menu")
+	app.WaitFor("id:mobile-git-review", 5*time.Second)
+	app.Press("id:mobile-git-review")
+	app.WaitFor("id:mobile-changes", 5*time.Second)
+	app.WaitFor("id:code-diff", 5*time.Second)
+	app.WaitFor("text:README.md", 5*time.Second)
+	app.Press("id:mobile-commit-push")
+	app.WaitFor("id:mobile-commit-dialog", 5*time.Second)
+	app.WaitFor("id:mobile-commit-toggle-all", 5*time.Second)
+	app.Type("label:Commit message", "Update README")
+	app.Press("id:mobile-commit-confirm")
+	app.WaitFor("text:Committed 12345678", 5*time.Second)
+	app.WaitUntil(5*time.Second, func() bool { return !app.Exists("id:mobile-commit-dialog") })
+}
+
+func TestUIMobileFilePreviewScrolls(t *testing.T) {
+	alpha := newSettingsFixture(t, "Alpha")
+	app, _ := startMobilePages(t, alpha)
+	app.Press("id:thread-same-thread")
+	app.WaitFor("label:Message", 5*time.Second)
+	app.Press("id:mobile-open-files")
+	app.WaitFor("id:file-long.txt", 5*time.Second)
+	app.Press("id:file-long.txt")
+	app.WaitFor("id:file-content-scroll", 5*time.Second)
+	app.WaitFor("text:line 1", 5*time.Second)
+	app.WaitFor("text:line 200", 5*time.Second)
+	scroll := app.Find("id:file-content-scroll")
+	if scroll.Content.Height <= scroll.Frame.Size.Height {
+		t.Fatalf("file preview has no scrollable content: frame=%v content=%v", scroll.Frame, scroll.Content)
+	}
+	app.Resize(390, 844)
+	next := app.Find("id:file-content-scroll")
+	if next.Content.Height <= next.Frame.Size.Height {
+		t.Fatalf("file preview resized to its content: frame=%v content=%v", next.Frame, next.Content)
+	}
+	scroll = next
+	app.Scroll("id:file-content-scroll", 300)
+	app.Settle()
+	if after := app.Find("id:file-content-scroll").Offset; after.Y < 300 {
+		t.Fatalf("file preview did not scroll: before=%v after=%v", scroll.Offset, after)
+	}
+}
+
 func TestUIMobileVisibleModelAndSettingsNavigation(t *testing.T) {
 	alpha, beta := newSettingsFixture(t, "Alpha"), newSettingsFixture(t, "Beta")
 	app, _ := startMobilePages(t, alpha, beta)
@@ -347,10 +395,13 @@ func TestUIMobileVisibleModelAndSettingsNavigation(t *testing.T) {
 		app.SetEnvironment(core.Environment{OS: core.OSAndroid, Idiom: core.IdiomPhone, KeyboardHeight: 300,
 			SafeArea: core.Edges{Top: 24, Bottom: 16}})
 		picker := mobileScreenFrame(app.Find("id:composer-model"))
+		options := mobileScreenFrame(app.Find("id:composer-more"))
 		send := mobileScreenFrame(app.Find("id:composer-send"))
 		if picker.Size.Height < 44 || picker.Origin.X < 0 || picker.Origin.X+picker.Size.Width > width ||
+			options.Size.Width < 44 || options.Size.Height < 44 ||
+			options.Origin.Y != send.Origin.Y ||
 			send.Origin.Y+send.Size.Height > 844-300 {
-			t.Fatalf("picker or send button outside the phone/keyboard area: picker=%v send=%v", picker, send)
+			t.Fatalf("composer controls outside the phone/keyboard area: model=%v options=%v send=%v", picker, options, send)
 		}
 	}
 	app.Press("id:composer-model")

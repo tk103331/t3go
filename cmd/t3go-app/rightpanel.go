@@ -311,7 +311,7 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 				content = prettyFileJSON(content)
 			}
 			if language := codeLanguage(selected); language != "" && len(content) < 400_000 {
-				body = core.View{TestID: "file-code", Style: core.Style{FlexGrow: 1}, Children: []core.Node{
+				body = core.View{TestID: "file-code", Style: core.Style{FlexShrink: 0}, Children: []core.Node{
 					ui.TextView{Document: textview.Document{Blocks: []textview.Block{
 						textview.CodeBlock{Language: language, Code: strings.TrimSuffix(content, "\n")}}},
 						Selectable: true, Highlighter: tvhighlight.New(cx)},
@@ -323,10 +323,9 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 			}
 		}
 		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(10)}, Children: []core.Node{
-			head,
 			a.scrollWithBar(cx, a.filesScroll, "files-scrollbar", core.Scroll{TestID: "file-content-scroll",
-				Style: ui.FillRest, Children: []core.Node{core.View{Style: core.Style{FlexShrink: 0,
-					Padding: core.Edges{Right: 12, Bottom: 12}}, Children: []core.Node{body}}}}),
+				Style: core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), MinHeight: core.Pt(0)}, Children: []core.Node{core.View{Style: core.Style{FlexShrink: 0,
+					Padding: core.Edges{Right: 12, Bottom: 12}}, Children: []core.Node{head, body}}}}),
 		}}
 	}
 	path := a.filesPath.Get()

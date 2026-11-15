@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -34,9 +35,14 @@ func newSettingsFixture(t *testing.T, name string) *settingsFixture {
 	srv, _, cfg := startEnv(t)
 	f := &settingsFixture{server: srv, release: make(chan struct{}, 1)}
 	now := time.Now()
+	root := "/" + name + "/worktree"
+	lines := make([]string, 200)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %d", i+1)
+	}
 	p := proto.Project{ID: "same-project", Name: name + " project", Path: t.TempDir(), CreatedAt: now, UpdatedAt: now}
 	th := proto.Thread{ID: "same-thread", ProjectID: p.ID, Title: name + " thread", Provider: "claude", Model: "test",
-		Status: proto.ThreadIdle, Permission: proto.PermissionFullAccess, WorktreePath: "/" + name + "/worktree", CreatedAt: now, UpdatedAt: now}
+		Status: proto.ThreadIdle, Permission: proto.PermissionFullAccess, WorktreePath: root, CreatedAt: now, UpdatedAt: now}
 	if err := srv.Store.CreateProject(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +68,20 @@ func newSettingsFixture(t *testing.T, name string) *settingsFixture {
 			state.Providers = []proto.Provider{{ID: "claude", Name: name + " CLI", Installed: true,
 				CanAuthenticate: true, AuthStatus: "unauthenticated", LoginCommand: "test-login-" + name}}
 			state.Models = []proto.Model{{ID: name + "-model", Name: name + " model", Provider: "claude"}}
+			for i := range state.Threads {
+				state.Threads[i].WorktreePath = root
+			}
 			_ = json.NewEncoder(w).Encode(state)
+			return
+		case r.URL.Path == "/api/v1/environment":
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, r)
+			if rec.Code != http.StatusOK {
+				w.WriteHeader(rec.Code)
+				_, _ = w.Write(rec.Body.Bytes())
+				return
+			}
+			_, _ = w.Write(rec.Body.Bytes())
 			return
 		case r.URL.Path == "/api/v1/providers":
 			f.probes.Add(1)
@@ -89,6 +108,44 @@ func newSettingsFixture(t *testing.T, name string) *settingsFixture {
 				Totals:    proto.UsageTotals{Runs: 1, Tokens: tokens},
 				Providers: []proto.UsageProvider{{Provider: name, Tokens: tokens, Runs: 1}}})
 			return
+		case r.URL.Path == "/api/v1/threads/same-thread/working-diff":
+			_ = json.NewEncoder(w).Encode(proto.WorkingDiff{
+				Patch: "diff --git a/README.md b/README.md\n@@ -1 +1 @@\n-old\n+new\n",
+				Files: []proto.DiffFile{{Path: "README.md", Additions: 1, Deletions: 1}},
+			})
+			return
+		case r.URL.Path == "/api/v1/threads/same-thread/files" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"entries": []proto.WorkspaceEntry{{Name: "long.txt", Path: "long.txt"}},
+			})
+			return
+		case r.URL.Path == "/api/v1/threads/same-thread/file" && r.Method == http.MethodGet:
+			lines := make([]string, 200)
+			for i := range lines {
+				lines[i] = fmt.Sprintf("line %d", i+1)
+			}
+			_ = json.NewEncoder(w).Encode(proto.WorkspaceFile{
+				Path: "long.txt", Size: int64(len(strings.Join(lines, "\n"))), Content: strings.Join(lines, "\n"),
+			})
+			return
+		case r.URL.Path == "/api/v1/threads/same-thread/branches" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"branches": []proto.Branch{{Name: "main", Current: true}}})
+			return
+		case r.URL.Path == "/api/v1/threads/same-thread" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(proto.ThreadDetail{
+				Thread: th,
+				Git:    &proto.GitStatus{Repo: true, Root: "/Alpha/repo", Branch: "main", Dirty: true},
+			})
+			return
+		case r.URL.Path == "/api/v1/threads/same-thread/git" && r.Method == http.MethodPost:
+			if r.Header.Get("Authorization") == "" {
+				t.Error("git action was sent without credentials")
+			}
+			_ = json.NewEncoder(w).Encode(proto.GitActionResult{
+				Action: proto.GitCommitPush, Branch: "main", CommitSHA: "1234567890", Pushed: true,
+				Status: proto.GitStatus{Repo: true, Root: "/Alpha/repo", Branch: "main"},
+			})
+			return
 		case r.URL.Path == "/api/v1/settings" && r.Method == http.MethodPatch:
 			f.writes.Add(1)
 			if f.reject.Load() {
@@ -97,6 +154,11 @@ func newSettingsFixture(t *testing.T, name string) *settingsFixture {
 			}
 		case r.URL.Path == "/api/v1/threads/same-thread/terminal":
 			_ = json.NewEncoder(w).Encode(map[string]string{"id": "fake-terminal"})
+			return
+		case r.URL.Path == "/api/v1/threads/same-thread/terminals" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"sessions": []proto.TerminalSession{
+				{ID: "fake-terminal", ThreadID: "same-thread", Title: "Terminal 1"},
+			}})
 			return
 		case r.URL.Path == "/api/v1/threads/same-thread/terminals" && r.Method == http.MethodPost:
 			_ = json.NewEncoder(w).Encode(proto.TerminalSession{ID: "fake-terminal", ThreadID: "same-thread", Title: "Terminal 1"})
@@ -218,7 +280,13 @@ func TestUISettingsEnvironmentIsolation(t *testing.T) {
 	app.Press("id:settings-nav-about")
 	app.WaitFor("text:\""+beta.profile.Routes[0].URL+"\"", 5*time.Second)
 	// Inaccessible B cannot expose cached settings or send writes to healthy A.
-	app.Post(func() { manager.sessions[beta.profile.ID].transportBlocked.Set(true) })
+	betaSession := manager.sessions[beta.profile.ID]
+	app.Post(func() {
+		t.Logf("before: blocked=%v connected=%v offline=%v", betaSession.transportBlocked.GetUntracked(),
+			betaSession.connected.GetUntracked(), betaSession.offline.GetUntracked())
+		betaSession.transportBlocked.Set(true)
+		t.Logf("after: blocked=%v", betaSession.transportBlocked.GetUntracked())
+	})
 	app.Settle()
 	app.WaitFor("id:settings-target-token", 5*time.Second)
 	app.Press("id:settings-nav-general")

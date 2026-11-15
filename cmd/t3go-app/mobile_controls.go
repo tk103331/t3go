@@ -28,8 +28,9 @@ func iconButtonSize(cx *core.Scope) core.Points {
 // ui.Input is intentionally dense for desktop toolbars, while form fields on
 // Android need a larger hit target and a little more breathing room.
 type mobileInput struct {
-	Scope *core.Scope
-	Input base.Input
+	Scope  *core.Scope
+	Input  base.Input
+	TestID string
 }
 
 func (f mobileInput) Render(cx *core.Scope) core.Node {
@@ -39,6 +40,9 @@ func (f mobileInput) Render(cx *core.Scope) core.Node {
 
 	colors := ui.ColorsOf(cx)
 	in := f.Input
+	if f.TestID != "" {
+		in.TestID = f.TestID
+	}
 	focused := core.NewSignal(cx, false)
 	onFocus, onBlur := in.OnFocus, in.OnBlur
 	in.OnFocus = func() {

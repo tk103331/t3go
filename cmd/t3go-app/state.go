@@ -145,55 +145,59 @@ type app struct {
 	approvals        *core.Signal[[]proto.ApprovalRequest]
 
 	// dialogs
-	showNewProject       *core.Signal[bool]
-	showNewThread        *core.Signal[bool]
-	showSettings         *core.Signal[bool]
-	showPalette          *core.Signal[bool]
-	settingsDraft        *core.Signal[proto.Settings]
-	settingsTitle        *core.Signal[string]
-	settingsSection      *core.Signal[string]
-	settingsEnv          *core.Signal[string]
-	settingsVisited      map[*app]bool
-	settingsSaveBusy     *core.Signal[bool]
-	settingsSaveErr      *core.Signal[string]
-	mobilePage           *core.Signal[string]
-	mobileSettledClosed  *core.Signal[bool]
-	mobileSettingsDetail *core.Signal[string]
-	mobileSurface        *core.Signal[string]
-	mobileUsageEnv       *core.Signal[string]
-	mobileUsageMetric    *core.Signal[string]
-	mobileUsageDays      *core.Signal[int]
-	mobilePREnv          *core.Signal[string]
-	mobilePRState        *core.Signal[string]
-	mobilePRRows         *core.Signal[[]mobilePullRequest]
-	mobilePRBusy         *core.Signal[bool]
-	mobilePRErr          *core.Signal[string]
-	mobilePRSeq          int
-	newThreadEnv         *core.Signal[string]
-	newThreadPrompt      *core.Signal[string]
-	newThreadOptions     *core.Signal[bool]
-	newThreadVisited     map[*app]bool
-	showDiff             *core.Signal[bool]
-	showRuns             *core.Signal[bool]
-	pendingRestore       *core.Signal[string]
-	showRestore          *core.Signal[bool]
-	diffText             *core.Signal[string]
-	workingDiff          *core.Signal[string]
-	workingFiles         *core.Signal[[]proto.DiffFile]
-	diffSplit            *core.Signal[bool]
-	workingRef           *basediff.Ref
-	diffDiscard          *core.Signal[string]
-	editingMessage       *core.Signal[proto.Message]
-	editDraft            *core.Signal[string]
-	pullRequests         *core.Signal[[]proto.PullRequest]
-	prListDetail         *core.Signal[string]
-	prView               *core.Signal[proto.PullRequestDetail]
-	prViewNumber         *core.Signal[int]
-	prViewBusy           *core.Signal[bool]
-	prDeleteBranch       *core.Signal[bool]
-	prNote               *core.Signal[string]
-	showBranch           *core.Signal[bool]
-	showBranches         *core.Signal[bool]
+	showNewProject        *core.Signal[bool]
+	showNewThread         *core.Signal[bool]
+	showSettings          *core.Signal[bool]
+	showPalette           *core.Signal[bool]
+	settingsDraft         *core.Signal[proto.Settings]
+	settingsTitle         *core.Signal[string]
+	settingsSection       *core.Signal[string]
+	settingsEnv           *core.Signal[string]
+	settingsVisited       map[*app]bool
+	settingsSaveBusy      *core.Signal[bool]
+	settingsSaveErr       *core.Signal[string]
+	mobilePage            *core.Signal[string]
+	mobileSettledClosed   *core.Signal[bool]
+	mobileSettingsDetail  *core.Signal[string]
+	mobileSurface         *core.Signal[string]
+	mobileUsageEnv        *core.Signal[string]
+	mobileUsageMetric     *core.Signal[string]
+	mobileUsageDays       *core.Signal[int]
+	mobilePREnv           *core.Signal[string]
+	mobilePRState         *core.Signal[string]
+	mobilePRRows          *core.Signal[[]mobilePullRequest]
+	mobilePRBusy          *core.Signal[bool]
+	mobilePRErr           *core.Signal[string]
+	mobilePRSeq           int
+	newThreadEnv          *core.Signal[string]
+	newThreadPrompt       *core.Signal[string]
+	newThreadOptions      *core.Signal[bool]
+	newThreadVisited      map[*app]bool
+	showDiff              *core.Signal[bool]
+	mobileDiffMode        *core.Signal[string]
+	mobileCommitOpen      *core.Signal[bool]
+	mobileCommitNewBranch *core.Signal[bool]
+	mobileCommitFiles     *core.Signal[[]string]
+	showRuns              *core.Signal[bool]
+	pendingRestore        *core.Signal[string]
+	showRestore           *core.Signal[bool]
+	diffText              *core.Signal[string]
+	workingDiff           *core.Signal[string]
+	workingFiles          *core.Signal[[]proto.DiffFile]
+	diffSplit             *core.Signal[bool]
+	workingRef            *basediff.Ref
+	diffDiscard           *core.Signal[string]
+	editingMessage        *core.Signal[proto.Message]
+	editDraft             *core.Signal[string]
+	pullRequests          *core.Signal[[]proto.PullRequest]
+	prListDetail          *core.Signal[string]
+	prView                *core.Signal[proto.PullRequestDetail]
+	prViewNumber          *core.Signal[int]
+	prViewBusy            *core.Signal[bool]
+	prDeleteBranch        *core.Signal[bool]
+	prNote                *core.Signal[string]
+	showBranch            *core.Signal[bool]
+	showBranches          *core.Signal[bool]
 	// The conversation's menus keep their open state in the app, not in
 	// the view tree: a message arriving or a connection changing rebuilds
 	// the header, and a menu that lived in it would close under the
@@ -397,41 +401,45 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		expanded:         core.NewSignalFunc(cx, map[string]bool{}, func(map[string]bool, map[string]bool) bool { return false }),
 		approvals:        sliceSignal[proto.ApprovalRequest](cx),
 
-		showNewProject:       core.NewSignal(cx, false),
-		showNewThread:        core.NewSignal(cx, false),
-		showSettings:         core.NewSignal(cx, false),
-		showPalette:          core.NewSignal(cx, false),
-		settingsDraft:        core.NewSignal(cx, proto.DefaultSettings()),
-		settingsTitle:        core.NewSignal(cx, ""),
-		settingsSection:      core.NewSignal(cx, "general"),
-		settingsEnv:          core.NewSignal(cx, profile.ID),
-		settingsSaveBusy:     core.NewSignal(cx, false),
-		settingsSaveErr:      core.NewSignal(cx, ""),
-		mobilePage:           core.NewSignal(cx, "threads"),
-		mobileSettledClosed:  core.NewSignal(cx, false),
-		mobileSettingsDetail: core.NewSignal(cx, ""),
-		mobileSurface:        core.NewSignal(cx, ""),
-		mobileUsageEnv:       core.NewSignal(cx, ""),
-		mobileUsageMetric:    core.NewSignal(cx, "cost"),
-		mobileUsageDays:      core.NewSignal(cx, 30),
-		mobilePREnv:          core.NewSignal(cx, ""),
-		mobilePRState:        core.NewSignal(cx, "OPEN"),
-		mobilePRRows:         sliceSignal[mobilePullRequest](cx),
-		mobilePRBusy:         core.NewSignal(cx, false),
-		mobilePRErr:          core.NewSignal(cx, ""),
-		newThreadEnv:         core.NewSignal(cx, profile.ID),
-		newThreadPrompt:      core.NewSignal(cx, ""),
-		newThreadOptions:     core.NewSignal(cx, false),
-		showDiff:             core.NewSignal(cx, false),
-		showRuns:             core.NewSignal(cx, false),
-		pendingRestore:       core.NewSignal(cx, ""),
-		showRestore:          core.NewSignal(cx, false),
-		diffText:             core.NewSignal(cx, ""),
-		workingDiff:          core.NewSignal(cx, ""),
-		workingFiles:         sliceSignal[proto.DiffFile](cx),
-		diffSplit:            core.NewSignal(cx, false),
-		workingRef:           &basediff.Ref{},
-		diffDiscard:          core.NewSignal(cx, ""),
+		showNewProject:        core.NewSignal(cx, false),
+		showNewThread:         core.NewSignal(cx, false),
+		showSettings:          core.NewSignal(cx, false),
+		showPalette:           core.NewSignal(cx, false),
+		settingsDraft:         core.NewSignal(cx, proto.DefaultSettings()),
+		settingsTitle:         core.NewSignal(cx, ""),
+		settingsSection:       core.NewSignal(cx, "general"),
+		settingsEnv:           core.NewSignal(cx, profile.ID),
+		settingsSaveBusy:      core.NewSignal(cx, false),
+		settingsSaveErr:       core.NewSignal(cx, ""),
+		mobilePage:            core.NewSignal(cx, "threads"),
+		mobileSettledClosed:   core.NewSignal(cx, false),
+		mobileSettingsDetail:  core.NewSignal(cx, ""),
+		mobileSurface:         core.NewSignal(cx, ""),
+		mobileUsageEnv:        core.NewSignal(cx, ""),
+		mobileUsageMetric:     core.NewSignal(cx, "cost"),
+		mobileUsageDays:       core.NewSignal(cx, 30),
+		mobilePREnv:           core.NewSignal(cx, ""),
+		mobilePRState:         core.NewSignal(cx, "OPEN"),
+		mobilePRRows:          sliceSignal[mobilePullRequest](cx),
+		mobilePRBusy:          core.NewSignal(cx, false),
+		mobilePRErr:           core.NewSignal(cx, ""),
+		newThreadEnv:          core.NewSignal(cx, profile.ID),
+		newThreadPrompt:       core.NewSignal(cx, ""),
+		newThreadOptions:      core.NewSignal(cx, false),
+		showDiff:              core.NewSignal(cx, false),
+		mobileDiffMode:        core.NewSignal(cx, "review"),
+		mobileCommitOpen:      core.NewSignal(cx, false),
+		mobileCommitNewBranch: core.NewSignal(cx, false),
+		mobileCommitFiles:     sliceSignal[string](cx),
+		showRuns:              core.NewSignal(cx, false),
+		pendingRestore:        core.NewSignal(cx, ""),
+		showRestore:           core.NewSignal(cx, false),
+		diffText:              core.NewSignal(cx, ""),
+		workingDiff:           core.NewSignal(cx, ""),
+		workingFiles:          sliceSignal[proto.DiffFile](cx),
+		diffSplit:             core.NewSignal(cx, false),
+		workingRef:            &basediff.Ref{},
+		diffDiscard:           core.NewSignal(cx, ""),
 		editingMessage: core.NewSignalFunc(cx, proto.Message{}, func(a, b proto.Message) bool {
 			return a.ID == b.ID
 		}),
@@ -2323,6 +2331,106 @@ func (a *app) runGitAction(action proto.GitAction) {
 			if action == proto.GitCommitPR {
 				a.loadPullRequest(id)
 			}
+		})
+	}()
+}
+
+func (a *app) openMobileCommit(newBranch bool) {
+	files := a.workingFiles.GetUntracked()
+	selected := make([]string, 0, len(files))
+	for _, file := range files {
+		selected = append(selected, file.Path)
+	}
+	a.mobileCommitFiles.Set(selected)
+	a.mobileCommitNewBranch.Set(newBranch)
+	a.mobileCommitOpen.Set(true)
+	if id := a.selected.GetUntracked(); id != "" {
+		a.loadWorkingDiff(id)
+	}
+}
+
+func (a *app) toggleMobileCommitFile(path string) {
+	files := a.mobileCommitFiles.GetUntracked()
+	for i, item := range files {
+		if item == path {
+			a.mobileCommitFiles.Set(append(files[:i:i], files[i+1:]...))
+			return
+		}
+	}
+	a.mobileCommitFiles.Set(append(files, path))
+}
+
+func (a *app) setAllMobileCommitFiles(selectAll bool) {
+	files := a.workingFiles.GetUntracked()
+	selected := make([]string, 0, len(files))
+	if selectAll {
+		for _, file := range files {
+			selected = append(selected, file.Path)
+		}
+	}
+	a.mobileCommitFiles.Set(selected)
+}
+
+func (a *app) confirmMobileCommit() {
+	id := a.selected.GetUntracked()
+	if id == "" || a.gitBusy.GetUntracked() {
+		return
+	}
+	branch := strings.TrimSpace(a.branchName.GetUntracked())
+	if a.mobileCommitNewBranch.GetUntracked() && branch == "" {
+		return
+	}
+	a.gitBusy.Set(true)
+	a.gitNote.Set("Working…")
+	a.gitPR.Set("")
+	go func() {
+		ctx, cancel := context.WithTimeout(a.lifetime, 2*time.Minute)
+		defer cancel()
+		if a.mobileCommitNewBranch.GetUntracked() {
+			if _, err := a.client().CreateBranch(ctx, id, branch); err != nil {
+				a.cx.Post(func() {
+					a.gitBusy.Set(false)
+					a.gitNote.Set(friendlyError(err))
+				})
+				return
+			}
+		}
+		res, err := a.client().GitAction(ctx, id, proto.GitActionInput{
+			Action:  proto.GitCommitPush,
+			Message: strings.TrimSpace(a.gitMessage.GetUntracked()),
+			Files:   a.mobileCommitFiles.GetUntracked(),
+		})
+		a.cx.Post(func() {
+			a.gitBusy.Set(false)
+			if err != nil {
+				a.gitNote.Set(friendlyError(err))
+				return
+			}
+			a.mobileCommitOpen.Set(false)
+			a.mobileCommitNewBranch.Set(false)
+			a.branchName.Set("")
+			a.gitMessage.Set("")
+			if d := a.detail.GetUntracked(); d.Thread.ID == id {
+				st := res.Status
+				d.Git = &st
+				a.detail.Set(d)
+			}
+			var parts []string
+			if res.CommitSHA != "" {
+				parts = append(parts, "Committed "+shortID(res.CommitSHA))
+			}
+			if res.NoChanges {
+				parts = append(parts, "No changes to commit")
+			}
+			if res.Pushed {
+				parts = append(parts, "Pushed "+res.Branch)
+			}
+			if len(parts) == 0 {
+				parts = append(parts, "Done")
+			}
+			a.gitNote.Set(strings.Join(parts, " · "))
+			a.loadDetail(id)
+			a.loadWorkingDiff(id)
 		})
 	}()
 }
