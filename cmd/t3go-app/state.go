@@ -68,8 +68,11 @@ type app struct {
 	providers *core.Signal[[]proto.Provider]
 	models    *core.Signal[[]proto.Model]
 	// customModels are model ids the environment's CLIs accept but do not list.
-	customModels *core.Signal[map[string][]proto.Model]
-	settings     *core.Signal[proto.Settings]
+	customModels  *core.Signal[map[string][]proto.Model]
+	settings      *core.Signal[proto.Settings]
+	providersBusy *core.Signal[bool]
+	providersErr  *core.Signal[string]
+	providersSeq  int
 
 	showArchived        *core.Signal[bool]
 	showCustomModel     *core.Signal[bool]
@@ -107,6 +110,7 @@ type app struct {
 	usageDays   *core.Signal[int]
 	usageBusy   *core.Signal[bool]
 	usageErr    *core.Signal[string]
+	usageSeq    int
 
 	// local preview servers
 	previewServers *core.Signal[[]proto.PreviewServer]
@@ -141,47 +145,52 @@ type app struct {
 	approvals        *core.Signal[[]proto.ApprovalRequest]
 
 	// dialogs
-	showNewProject  *core.Signal[bool]
-	showNewThread   *core.Signal[bool]
-	showSettings    *core.Signal[bool]
-	showPalette     *core.Signal[bool]
-	settingsDraft   *core.Signal[proto.Settings]
-	settingsTitle   *core.Signal[string]
-	settingsSection *core.Signal[string]
-	showDiff        *core.Signal[bool]
-	showRuns        *core.Signal[bool]
-	pendingRestore  *core.Signal[string]
-	showRestore     *core.Signal[bool]
-	diffText        *core.Signal[string]
-	workingDiff     *core.Signal[string]
-	workingFiles    *core.Signal[[]proto.DiffFile]
-	diffSplit       *core.Signal[bool]
-	workingRef      *basediff.Ref
-	diffDiscard     *core.Signal[string]
-	editingMessage  *core.Signal[proto.Message]
-	editDraft       *core.Signal[string]
-	pullRequests    *core.Signal[[]proto.PullRequest]
-	prListDetail    *core.Signal[string]
-	prView          *core.Signal[proto.PullRequestDetail]
-	prViewNumber    *core.Signal[int]
-	prViewBusy      *core.Signal[bool]
-	prDeleteBranch  *core.Signal[bool]
-	prNote          *core.Signal[string]
-	showBranch      *core.Signal[bool]
-	showBranches    *core.Signal[bool]
-	branchName      *core.Signal[string]
-	promptName      *core.Signal[string]
-	promptArgValues *core.Signal[promptArgsState]
-	showPromptArgs  *core.Signal[bool]
-	promptArgsDefs  []proto.AgentCommandArgument
-	gitMessage      *core.Signal[string]
-	gitBusy         *core.Signal[bool]
-	gitNote         *core.Signal[string]
-	gitPR           *core.Signal[string]
-	branches        *core.Signal[[]proto.Branch]
-	pendingDelete   *core.Signal[itemTarget]
-	pendingRename   *core.Signal[itemTarget]
-	renameName      *core.Signal[string]
+	showNewProject   *core.Signal[bool]
+	showNewThread    *core.Signal[bool]
+	showSettings     *core.Signal[bool]
+	showPalette      *core.Signal[bool]
+	settingsDraft    *core.Signal[proto.Settings]
+	settingsTitle    *core.Signal[string]
+	settingsSection  *core.Signal[string]
+	settingsEnv      *core.Signal[string]
+	settingsVisited  map[*app]bool
+	settingsSaveBusy *core.Signal[bool]
+	settingsSaveErr  *core.Signal[string]
+	mobilePage       *core.Signal[string]
+	showDiff         *core.Signal[bool]
+	showRuns         *core.Signal[bool]
+	pendingRestore   *core.Signal[string]
+	showRestore      *core.Signal[bool]
+	diffText         *core.Signal[string]
+	workingDiff      *core.Signal[string]
+	workingFiles     *core.Signal[[]proto.DiffFile]
+	diffSplit        *core.Signal[bool]
+	workingRef       *basediff.Ref
+	diffDiscard      *core.Signal[string]
+	editingMessage   *core.Signal[proto.Message]
+	editDraft        *core.Signal[string]
+	pullRequests     *core.Signal[[]proto.PullRequest]
+	prListDetail     *core.Signal[string]
+	prView           *core.Signal[proto.PullRequestDetail]
+	prViewNumber     *core.Signal[int]
+	prViewBusy       *core.Signal[bool]
+	prDeleteBranch   *core.Signal[bool]
+	prNote           *core.Signal[string]
+	showBranch       *core.Signal[bool]
+	showBranches     *core.Signal[bool]
+	branchName       *core.Signal[string]
+	promptName       *core.Signal[string]
+	promptArgValues  *core.Signal[promptArgsState]
+	showPromptArgs   *core.Signal[bool]
+	promptArgsDefs   []proto.AgentCommandArgument
+	gitMessage       *core.Signal[string]
+	gitBusy          *core.Signal[bool]
+	gitNote          *core.Signal[string]
+	gitPR            *core.Signal[string]
+	branches         *core.Signal[[]proto.Branch]
+	pendingDelete    *core.Signal[itemTarget]
+	pendingRename    *core.Signal[itemTarget]
+	renameName       *core.Signal[string]
 
 	newProjectName   *core.Signal[string]
 	newProjectPath   *core.Signal[string]
@@ -301,12 +310,14 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		offline:    core.NewSignal(cx, false),
 		connErr:    core.NewSignal(cx, ""),
 
-		projects:     sliceSignal[proto.Project](cx),
-		threads:      sliceSignal[proto.Thread](cx),
-		providers:    sliceSignal[proto.Provider](cx),
-		models:       sliceSignal[proto.Model](cx),
-		customModels: core.NewSignalFunc(cx, map[string][]proto.Model{}, func(map[string][]proto.Model, map[string][]proto.Model) bool { return false }),
-		settings:     core.NewSignal(cx, proto.DefaultSettings()),
+		projects:      sliceSignal[proto.Project](cx),
+		threads:       sliceSignal[proto.Thread](cx),
+		providers:     sliceSignal[proto.Provider](cx),
+		models:        sliceSignal[proto.Model](cx),
+		customModels:  core.NewSignalFunc(cx, map[string][]proto.Model{}, func(map[string][]proto.Model, map[string][]proto.Model) bool { return false }),
+		settings:      core.NewSignal(cx, proto.DefaultSettings()),
+		providersBusy: core.NewSignal(cx, false),
+		providersErr:  core.NewSignal(cx, ""),
 
 		showArchived:        core.NewSignal(cx, false),
 		showCustomModel:     core.NewSignal(cx, false),
@@ -360,23 +371,27 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		expanded:         core.NewSignalFunc(cx, map[string]bool{}, func(map[string]bool, map[string]bool) bool { return false }),
 		approvals:        sliceSignal[proto.ApprovalRequest](cx),
 
-		showNewProject:  core.NewSignal(cx, false),
-		showNewThread:   core.NewSignal(cx, false),
-		showSettings:    core.NewSignal(cx, false),
-		showPalette:     core.NewSignal(cx, false),
-		settingsDraft:   core.NewSignal(cx, proto.DefaultSettings()),
-		settingsTitle:   core.NewSignal(cx, ""),
-		settingsSection: core.NewSignal(cx, "general"),
-		showDiff:        core.NewSignal(cx, false),
-		showRuns:        core.NewSignal(cx, false),
-		pendingRestore:  core.NewSignal(cx, ""),
-		showRestore:     core.NewSignal(cx, false),
-		diffText:        core.NewSignal(cx, ""),
-		workingDiff:     core.NewSignal(cx, ""),
-		workingFiles:    sliceSignal[proto.DiffFile](cx),
-		diffSplit:       core.NewSignal(cx, false),
-		workingRef:      &basediff.Ref{},
-		diffDiscard:     core.NewSignal(cx, ""),
+		showNewProject:   core.NewSignal(cx, false),
+		showNewThread:    core.NewSignal(cx, false),
+		showSettings:     core.NewSignal(cx, false),
+		showPalette:      core.NewSignal(cx, false),
+		settingsDraft:    core.NewSignal(cx, proto.DefaultSettings()),
+		settingsTitle:    core.NewSignal(cx, ""),
+		settingsSection:  core.NewSignal(cx, "general"),
+		settingsEnv:      core.NewSignal(cx, profile.ID),
+		settingsSaveBusy: core.NewSignal(cx, false),
+		settingsSaveErr:  core.NewSignal(cx, ""),
+		mobilePage:       core.NewSignal(cx, "threads"),
+		showDiff:         core.NewSignal(cx, false),
+		showRuns:         core.NewSignal(cx, false),
+		pendingRestore:   core.NewSignal(cx, ""),
+		showRestore:      core.NewSignal(cx, false),
+		diffText:         core.NewSignal(cx, ""),
+		workingDiff:      core.NewSignal(cx, ""),
+		workingFiles:     sliceSignal[proto.DiffFile](cx),
+		diffSplit:        core.NewSignal(cx, false),
+		workingRef:       &basediff.Ref{},
+		diffDiscard:      core.NewSignal(cx, ""),
 		editingMessage: core.NewSignalFunc(cx, proto.Message{}, func(a, b proto.Message) bool {
 			return a.ID == b.ID
 		}),
@@ -487,9 +502,6 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 	}
 	if raw, ok := a.store.GetItem("rightOpen"); ok {
 		a.rightOpen.Set(raw != "false")
-	}
-	if raw, ok := a.store.GetItem("editorChoice"); ok && strings.TrimSpace(raw) != "" {
-		a.editorChoice.Set(strings.TrimSpace(raw))
 	}
 	a.restoreEnvironmentData()
 	if raw, ok := a.store.GetItem("rightWidth"); ok {
@@ -641,6 +653,9 @@ func (a *app) finishConnection(c *client.Client, st proto.State, wasConnected bo
 	a.serverURL.Set(c.BaseURL)
 	a.token.Set(c.Token)
 	a.applyState(st)
+	if !wasConnected {
+		a.beginSettingsDraft()
+	}
 	a.transportBlocked.Set(false)
 	a.showCredentials.Set(false)
 	a.credentialToken.Set("")
@@ -1243,19 +1258,34 @@ func (a *app) removeCustomModel(provider, id string) {
 
 // refreshProviders re-probes the agent CLIs, after a sign-in for example.
 func (a *app) refreshProviders() {
+	if !a.settingsConnectionReady() {
+		a.providersErr.Set("Connect this environment before detecting its providers.")
+		return
+	}
+	a.providersSeq++
+	seq := a.providersSeq
+	a.providersBusy.Set(true)
+	a.providersErr.Set("")
 	a.call(func(ctx context.Context, c *client.Client) error {
 		providers, models, err := c.Providers(ctx)
 		if err != nil {
 			return err
 		}
 		a.cx.Post(func() {
+			if seq != a.providersSeq {
+				return
+			}
 			a.providers.Set(providers)
 			a.models.Set(models)
 		})
 		return nil
 	}, func(err error) {
+		if seq != a.providersSeq {
+			return
+		}
+		a.providersBusy.Set(false)
 		if err != nil {
-			a.connErr.Set(friendlyError(err))
+			a.providersErr.Set(friendlyError(err))
 		}
 	})
 }
@@ -3213,6 +3243,13 @@ func (a *app) loadUsage(days int) {
 		days = 30
 	}
 	a.usageDays.Set(days)
+	a.usageSeq++
+	seq := a.usageSeq
+	if !a.settingsConnectionReady() {
+		a.usageBusy.Set(false)
+		a.usageErr.Set("Connect this environment before loading its usage.")
+		return
+	}
 	a.usageBusy.Set(true)
 	a.usageErr.Set("")
 	a.call(func(ctx context.Context, c *client.Client) error {
@@ -3221,11 +3258,17 @@ func (a *app) loadUsage(days int) {
 			return err
 		}
 		a.cx.Post(func() {
+			if seq != a.usageSeq {
+				return
+			}
 			a.usageReport.Set(report)
 			a.usageBusy.Set(false)
 		})
 		return nil
 	}, func(err error) {
+		if seq != a.usageSeq {
+			return
+		}
 		a.usageBusy.Set(false)
 		if err != nil {
 			a.usageErr.Set(friendlyError(err))
@@ -4033,6 +4076,7 @@ func (a *app) openPalette() {
 }
 
 func (a *app) closePalette() {
+	a.searchSeq++
 	if a.searchTimer != nil {
 		a.searchTimer()
 		a.searchTimer = nil
@@ -4047,13 +4091,13 @@ func (a *app) searchMessages(query string) {
 		a.searchTimer = nil
 	}
 	query = strings.TrimSpace(query)
+	a.searchSeq++
 	a.searchErr.Set("")
 	if len(query) < 2 {
 		a.searchHits.Set(nil)
 		a.searchBusy.Set(false)
 		return
 	}
-	a.searchSeq++
 	seq := a.searchSeq
 	a.searchTimer = a.cx.AfterFunc(250*time.Millisecond, func() {
 		a.searchTimer = nil
@@ -4100,7 +4144,11 @@ func (a *app) runCommand(id string) {
 		a.setSidebarOpen(!a.sidebarOpen.GetUntracked())
 	case strings.HasPrefix(id, "thread:"):
 		if threadID := strings.TrimPrefix(id, "thread:"); threadID != "" {
-			a.selectThread(threadID)
+			if strings.Contains(threadID, "/") {
+				a.selectSidebarThread(threadID)
+			} else {
+				a.selectThread(threadID)
+			}
 		}
 	case strings.HasPrefix(id, "message:"):
 		parts := strings.SplitN(strings.TrimPrefix(id, "message:"), ":", 2)
@@ -4113,10 +4161,6 @@ func (a *app) runCommand(id string) {
 // commandItems are the palette's rows: the app's actions, then the
 // environment's threads.
 func (a *app) commandItems() []base.CommandItem {
-	projects := make(map[string]string, len(a.projects.Get()))
-	for _, p := range a.projects.Get() {
-		projects[p.ID] = p.Name
-	}
 	items := []base.CommandItem{
 		{ID: "new-thread", Label: "New thread", Group: "Actions", Keywords: []string{"create", "start"}, Shortcut: "mod+n"},
 		{ID: "new-project", Label: "New project", Group: "Actions", Keywords: []string{"create", "add", "folder"}, Shortcut: "mod+shift+n"},
@@ -4125,14 +4169,31 @@ func (a *app) commandItems() []base.CommandItem {
 		{ID: "toggle-sidebar", Label: "Toggle sidebar", Group: "View", Keywords: []string{"panel"}, Shortcut: "mod+b"},
 	}
 	showArchived := a.showArchived.Get()
-	for _, t := range a.threads.Get() {
-		if t.Archived && !showArchived {
-			continue
+	sessions := []*app{a}
+	if a.manager != nil {
+		_ = a.manager.revision.Get()
+		sessions = nil
+		for _, p := range a.manager.profiles.Get() {
+			if session := a.manager.sessions[p.ID]; session != nil {
+				sessions = append(sessions, session)
+			}
 		}
-		items = append(items, base.CommandItem{
-			ID: "thread:" + t.ID, Label: t.Title, Description: projects[t.ProjectID], Group: "Threads",
-			Keywords: []string{projects[t.ProjectID], t.Provider},
-		})
+	}
+	for _, session := range sessions {
+		projects := map[string]string{}
+		for _, p := range session.projects.Get() {
+			projects[p.ID] = p.Name
+		}
+		for _, t := range session.threads.Get() {
+			if t.Archived && !showArchived {
+				continue
+			}
+			items = append(items, base.CommandItem{
+				ID: "thread:" + session.threadKey(t.ID), Label: t.Title,
+				Description: projects[t.ProjectID] + " · " + session.envName(), Group: "Threads",
+				Keywords: []string{projects[t.ProjectID], t.Provider, session.envName()},
+			})
+		}
 	}
 	for _, hit := range a.searchHits.Get() {
 		items = append(items, base.CommandItem{
@@ -4148,36 +4209,29 @@ func (a *app) commandItems() []base.CommandItem {
 func (a *app) setSettingsSection(name string) {
 	a.settingsSection.Set(name)
 	_ = a.store.SetItem("settingsSection", name)
-	if name == "usage" {
-		a.loadUsage(a.usageDays.GetUntracked())
-	}
+	a.loadSettingsSection(name)
 }
 
 // openSettings starts a draft from the environment's settings, so closing
 // the dialog keeps what was typed out of the saved values.
 func (a *app) openSettings() {
-	a.connErr.Set("")
-	s := a.settings.GetUntracked()
-	a.settingsDraft.Set(s)
-	// The name has its own signal: a field follows it without rebuilding
-	// the rest of the dialog on every keystroke.
-	a.settingsTitle.Set(s.Title)
-	a.showSettings.Set(true)
-	if a.settingsSection.GetUntracked() == "usage" {
-		a.loadUsage(a.usageDays.GetUntracked())
+	if a.settingsSaveBusy.GetUntracked() {
+		return
 	}
+	a.connErr.Set("")
+	a.settingsSaveErr.Set("")
+	a.settingsEnv.Set(a.profile.ID)
+	a.settingsVisited = map[*app]bool{a: true}
+	a.beginSettingsDraft()
+	a.showSettings.Set(true)
+	a.loadSettingsSection(a.settingsSection.GetUntracked())
 }
 
 func (a *app) closeSettings() {
+	if a.settingsSaveBusy.GetUntracked() {
+		return
+	}
 	a.showSettings.Set(false)
-}
-
-// saveSettingsDraft writes the dialog's draft, name included, into the
-// environment.
-func (a *app) saveSettingsDraft() {
-	s := a.settingsDraft.GetUntracked()
-	s.Title = a.settingsTitle.GetUntracked()
-	a.saveSettings(s)
 }
 
 // applyAppearance follows the environment's theme and accent.

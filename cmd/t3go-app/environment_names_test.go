@@ -116,6 +116,12 @@ func TestUIDefaultEnvironmentNamesStayConsistent(t *testing.T) {
 				nsgotest.Storage(map[string]string{"environments:v1": workspaceRegistry(pa, pb)}))
 			names := []string{strings.TrimPrefix(ta.URL, "http://"), strings.TrimPrefix(tb.URL, "http://")}
 			app.WaitFor("id:thread-"+pb.ID+"/"+thread.ID, 10*time.Second)
+			if width < 760 {
+				app.WaitUntil(5*time.Second, func() bool {
+					return app.Find("id:mobile-thread-environment-"+pb.ID+"/"+thread.ID).Text == names[1]
+				})
+				app.Press("id:mobile-tab-projects")
+			}
 			app.WaitUntil(5*time.Second, func() bool {
 				return app.Find("id:environment-status-"+pa.ID).Text == "Direct" &&
 					app.Find("id:environment-status-"+pb.ID).Text == "Relay"

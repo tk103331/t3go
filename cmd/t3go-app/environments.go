@@ -32,7 +32,7 @@ type environmentStorage struct {
 func scopedKey(key string) bool {
 	switch key {
 	case "serverUrl", "token", "customModels", "attachmentDrafts", "drafts", "pinnedThreads",
-		"sidebarCollapsed", "selectedThread", "pendingMessages":
+		"sidebarCollapsed", "selectedThread", "pendingMessages", "editorChoice":
 		return true
 	}
 	return false
@@ -92,6 +92,17 @@ func storedValue[T any](store appStorage, key string, fallback T) T {
 // Load data again when a connection screen adopts an already saved identity,
 // so adding another route cannot replace its existing drafts with empty maps.
 func (a *app) restoreEnvironmentData() {
+	a.editorChoice.Set("auto")
+	if editor, ok := a.store.GetItem("editorChoice"); ok && strings.TrimSpace(editor) != "" {
+		a.editorChoice.Set(strings.TrimSpace(editor))
+	} else if a.manager != nil {
+		// Import the old shared preference once; subsequent changes belong
+		// only to this machine, where the editor is actually launched.
+		if editor, ok := a.manager.store.GetItem("editorChoice"); ok && strings.TrimSpace(editor) != "" {
+			a.editorChoice.Set(strings.TrimSpace(editor))
+			_ = a.store.SetItem("editorChoice", strings.TrimSpace(editor))
+		}
+	}
 	a.customModels.Set(storedValue(a.store, "customModels", map[string][]proto.Model{}))
 	a.attachmentDrafts.Set(storedValue(a.store, "attachmentDrafts", map[string][]proto.Attachment{}))
 	a.drafts.Set(storedValue(a.store, "drafts", map[string]string{}))
@@ -413,7 +424,7 @@ func (a *app) adoptEnvironment(p client.EnvironmentProfile, c *client.Client, st
 		// Copy only this session's execution-specific values when adopting
 		// a stable identity; do not import another environment's global data.
 		if old != p.ID {
-			for _, key := range []string{"customModels", "attachmentDrafts", "drafts", "pinnedThreads", "sidebarCollapsed", "selectedThread", "pendingMessages"} {
+			for _, key := range []string{"customModels", "attachmentDrafts", "drafts", "pinnedThreads", "sidebarCollapsed", "selectedThread", "pendingMessages", "editorChoice"} {
 				if value, ok := a.store.GetItem(key); ok {
 					if _, exists := newStore.base.GetItem(newStore.key(key)); !exists {
 						if err := newStore.SetItem(key, value); err != nil {
@@ -428,7 +439,7 @@ func (a *app) adoptEnvironment(p client.EnvironmentProfile, c *client.Client, st
 		if old != p.ID {
 			a.restoreEnvironmentData()
 			if scratch, ok := previousStore.(environmentStorage); ok && scratch.id == "pending" {
-				for _, key := range []string{"customModels", "attachmentDrafts", "drafts", "pinnedThreads", "sidebarCollapsed", "selectedThread", "pendingMessages"} {
+				for _, key := range []string{"customModels", "attachmentDrafts", "drafts", "pinnedThreads", "sidebarCollapsed", "selectedThread", "pendingMessages", "editorChoice"} {
 					scratch.base.RemoveItem(scratch.key(key))
 				}
 			}

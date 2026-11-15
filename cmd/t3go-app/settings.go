@@ -66,27 +66,7 @@ func (a *app) settingsBody(cx *core.Scope) core.Node {
 					}},
 			}})
 	}
-	var page core.Node
-	switch section {
-	case "environments":
-		if a.manager != nil {
-			page = a.environmentManagement(cx)
-		} else {
-			page = ui.Text("Connect an environment to manage its routes.", 12, ui.Regular, colors.Muted)
-		}
-	case "providers":
-		page = a.settingsProviders(cx)
-	case "usage":
-		page = a.settingsUsage(cx)
-	case "worktrees":
-		page = a.settingsWorktrees(cx)
-	case "shortcuts":
-		page = a.settingsShortcuts(cx)
-	case "about":
-		page = a.settingsAbout(cx)
-	default:
-		page = a.settingsGeneral(cx)
-	}
+	page := core.Dynamic(a.settingsPage)
 	if compactSettings(cx) {
 		var chips []core.Node
 		for _, item := range settingsNav {
@@ -129,7 +109,7 @@ func settingsSectionTitle(cx *core.Scope, title, detail string) core.Node {
 }
 
 // settingsProviders shows each agent CLI's state and models.
-func (a *app) settingsProviders(cx *core.Scope) core.Node {
+func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 	colors := ui.ColorsOf(cx)
 	providers := a.providers.Get()
 	models := a.allModels()
@@ -211,24 +191,29 @@ func (a *app) settingsProviders(cx *core.Scope) core.Node {
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 			actions = append(actions, ui.Button{Text: "Install", Icon: lucide.Download, Variant: ui.ButtonSecondary,
 				Size: controlSize(cx), TestID: "settings-install-" + provider.ID,
-				OnPress: func() { a.runProviderCommand(provider.InstallCommand) }})
+				OnPress: func() { owner.runSettingsProviderCommand(a, provider.InstallCommand) }})
 		}
 		if provider.Installed && provider.CanAuthenticate && provider.AuthStatus != "authenticated" && provider.LoginCommand != "" {
 			actions = append(actions, ui.Button{Text: "Sign in", Icon: lucide.LogIn, Variant: ui.ButtonSecondary,
 				Size: controlSize(cx), TestID: "settings-login-" + provider.ID,
-				OnPress: func() { a.runProviderCommand(provider.LoginCommand) }})
+				OnPress: func() { owner.runSettingsProviderCommand(a, provider.LoginCommand) }})
 		}
 		actions = append(actions, ui.Button{Text: "Add model", Icon: lucide.Plus, Variant: ui.ButtonGhost, Size: controlSize(cx),
 			TestID: "settings-add-model-" + provider.ID, OnPress: func() { a.openCustomModelDialog(provider.ID) }})
 		body = append(body, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4,
 			Padding: core.Edges{Top: 2}}, Children: actions})
-		cards = append(cards, core.View{Style: core.Style{Direction: core.Column, Gap: 5, Padding: core.Symmetric(8, 10),
+		cards = append(cards, core.View{TestID: "settings-provider-card-" + provider.ID, Style: core.Style{Direction: core.Column, Gap: 5, Padding: core.Symmetric(8, 10),
 			Background: colors.Inset(), CornerRadius: 8}, Children: body})
 	}
 	refresh := ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: controlSize(cx),
-		TestID: "settings-refresh-providers", OnPress: a.refreshProviders}
+		TestID: "settings-refresh-providers", OnPress: a.refreshProviders, Disabled: a.providersBusy.Get}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: []core.Node{
 		settingsSectionTitle(cx, "Providers", "Agent CLIs T3Go can run. Install a CLI and keep it on PATH to use it."),
+		core.Show{When: a.providersBusy.Get, Then: func(*core.Scope) core.Node {
+			return ui.Spinner{Size: 14, Label: "Detecting providers on " + a.envName()}
+		}},
+		core.Text{Content: a.providersErr.Get(), TestID: "settings-providers-error", MaxLines: 3,
+			Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter}, Children: []core.Node{
 			ui.Text(fmt.Sprintf("%d providers · %d models", len(providers), len(models)), 11.5, ui.Regular, colors.Faint),
 			ui.Spacer{}, refresh,
@@ -394,12 +379,12 @@ func (a *app) settingsShortcuts(cx *core.Scope) core.Node {
 }
 
 // settingsAbout describes the environment this window is connected to.
-func (a *app) settingsAbout(cx *core.Scope) core.Node {
+func (a *app) settingsAbout(cx *core.Scope, manage func()) core.Node {
 	colors := ui.ColorsOf(cx)
 	rows := []core.Node{
 		a.aboutRow(cx, "Server", a.serverURL.Get()),
 		a.aboutRow(cx, "Protocol", fmt.Sprintf("v%d", proto.ProtocolVersion)),
-		a.aboutRow(cx, "Environment", a.settings.Get().Title),
+		a.aboutRow(cx, "Environment", a.envName()),
 	}
 	if a.offline.Get() {
 		rows = append(rows, ui.Text("The event stream is reconnecting.", 11.5, ui.Regular, colors.Danger))
@@ -412,7 +397,7 @@ func (a *app) settingsAbout(cx *core.Scope) core.Node {
 	}
 	if a.manager != nil {
 		body = append(body, ui.Button{Text: "Manage environments", Variant: ui.ButtonGhost, Size: controlSize(cx),
-			TestID: "settings-manage-environments", OnPress: func() { a.setSettingsSection("environments") }})
+			TestID: "settings-manage-environments", OnPress: manage})
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: body}
 }

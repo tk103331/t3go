@@ -61,7 +61,8 @@ func (manager *environmentManager) view(cx *core.Scope) core.Node {
 			}
 			return ids
 		}, func(id string) string { return id }, func(_ *core.Scope, item func() string, _ func() int) core.Node {
-			return core.Func(manager.sessions[item()].credentialsDialog)
+			session := manager.sessions[item()]
+			return core.Group{core.Func(session.credentialsDialog), core.Dynamic(session.customModelDialog)}
 		}),
 		core.Dynamic(manager.addEnvironmentDialog),
 	}
@@ -594,7 +595,6 @@ func plural(n int, singular, multiple string) string {
 // narrowView is the phone layout: a list of threads, or the open thread
 // with a way back to the list.
 func (a *app) narrowView(cx *core.Scope) core.Node {
-	colors := ui.ColorsOf(cx)
 	if a.selected.Get() != "" {
 		return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Overflow: core.Hidden},
 			Children: []core.Node{
@@ -611,27 +611,24 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 				core.View{Style: ui.FillRest, Children: []core.Node{a.threadPane(cx)}},
 			}}
 	}
-	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Direction: core.Column,
-		Overflow: core.Hidden}, Children: []core.Node{
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexShrink: 0,
-			Padding: core.Symmetric(8, 12), Gap: 8}, Children: []core.Node{
-			ui.Text("T3Go", 16, ui.Bold, colors.Text), ui.Spacer{},
-		}},
-		core.View{Style: ui.FillRest, Children: []core.Node{core.Dynamic(a.sidebar)}},
-	}}
+	return a.mobileHome(cx)
 }
 
 func (a *app) dialogs(cx *core.Scope) core.Node {
 	// Each modal owns its subscriptions. Keyboard/layout changes in one dialog
 	// must not dispose a focused field in another one.
-	return core.Group{
+	dialogs := core.Group{
 		core.Dynamic(a.newProjectDialog), core.Dynamic(a.newThreadDialog), core.Dynamic(a.settingsDialog),
 		core.Dynamic(a.diffDialog), core.Dynamic(a.runsDialog), core.Dynamic(a.renameDialog), core.Dynamic(a.deleteDialog),
 		core.Dynamic(a.paletteDialog), core.Dynamic(a.approvalDialog), core.Dynamic(a.discardDialog),
 		core.Dynamic(a.editMessageDialog), core.Dynamic(a.newBranchDialog), core.Dynamic(a.branchesDialog),
-		core.Dynamic(a.promptArgsDialog), core.Dynamic(a.devicesDialog), core.Dynamic(a.customModelDialog),
+		core.Dynamic(a.promptArgsDialog), core.Dynamic(a.devicesDialog),
 		core.Dynamic(a.restoreDialog), core.Dynamic(a.dirsDialog), core.Dynamic(a.newDirDialog),
 	}
+	if a.manager == nil {
+		dialogs = append(dialogs, core.Dynamic(a.customModelDialog))
+	}
+	return dialogs
 }
 
 // approvalDialog asks about the first tool call a supervised run is
@@ -911,10 +908,14 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 		Title: "Settings", Description: "Manage environments and workspace preferences.",
 		TestID: "settings-dialog", Style: settingsDialogStyle(cx), Children: []core.Node{core.Dynamic(a.settingsBody)},
 		Footer: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
-			if a.settingsSection.Get() == "environments" {
+			if a.settingsSection.Get() != "general" {
 				return ui.Button{Text: "Close", Variant: ui.ButtonGhost, TestID: "settings-close", OnPress: a.closeSettings}
 			}
-			return core.View{Style: core.Style{Direction: core.Row, Gap: 8, Width: core.Pct(100)}, Children: settingsFooter(cx, a)}
+			target := a.settingsTarget()
+			if target == nil || !target.settingsConnectionReady() {
+				return ui.Button{Text: "Close", Variant: ui.ButtonGhost, TestID: "settings-close", OnPress: a.closeSettings}
+			}
+			return core.View{Style: core.Style{Direction: core.Row, Gap: 8, Width: core.Pct(100)}, Children: settingsFooter(cx, a, target)}
 		})}}
 }
 
@@ -938,25 +939,21 @@ func dialogWidth(cx *core.Scope, width core.Points) core.Style {
 }
 
 // settingsFooter saves only the current environment's preference draft.
-func settingsFooter(cx *core.Scope, a *app) []core.Node {
+func settingsFooter(cx *core.Scope, a, target *app) []core.Node {
+	save := ui.Button{Text: "Save", Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "settings-save",
+		Disabled: a.settingsSaveBusy.Get, OnPress: func() { a.saveTargetSettings(target) }}
 	if compactSettings(cx) {
 		return []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
 			Gap: 8, Width: core.Pct(100)}, Children: []core.Node{
-			ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: a.closeSettings},
+			ui.Button{Text: "Close", Variant: ui.ButtonGhost, TestID: "settings-close", OnPress: a.closeSettings},
 			ui.Spacer{},
-			ui.Button{Text: "Save", Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "settings-save", OnPress: func() {
-				a.closeSettings()
-				a.saveSettingsDraft()
-			}},
+			save,
 		}}}
 	}
 	return []core.Node{
 		ui.Spacer{},
-		ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: a.closeSettings},
-		ui.Button{Text: "Save", Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "settings-save", OnPress: func() {
-			a.closeSettings()
-			a.saveSettingsDraft()
-		}},
+		ui.Button{Text: "Close", Variant: ui.ButtonGhost, TestID: "settings-close", OnPress: a.closeSettings},
+		save,
 	}
 }
 
@@ -1217,6 +1214,7 @@ func (a *app) customModelDialog(cx *core.Scope) core.Node {
 	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showCustomModel.Get, OnOpenChange: closeDialog(a.showCustomModel),
 		Title: "Add model to " + provider, Description: "Use the model id the CLI expects.",
 		TestID: "custom-model-dialog", Style: dialogWidth(cx, 520), Children: []core.Node{
+			a.environmentContext(cx, "custom-model-environment"),
 			mobileInput{Scope: cx, Input: base.Input{Value: a.customModelID.Get, OnChange: a.customModelID.Set,
 				Placeholder: "model-id", Label: "Model id", TestID: "custom-model-id"}},
 			mobileInput{Scope: cx, Input: base.Input{Value: a.customModelName.Get, OnChange: a.customModelName.Set,
