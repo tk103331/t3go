@@ -115,11 +115,21 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 	row := []core.Node{
 		core.View{
 			Style: core.Style{
-				Direction: core.Row, FlexGrow: 1, FlexShrink: 1,
+				Direction: core.Row, FlexShrink: 1,
 				MinWidth: core.Pt(0), AlignItems: core.AlignCenter, Gap: 4,
 			},
 			Children: []core.Node{core.Func(m.Accessory)},
 		},
+	}
+	if m.Controls != nil {
+		row = append(row, core.View{
+			TestID: "composer-controls",
+			Style: core.Style{
+				Direction: core.Row, FlexGrow: 1, FlexShrink: 1,
+				MinWidth: core.Pt(0), AlignItems: core.AlignCenter,
+			},
+			Children: []core.Node{core.Func(m.Controls)},
+		})
 	}
 	if m.TrailingControls != nil {
 		row = append(row, core.Func(m.TrailingControls))
@@ -143,13 +153,9 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 			},
 		})
 	}
-	if m.Controls != nil {
-		body = append(body, editor, core.View{Style: core.Style{Direction: core.Row, MinWidth: core.Pt(0),
-			AlignItems: core.AlignCenter}, Children: []core.Node{core.Func(m.Controls)}})
-	} else {
-		body = append(body, editor)
-	}
+	body = append(body, editor)
 	body = append(body, core.View{
+		TestID: "composer-actions",
 		Style: core.Style{
 			Direction: core.Row, MinWidth: core.Pt(0),
 			Margin: core.Edges{Top: 8}, Padding: core.Symmetric(0, 10),

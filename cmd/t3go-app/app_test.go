@@ -2881,8 +2881,12 @@ func TestUIMobileComposerStaysVisible(t *testing.T) {
 	if focused.Frame.Size.Height < 66 {
 		t.Fatalf("focused composer is not three lines: %v", focused.Frame)
 	}
-	app.Find("id:composer-card >> id:composer-model")
-	app.Find("id:composer-card >> id:composer-send")
+	actions := app.Find("id:composer-actions")
+	if actions.Frame.Origin.Y < focused.Frame.Origin.Y+focused.Frame.Size.Height {
+		t.Fatalf("composer actions are not below the input: actions=%v input=%v", actions.Frame, focused.Frame)
+	}
+	app.Find("id:composer-actions >> id:composer-model")
+	app.Find("id:composer-actions >> id:composer-send")
 }
 
 // TestUIMobileSettings fits settings into a phone-sized window.
