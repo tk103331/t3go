@@ -186,8 +186,7 @@ func TestUINewProjectUsesSelectedEnvironment(t *testing.T) {
 				return manager.view(cx)
 			}, nsgotest.Size(width, 844), nsgotest.Storage(map[string]string{"environments:v1": workspaceRegistry(pa, pb)}))
 			if width < 760 {
-				app.WaitFor("id:mobile-tab-projects", 10*time.Second)
-				app.Press("id:mobile-tab-projects")
+				openMobileProjects(app)
 			}
 			app.WaitFor("id:project-"+pa.ID+"/same-project", 10*time.Second)
 			app.WaitFor("id:project-"+pb.ID+"/same-project", 10*time.Second)

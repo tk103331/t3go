@@ -22,6 +22,7 @@ type mobileComposer struct {
 	OnPaste                func(core.PasteEvent)
 	OnDropFiles            func([]string)
 	Running                func() bool
+	Disabled               func() bool
 	OnSend, OnStop         func()
 	TestID                 string
 }
@@ -38,7 +39,7 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 	height := core.NewSignal(cx, core.Points(20))
 
 	editor := base.Input{
-		Value: draft, OnChange: m.OnDraftChange, Multiline: true,
+		Value: draft, OnChange: m.OnDraftChange, Multiline: true, Disabled: m.Disabled,
 		SubmitBehavior: core.SubmitBehaviorNewline, Label: m.Label,
 		Placeholder: m.Placeholder, TestID: "composer", OnPaste: m.OnPaste,
 		OnFocus: func() { focused.Set(true) },
@@ -54,7 +55,7 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 		},
 		Style: core.Style{
 			Padding:   core.Edges{Top: 2, Right: 14, Left: 14},
-			MinHeight: core.Pt(40), FontSize: 13.5, LineHeight: 20,
+			MinHeight: core.Pt(44), FontSize: 16, LineHeight: 22,
 			TextAlignVertical: core.TextAlignVerticalTop,
 		},
 		StyleFunc: func() core.Style {
@@ -79,7 +80,7 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 			}
 			return "Send"
 		},
-		Variant: ui.IconButtonPrimary, Size: 36, IconSize: 18, TestID: "composer-send",
+		Variant: ui.IconButtonPrimary, Size: 44, IconSize: 22, TestID: "composer-send", Disabled: m.Disabled,
 		OnPress: func() {
 			if m.Running != nil && m.Running() && strings.TrimSpace(draft()) == "" {
 				if m.OnStop != nil {
@@ -132,7 +133,7 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 	card := core.View{
 		Style: core.Style{
 			MinWidth: core.Pt(0), Padding: core.Symmetric(10, 0),
-			CornerRadius: 13, BorderWidth: 1,
+			CornerRadius: 24, BorderWidth: 1,
 		},
 		StyleFunc: func() core.Style {
 			border := colors.Border()

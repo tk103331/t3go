@@ -2907,12 +2907,12 @@ func TestUIMobileSettings(t *testing.T) {
 	})
 	app.Press("id:settings-nav-general")
 	app.WaitFor("id:settings-editor-auto", 5*time.Second)
-	save := app.Find("id:settings-save")
-	if save.Frame.Origin.X < 0 || save.Frame.Origin.X+save.Frame.Size.Width > 390 ||
-		save.Frame.Origin.Y+save.Frame.Size.Height > 844 {
-		t.Fatalf("save is outside the phone window: %v dialog=%v nav=%v", save.Frame,
-			app.Find("id:settings-dialog").Frame, app.Find("id:settings-nav-general").Frame)
+	save := mobileScreenFrame(app.Find("id:settings-save"))
+	if save.Origin.X < 0 || save.Origin.X+save.Size.Width > 390 ||
+		save.Origin.Y+save.Size.Height > 844-16 || save.Size.Height < 32 {
+		t.Fatalf("save is too small or outside the phone window: %v", save)
 	}
+	app.Press("id:mobile-settings-back")
 	app.Press("id:settings-nav-about")
 	app.WaitFor("id:settings-manage-environments", 5*time.Second)
 	app.Press("id:settings-manage-environments")
@@ -2937,19 +2937,20 @@ func TestUIMobileDialogsFit(t *testing.T) {
 			"token":     cfg.Token,
 		}))
 	app.WaitFor("id:new-thread", 15*time.Second)
-	app.WaitUntil(10*time.Second, func() bool {
-		if app.Exists("id:new-thread-dialog") {
-			return true
-		}
-		app.Press("id:new-thread")
-		app.Settle()
-		return app.Exists("id:new-thread-dialog")
-	})
-	dialog := app.Find("id:new-thread-dialog").Frame
+	app.Press("id:new-thread")
+	app.WaitFor("id:new-thread-page", 5*time.Second)
+	app.Type("label:New thread message", "Draft above the keyboard")
+	send := mobileScreenFrame(app.Find("id:composer-send"))
+	if send.Origin.Y+send.Size.Height > 844-300 || send.Size.Height < 44 {
+		t.Fatalf("new thread send is covered by the keyboard or too small: %v", send)
+	}
+	app.Press("id:new-thread-options")
+	app.WaitFor("id:new-thread-dialog", 5*time.Second)
+	dialog := mobileScreenFrame(app.Find("id:new-thread-dialog"))
 	if dialog.Origin.X < 0 || dialog.Origin.X+dialog.Size.Width > 390 {
 		t.Fatalf("new thread dialog overflows: %v", dialog)
 	}
-	create := app.Find("id:create-thread").Frame
+	create := mobileScreenFrame(app.Find("id:create-thread"))
 	if create.Origin.X < 0 || create.Origin.X+create.Size.Width > 390 {
 		t.Fatalf("create button overflows: %v", create)
 	}
@@ -2966,8 +2967,10 @@ func TestUIMobileDialogsFit(t *testing.T) {
 	if threadTitle.Size.Height < 44 {
 		t.Fatalf("thread title input is still using a dense touch size: %v", threadTitle)
 	}
+	app.Press("id:new-thread-options-done")
+	waitSheetGone(app, "id:new-thread-dialog")
 	app.Press("id:cancel-thread")
-	app.WaitForGone("id:new-thread-dialog", 5*time.Second)
+	app.WaitForGone("id:new-thread-page", 5*time.Second)
 
 	app.WaitUntil(10*time.Second, func() bool {
 		if app.Exists("id:new-project-dialog") {

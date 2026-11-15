@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"hash/fnv"
 	"sort"
 	"strings"
@@ -21,7 +22,7 @@ type mobileThread struct {
 }
 
 // Phone threads form one inbox across machines. Project grouping remains
-// available under Projects & Git, along with all existing project actions.
+// available under Projects, along with all existing project actions.
 func (a *app) mobileThreads() []mobileThread {
 	sessions := []*app{a}
 	if a.manager != nil {
@@ -64,32 +65,21 @@ func (a *app) mobileHome(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{TestID: "mobile-home", Style: core.Style{FlexGrow: 1, FlexShrink: 1,
 		MinHeight: core.Pt(0), Overflow: core.Hidden, Gap: 8}, Children: []core.Node{
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
-			FlexShrink: 0, Padding: core.Symmetric(10, 14), Gap: 4}, Children: []core.Node{
-			brandWordmark(cx, 26), ui.Spacer{},
-			ui.IconButton{Icon: lucide.FolderPlus, Label: "New project", Size: 44, IconSize: 23,
-				TestID: "new-project", OnPress: a.openNewProject},
-			ui.IconButton{Icon: lucide.Search, Label: "Search", Size: 44, IconSize: 24,
-				TestID: "open-palette", OnPress: a.openPalette},
-			core.Dynamic(func(cx *core.Scope) core.Node {
-				return ui.Menu{TestID: "mobile-filter",
-					Trigger: ui.Button{Icon: lucide.ListFilter, Label: "Filter threads", Side: 44, IconSize: 24, Variant: ui.ButtonGhost},
-					Children: []core.Node{
-						ui.MenuItem{Text: a.archivedLabel(), Icon: lucide.Archive, TestID: "toggle-archived", OnSelect: a.toggleShowArchived},
-						ui.MenuItem{Text: "Manage environments", Icon: lucide.Network, OnSelect: func() {
-							a.openSettings()
-							a.setSettingsSection("environments")
-						}},
-					}}
-			}),
-		}},
+		core.Dynamic(a.mobileHeader),
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Overflow: core.Hidden,
 			CornerRadius: 24, Background: colors.Surface()}, Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
-				if a.mobilePage.Get() == "projects" {
+				switch a.mobilePage.Get() {
+				case "settings":
+					return a.mobileSettings(cx)
+				case "usage":
+					return core.Func(a.mobileUsage)
+				case "prs":
+					return core.Func(a.mobilePullRequests)
+				case "projects":
 					return core.View{Style: ui.FillRest, Children: []core.Node{
 						core.View{Style: core.Style{Padding: core.Symmetric(10, 18)}, Children: []core.Node{
-							ui.Text("Projects & Git", 18, ui.Semibold, colors.Text),
+							ui.Text("Projects", 18, ui.Semibold, colors.Text),
 						}},
 						core.Dynamic(a.sidebarProjects),
 					}}
@@ -98,7 +88,75 @@ func (a *app) mobileHome(cx *core.Scope) core.Node {
 					Children: []core.Node{core.Dynamic(a.mobileThreadList)}}
 			}),
 		}},
-		a.mobileNavigation(cx),
+		core.Dynamic(a.mobileNavigation),
+	}}
+}
+
+func (a *app) mobileHeader(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	page := a.mobilePage.Get()
+	var title core.Node = brandWordmark(cx, 26)
+	switch page {
+	case "settings":
+		name := "Settings"
+		if detail := a.mobileSettingsDetail.Get(); detail != "" {
+			for _, item := range settingsNav {
+				if item.ID == detail {
+					name = item.Label
+				}
+			}
+		}
+		title = ui.Text(name, 24, ui.Medium, colors.Text)
+	case "usage":
+		title = ui.Text("Usage", 24, ui.Medium, colors.Text)
+	case "projects":
+		title = ui.Text("Projects", 24, ui.Medium, colors.Text)
+	}
+	var children []core.Node
+	if page == "settings" && a.mobileSettingsDetail.Get() != "" {
+		children = append(children, ui.IconButton{Icon: lucide.ChevronLeft, Label: "Back to settings", Size: 44,
+			TestID: "mobile-settings-back", OnPress: func() { a.mobileSettingsDetail.Set("") }})
+	}
+	children = append(children, title, ui.Spacer{})
+	if page == "threads" || page == "projects" {
+		children = append(children,
+			ui.IconButton{Icon: lucide.FolderPlus, Label: "New project", Size: 44, IconSize: 23,
+				TestID: "new-project", OnPress: a.openNewProject})
+	} else if page == "prs" {
+		children = append(children, ui.IconButton{Icon: lucide.Folder, Label: "Projects", Size: 44, IconSize: 24,
+			TestID: "mobile-tab-projects", OnPress: func() { a.mobilePage.Set("projects") }})
+	}
+	if page != "usage" {
+		children = append(children,
+			ui.IconButton{Icon: lucide.Search, Label: "Search", Size: 44, IconSize: 24,
+				TestID: "open-palette", OnPress: a.openPalette})
+	}
+	var filter core.Node
+	if page == "usage" {
+		filter = a.mobileEnvironmentMenu(cx, a.mobileUsageEnv, "usage-environment", func() { a.loadMobileUsage() }, true)
+	} else if page == "prs" {
+		filter = ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh pull requests", Size: 44, IconSize: 24,
+			TestID: "mobile-pr-refresh", Disabled: a.mobilePRBusy.Get, OnPress: a.loadMobilePullRequests}
+	} else if page != "settings" {
+		filter = core.Dynamic(func(cx *core.Scope) core.Node {
+			return ui.Menu{TestID: "mobile-filter",
+				Trigger: ui.Button{Icon: lucide.ListFilter, Label: "Filter threads", Side: 44, IconSize: 24, Variant: ui.ButtonGhost},
+				Children: []core.Node{
+					ui.MenuItem{Text: a.archivedLabel(), Icon: lucide.Archive, TestID: "toggle-archived", OnSelect: a.toggleShowArchived},
+					ui.MenuItem{Text: "Projects", Icon: lucide.Folder, TestID: "mobile-tab-projects",
+						OnSelect: func() { a.mobilePage.Set("projects") }},
+					ui.MenuItem{Text: "Manage environments", Icon: lucide.Network, OnSelect: func() {
+						a.openSettings()
+						a.openMobileSettingsSection("environments")
+					}},
+				}}
+		})
+	}
+	children = append(children, filter)
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
+		FlexShrink: 0, Padding: core.Symmetric(10, 14), Gap: 4}, Children: []core.Node{
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexGrow: 1, MinWidth: core.Pt(0), Gap: 4},
+			Children: children},
 	}}
 }
 
@@ -130,11 +188,32 @@ func (a *app) mobileThreadList(cx *core.Scope) core.Node {
 		if len(group.rows) == 0 {
 			continue
 		}
-		children = append(children, core.View{TestID: "mobile-group-" + strings.ToLower(group.title),
+		var heading core.Node = core.View{TestID: "mobile-group-" + strings.ToLower(group.title),
 			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10,
 				Padding: core.Edges{Top: 16, Right: 18, Bottom: 6, Left: 18}},
 			Children: []core.Node{ui.Text(group.title, 12, ui.Medium, colors.Muted),
-				core.View{Style: core.Style{Height: core.Pt(1), FlexGrow: 1, Background: colors.Border()}}}})
+				core.View{Style: core.Style{Height: core.Pt(1), FlexGrow: 1, Background: colors.Border()}}}}
+		if group.title == "Settled" {
+			icon := lucide.ChevronDown
+			if !a.mobileSettledClosed.Get() {
+				icon = lucide.ChevronUp
+			}
+			heading = base.Button{Label: "Toggle settled threads", TestID: "mobile-group-settled",
+				Expanded: func() bool { return !a.mobileSettledClosed.Get() },
+				OnPress: func(core.PressEvent) {
+					a.mobileSettledClosed.Set(!a.mobileSettledClosed.GetUntracked())
+				},
+				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, MinHeight: core.Pt(44),
+					Padding: core.Symmetric(8, 18)}, Children: []core.Node{
+					ui.Text(fmt.Sprintf("Settled (%d)", len(group.rows)), 12, ui.Medium, colors.Muted),
+					core.View{Style: core.Style{Height: core.Pt(1), FlexGrow: 1, Background: colors.Border()}},
+					ui.Icon(icon, 14, colors.Muted),
+				}}
+		}
+		children = append(children, heading)
+		if group.title == "Settled" && a.mobileSettledClosed.Get() {
+			continue
+		}
 		children = append(children, group.rows...)
 	}
 	if len(rows) == 0 {
@@ -145,7 +224,7 @@ func (a *app) mobileThreadList(cx *core.Scope) core.Node {
 		children = append(children, core.View{Style: core.Style{Padding: core.All(24), Gap: 10}, Children: []core.Node{
 			ui.Text("Your conversations", 18, ui.Semibold, colors.Text),
 			ui.Text(message, 14, ui.Regular, colors.Muted),
-			ui.Button{Text: "Projects & Git", Icon: lucide.FolderOpen, Variant: ui.ButtonSecondary,
+			ui.Button{Text: "Projects", Icon: lucide.FolderOpen, Variant: ui.ButtonSecondary,
 				OnPress: func() { a.mobilePage.Set("projects") }},
 		}})
 	}
@@ -259,24 +338,25 @@ func (a *app) mobileNavigation(cx *core.Scope) core.Node {
 				return core.Style{Selected: &core.Style{Background: ui.Alpha(colors.Text(), 0.1)}, Focus: ui.FocusRing(cx, -2)}
 			}, Children: []core.Node{ui.Icon(icon, 24, colors.Text)}}
 	}
+	children := []core.Node{
+		core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, MinWidth: core.Pt(0), Padding: core.All(4),
+			CornerRadius: 30, BorderWidth: 1, BorderColor: colors.Border(), Background: colors.Surface()}, Children: []core.Node{
+			tab(lucide.MessageSquare, "Threads", "mobile-tab-threads", func() bool { return a.mobilePage.Get() == "threads" },
+				func() { a.mobilePage.Set("threads") }),
+			tab(lucide.GitPullRequest, "Pull requests", "mobile-tab-prs", func() bool { return a.mobilePage.Get() == "prs" },
+				func() { a.mobilePage.Set("prs"); a.loadMobilePullRequests() }),
+			tab(lucide.ChartColumn, "Usage", "mobile-tab-usage", func() bool { return a.mobilePage.Get() == "usage" },
+				func() { a.mobilePage.Set("usage"); a.loadMobileUsage() }),
+			tab(lucide.Settings, "Settings", "settings", func() bool { return a.mobilePage.Get() == "settings" }, a.openSettings),
+		}},
+	}
+	if a.mobilePage.Get() == "threads" {
+		children = append(children, base.Button{Label: "New thread", TestID: "new-thread", OnPress: func(core.PressEvent) { a.openNewThread() },
+			Style: core.Style{Width: core.Pt(56), Height: core.Pt(56), FlexShrink: 0, CornerRadius: 18,
+				AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+			StyleFunc: func() core.Style { return core.Style{Background: colors.Accent(), Focus: ui.FocusRing(cx, 2)} },
+			Children:  []core.Node{ui.Icon(lucide.SquarePen, 26, colors.OnAccent)}})
+	}
 	return core.View{TestID: "mobile-navigation", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
-		FlexShrink: 0, Gap: 10, Padding: core.Edges{Top: 4, Right: 14, Bottom: 10, Left: 14}},
-		Children: []core.Node{
-			core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, MinWidth: core.Pt(0), Padding: core.All(4),
-				CornerRadius: 30, BorderWidth: 1, BorderColor: colors.Border(), Background: colors.Surface()}, Children: []core.Node{
-				tab(lucide.MessageSquare, "Threads", "mobile-tab-threads", func() bool { return a.mobilePage.Get() == "threads" },
-					func() { a.mobilePage.Set("threads") }),
-				tab(lucide.GitBranch, "Projects & Git", "mobile-tab-projects", func() bool { return a.mobilePage.Get() == "projects" },
-					func() { a.mobilePage.Set("projects") }),
-				tab(lucide.ChartColumn, "Usage", "mobile-tab-usage", func() bool {
-					return a.showSettings.Get() && a.settingsSection.Get() == "usage"
-				}, func() { a.openSettings(); a.setSettingsSection("usage") }),
-				tab(lucide.Settings, "Settings", "settings", a.showSettings.Get, a.openSettings),
-			}},
-			base.Button{Label: "New thread", TestID: "new-thread", OnPress: func(core.PressEvent) { a.openNewThread() },
-				Style: core.Style{Width: core.Pt(56), Height: core.Pt(56), FlexShrink: 0, CornerRadius: 18,
-					AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-				StyleFunc: func() core.Style { return core.Style{Background: colors.Accent(), Focus: ui.FocusRing(cx, 2)} },
-				Children:  []core.Node{ui.Icon(lucide.SquarePen, 26, colors.OnAccent)}},
-		}}
+		FlexShrink: 0, Gap: 10, Padding: core.Edges{Top: 4, Right: 14, Bottom: 10, Left: 14}}, Children: children}
 }

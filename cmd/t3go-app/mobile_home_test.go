@@ -48,6 +48,12 @@ func TestUIMobileUnifiedInbox(t *testing.T) {
 	if mobileScreenFrame(app.Find("id:thread-"+betaID)).Origin.Y >= mobileScreenFrame(app.Find("id:thread-"+alphaID)).Origin.Y {
 		t.Fatal("working thread is not above settled threads")
 	}
+	app.WaitFor("text:Settled (1)", 5*time.Second)
+	app.Press("id:mobile-group-settled")
+	app.WaitForGone("id:thread-"+alphaID, 5*time.Second)
+	app.WaitFor("id:thread-"+betaID, 5*time.Second)
+	app.Press("id:mobile-group-settled")
+	app.WaitFor("id:thread-"+alphaID, 5*time.Second)
 	app.LongPress("id:thread-" + alphaID)
 	app.WaitFor("id:pin-thread-"+alphaID, 5*time.Second)
 	app.Press("id:pin-thread-" + alphaID)
@@ -59,7 +65,7 @@ func TestUIMobileUnifiedInbox(t *testing.T) {
 	app.Resize(320, 700)
 	app.Settle()
 	for _, id := range []string{"new-project", "open-palette", "mobile-filter", "mobile-tab-threads",
-		"mobile-tab-projects", "mobile-tab-usage", "settings", "new-thread"} {
+		"mobile-tab-prs", "mobile-tab-usage", "settings", "new-thread"} {
 		frame := mobileScreenFrame(app.Find("id:" + id))
 		if frame.Size.Width < 44 || frame.Size.Height < 44 ||
 			frame.Origin.X < 0 || frame.Origin.X+frame.Size.Width > 320 ||
@@ -67,7 +73,7 @@ func TestUIMobileUnifiedInbox(t *testing.T) {
 			t.Fatalf("%s is too small or outside the safe area: %+v", id, frame)
 		}
 	}
-	app.Press("id:mobile-tab-projects")
+	openMobileProjects(app)
 	app.WaitFor("id:project-"+beta.profile.ID+"/same-project", 5*time.Second)
 	app.Press("id:mobile-tab-threads")
 	app.WaitFor("id:mobile-group-working", 5*time.Second)
@@ -84,11 +90,20 @@ func TestUIMobileUnifiedInbox(t *testing.T) {
 	app.Type("label:Message", "Beta phone draft")
 	app.Press("label:Back to threads")
 	app.Press("id:mobile-tab-usage")
-	app.WaitFor("text:2.5k tokens", 5*time.Second)
-	app.Press("id:settings-environment-" + alpha.profile.ID)
-	app.WaitFor("text:1.5k tokens", 5*time.Second)
-	app.Press("id:settings-close")
-	waitSheetGone(app, "id:settings-dialog")
+	app.WaitFor("id:mobile-usage-page", 5*time.Second)
+	app.Press("id:usage-metric-tokens")
+	app.WaitUntil(5*time.Second, func() bool { return app.Find("id:mobile-usage-total").Text == "4.0k" })
+	app.Press("id:mobile-usage-environment")
+	app.Press("id:mobile-usage-environment-" + alpha.profile.ID)
+	app.WaitUntil(5*time.Second, func() bool { return app.Find("id:mobile-usage-total").Text == "1.5k" })
+	app.Press("id:mobile-tab-threads")
 	app.Press("id:thread-" + betaID)
 	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "Beta phone draft" })
+}
+
+func openMobileProjects(app *nsgotest.App) {
+	app.WaitFor("id:mobile-filter", 10*time.Second)
+	app.Press("id:mobile-filter")
+	app.WaitFor("id:mobile-tab-projects", 5*time.Second)
+	app.Press("id:mobile-tab-projects")
 }

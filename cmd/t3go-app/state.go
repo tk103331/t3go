@@ -145,52 +145,68 @@ type app struct {
 	approvals        *core.Signal[[]proto.ApprovalRequest]
 
 	// dialogs
-	showNewProject   *core.Signal[bool]
-	showNewThread    *core.Signal[bool]
-	showSettings     *core.Signal[bool]
-	showPalette      *core.Signal[bool]
-	settingsDraft    *core.Signal[proto.Settings]
-	settingsTitle    *core.Signal[string]
-	settingsSection  *core.Signal[string]
-	settingsEnv      *core.Signal[string]
-	settingsVisited  map[*app]bool
-	settingsSaveBusy *core.Signal[bool]
-	settingsSaveErr  *core.Signal[string]
-	mobilePage       *core.Signal[string]
-	showDiff         *core.Signal[bool]
-	showRuns         *core.Signal[bool]
-	pendingRestore   *core.Signal[string]
-	showRestore      *core.Signal[bool]
-	diffText         *core.Signal[string]
-	workingDiff      *core.Signal[string]
-	workingFiles     *core.Signal[[]proto.DiffFile]
-	diffSplit        *core.Signal[bool]
-	workingRef       *basediff.Ref
-	diffDiscard      *core.Signal[string]
-	editingMessage   *core.Signal[proto.Message]
-	editDraft        *core.Signal[string]
-	pullRequests     *core.Signal[[]proto.PullRequest]
-	prListDetail     *core.Signal[string]
-	prView           *core.Signal[proto.PullRequestDetail]
-	prViewNumber     *core.Signal[int]
-	prViewBusy       *core.Signal[bool]
-	prDeleteBranch   *core.Signal[bool]
-	prNote           *core.Signal[string]
-	showBranch       *core.Signal[bool]
-	showBranches     *core.Signal[bool]
-	branchName       *core.Signal[string]
-	promptName       *core.Signal[string]
-	promptArgValues  *core.Signal[promptArgsState]
-	showPromptArgs   *core.Signal[bool]
-	promptArgsDefs   []proto.AgentCommandArgument
-	gitMessage       *core.Signal[string]
-	gitBusy          *core.Signal[bool]
-	gitNote          *core.Signal[string]
-	gitPR            *core.Signal[string]
-	branches         *core.Signal[[]proto.Branch]
-	pendingDelete    *core.Signal[itemTarget]
-	pendingRename    *core.Signal[itemTarget]
-	renameName       *core.Signal[string]
+	showNewProject       *core.Signal[bool]
+	showNewThread        *core.Signal[bool]
+	showSettings         *core.Signal[bool]
+	showPalette          *core.Signal[bool]
+	settingsDraft        *core.Signal[proto.Settings]
+	settingsTitle        *core.Signal[string]
+	settingsSection      *core.Signal[string]
+	settingsEnv          *core.Signal[string]
+	settingsVisited      map[*app]bool
+	settingsSaveBusy     *core.Signal[bool]
+	settingsSaveErr      *core.Signal[string]
+	mobilePage           *core.Signal[string]
+	mobileSettledClosed  *core.Signal[bool]
+	mobileSettingsDetail *core.Signal[string]
+	mobileSurface        *core.Signal[string]
+	mobileUsageEnv       *core.Signal[string]
+	mobileUsageMetric    *core.Signal[string]
+	mobileUsageDays      *core.Signal[int]
+	mobilePREnv          *core.Signal[string]
+	mobilePRState        *core.Signal[string]
+	mobilePRRows         *core.Signal[[]mobilePullRequest]
+	mobilePRBusy         *core.Signal[bool]
+	mobilePRErr          *core.Signal[string]
+	mobilePRSeq          int
+	newThreadEnv         *core.Signal[string]
+	newThreadPrompt      *core.Signal[string]
+	newThreadOptions     *core.Signal[bool]
+	newThreadVisited     map[*app]bool
+	showDiff             *core.Signal[bool]
+	showRuns             *core.Signal[bool]
+	pendingRestore       *core.Signal[string]
+	showRestore          *core.Signal[bool]
+	diffText             *core.Signal[string]
+	workingDiff          *core.Signal[string]
+	workingFiles         *core.Signal[[]proto.DiffFile]
+	diffSplit            *core.Signal[bool]
+	workingRef           *basediff.Ref
+	diffDiscard          *core.Signal[string]
+	editingMessage       *core.Signal[proto.Message]
+	editDraft            *core.Signal[string]
+	pullRequests         *core.Signal[[]proto.PullRequest]
+	prListDetail         *core.Signal[string]
+	prView               *core.Signal[proto.PullRequestDetail]
+	prViewNumber         *core.Signal[int]
+	prViewBusy           *core.Signal[bool]
+	prDeleteBranch       *core.Signal[bool]
+	prNote               *core.Signal[string]
+	showBranch           *core.Signal[bool]
+	showBranches         *core.Signal[bool]
+	branchName           *core.Signal[string]
+	promptName           *core.Signal[string]
+	promptArgValues      *core.Signal[promptArgsState]
+	showPromptArgs       *core.Signal[bool]
+	promptArgsDefs       []proto.AgentCommandArgument
+	gitMessage           *core.Signal[string]
+	gitBusy              *core.Signal[bool]
+	gitNote              *core.Signal[string]
+	gitPR                *core.Signal[string]
+	branches             *core.Signal[[]proto.Branch]
+	pendingDelete        *core.Signal[itemTarget]
+	pendingRename        *core.Signal[itemTarget]
+	renameName           *core.Signal[string]
 
 	newProjectName   *core.Signal[string]
 	newProjectPath   *core.Signal[string]
@@ -371,27 +387,41 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		expanded:         core.NewSignalFunc(cx, map[string]bool{}, func(map[string]bool, map[string]bool) bool { return false }),
 		approvals:        sliceSignal[proto.ApprovalRequest](cx),
 
-		showNewProject:   core.NewSignal(cx, false),
-		showNewThread:    core.NewSignal(cx, false),
-		showSettings:     core.NewSignal(cx, false),
-		showPalette:      core.NewSignal(cx, false),
-		settingsDraft:    core.NewSignal(cx, proto.DefaultSettings()),
-		settingsTitle:    core.NewSignal(cx, ""),
-		settingsSection:  core.NewSignal(cx, "general"),
-		settingsEnv:      core.NewSignal(cx, profile.ID),
-		settingsSaveBusy: core.NewSignal(cx, false),
-		settingsSaveErr:  core.NewSignal(cx, ""),
-		mobilePage:       core.NewSignal(cx, "threads"),
-		showDiff:         core.NewSignal(cx, false),
-		showRuns:         core.NewSignal(cx, false),
-		pendingRestore:   core.NewSignal(cx, ""),
-		showRestore:      core.NewSignal(cx, false),
-		diffText:         core.NewSignal(cx, ""),
-		workingDiff:      core.NewSignal(cx, ""),
-		workingFiles:     sliceSignal[proto.DiffFile](cx),
-		diffSplit:        core.NewSignal(cx, false),
-		workingRef:       &basediff.Ref{},
-		diffDiscard:      core.NewSignal(cx, ""),
+		showNewProject:       core.NewSignal(cx, false),
+		showNewThread:        core.NewSignal(cx, false),
+		showSettings:         core.NewSignal(cx, false),
+		showPalette:          core.NewSignal(cx, false),
+		settingsDraft:        core.NewSignal(cx, proto.DefaultSettings()),
+		settingsTitle:        core.NewSignal(cx, ""),
+		settingsSection:      core.NewSignal(cx, "general"),
+		settingsEnv:          core.NewSignal(cx, profile.ID),
+		settingsSaveBusy:     core.NewSignal(cx, false),
+		settingsSaveErr:      core.NewSignal(cx, ""),
+		mobilePage:           core.NewSignal(cx, "threads"),
+		mobileSettledClosed:  core.NewSignal(cx, false),
+		mobileSettingsDetail: core.NewSignal(cx, ""),
+		mobileSurface:        core.NewSignal(cx, ""),
+		mobileUsageEnv:       core.NewSignal(cx, ""),
+		mobileUsageMetric:    core.NewSignal(cx, "cost"),
+		mobileUsageDays:      core.NewSignal(cx, 30),
+		mobilePREnv:          core.NewSignal(cx, ""),
+		mobilePRState:        core.NewSignal(cx, "OPEN"),
+		mobilePRRows:         sliceSignal[mobilePullRequest](cx),
+		mobilePRBusy:         core.NewSignal(cx, false),
+		mobilePRErr:          core.NewSignal(cx, ""),
+		newThreadEnv:         core.NewSignal(cx, profile.ID),
+		newThreadPrompt:      core.NewSignal(cx, ""),
+		newThreadOptions:     core.NewSignal(cx, false),
+		showDiff:             core.NewSignal(cx, false),
+		showRuns:             core.NewSignal(cx, false),
+		pendingRestore:       core.NewSignal(cx, ""),
+		showRestore:          core.NewSignal(cx, false),
+		diffText:             core.NewSignal(cx, ""),
+		workingDiff:          core.NewSignal(cx, ""),
+		workingFiles:         sliceSignal[proto.DiffFile](cx),
+		diffSplit:            core.NewSignal(cx, false),
+		workingRef:           &basediff.Ref{},
+		diffDiscard:          core.NewSignal(cx, ""),
 		editingMessage: core.NewSignalFunc(cx, proto.Message{}, func(a, b proto.Message) bool {
 			return a.ID == b.ID
 		}),
@@ -1666,6 +1696,7 @@ func (a *app) selectThread(id string) {
 	}
 	a.selected.Set(id)
 	if switching {
+		a.mobileSurface.Set("")
 		a.attachments.Set(append([]proto.Attachment(nil), a.attachmentDrafts.GetUntracked()[id]...))
 		a.fileIndex.Set(nil)
 		a.fileIndexThread.Set("")
@@ -3897,6 +3928,10 @@ func folderName(path string) string {
 }
 
 func (a *app) createThread() {
+	a.createThreadThen(nil)
+}
+
+func (a *app) createThreadThen(after func(proto.Thread)) {
 	if a.threadBusy.GetUntracked() {
 		return
 	}
@@ -3951,7 +3986,11 @@ func (a *app) createThread() {
 		a.newThreadBranch.Set("")
 		a.reload()
 		if created.ID != "" {
-			a.selectThread(created.ID)
+			if after != nil {
+				after(created)
+			} else {
+				a.selectThread(created.ID)
+			}
 		}
 	})
 }
@@ -3985,12 +4024,34 @@ func (a *app) openNewProject() {
 // own action.
 func (a *app) openNewThreadIn(projectID string) {
 	a.openNewThread()
+	if compactSettings(a.cx) {
+		a.newThreadEnv.Set(a.profile.ID)
+		a.newThreadVisited = map[*app]bool{a: true}
+	}
 	if projectID != "" {
 		a.newThreadProj.Set(projectID)
 	}
 }
 
 func (a *app) openNewThread() {
+	a.prepareNewThread()
+	if compactSettings(a.cx) {
+		target := a
+		if a.manager != nil && a.selected.GetUntracked() == "" {
+			if session := a.manager.sessions[a.manager.defaultID]; session != nil {
+				target = session
+			}
+		}
+		if target != a {
+			target.prepareNewThread()
+		}
+		a.newThreadEnv.Set(target.profile.ID)
+		a.newThreadVisited = map[*app]bool{target: true}
+	}
+	a.showNewThread.Set(true)
+}
+
+func (a *app) prepareNewThread() {
 	a.connErr.Set("")
 	a.newThreadTitle.Set("")
 	a.newThreadBranch.Set("")
@@ -4023,7 +4084,6 @@ func (a *app) openNewThread() {
 		perm = proto.PermissionFullAccess
 	}
 	a.newThreadPerm.Set(perm)
-	a.showNewThread.Set(true)
 }
 
 // bindKeys gives the app its keyboard shortcuts.
@@ -4208,6 +4268,9 @@ func (a *app) commandItems() []base.CommandItem {
 // setSettingsSection switches the settings page and remembers it.
 func (a *app) setSettingsSection(name string) {
 	a.settingsSection.Set(name)
+	if a.mobilePage.GetUntracked() == "settings" && a.mobileSettingsDetail.GetUntracked() != "" {
+		a.mobileSettingsDetail.Set(name)
+	}
 	_ = a.store.SetItem("settingsSection", name)
 	a.loadSettingsSection(name)
 }
@@ -4223,6 +4286,11 @@ func (a *app) openSettings() {
 	a.settingsEnv.Set(a.profile.ID)
 	a.settingsVisited = map[*app]bool{a: true}
 	a.beginSettingsDraft()
+	if compactSettings(a.cx) && a.selected.GetUntracked() == "" {
+		a.mobileSettingsDetail.Set("")
+		a.mobilePage.Set("settings")
+		return
+	}
 	a.showSettings.Set(true)
 	a.loadSettingsSection(a.settingsSection.GetUntracked())
 }
@@ -4232,6 +4300,10 @@ func (a *app) closeSettings() {
 		return
 	}
 	a.showSettings.Set(false)
+	if a.mobilePage.GetUntracked() == "settings" {
+		a.mobileSettingsDetail.Set("")
+		a.mobilePage.Set("threads")
+	}
 }
 
 // applyAppearance follows the environment's theme and accent.

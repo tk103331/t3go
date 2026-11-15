@@ -275,7 +275,8 @@ func TestUIAuthorizationRecoveryKeepsDraftAndValidatesToken(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &saved); err != nil || saved.Profiles[0].Token != cfg.Token {
 		t.Fatal("verified replacement credentials were not saved")
 	}
-	// Settings remains reachable directly from the phone's conversation.
+	// Settings remains reachable from the phone's conversation actions.
+	app.Press("id:thread-actions")
 	app.Press("id:settings")
 	app.WaitFor("id:settings-nav-environments", 5*time.Second)
 	app.Press("id:settings-nav-environments")

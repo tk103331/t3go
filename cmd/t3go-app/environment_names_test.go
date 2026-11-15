@@ -120,7 +120,7 @@ func TestUIDefaultEnvironmentNamesStayConsistent(t *testing.T) {
 				app.WaitUntil(5*time.Second, func() bool {
 					return app.Find("id:mobile-thread-environment-"+pb.ID+"/"+thread.ID).Text == names[1]
 				})
-				app.Press("id:mobile-tab-projects")
+				openMobileProjects(app)
 			}
 			app.WaitUntil(5*time.Second, func() bool {
 				return app.Find("id:environment-status-"+pa.ID).Text == "Direct" &&
@@ -153,6 +153,9 @@ func TestUIDefaultEnvironmentNamesStayConsistent(t *testing.T) {
 			app.WaitFor("id:environment-"+pb.ID+" >> text:My desktop", 5*time.Second)
 			app.Press("id:settings-close")
 			waitSheetGone(app, "id:settings-dialog")
+			if width < 760 {
+				openMobileProjects(app)
+			}
 			app.WaitFor("id:sidebar-environment-"+pb.ID+" >> text:My desktop", 5*time.Second)
 			app.Press("id:new-project")
 			app.WaitFor("id:project-environment-"+pb.ID+" >> text:My desktop", 5*time.Second)

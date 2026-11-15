@@ -595,20 +595,37 @@ func plural(n int, singular, multiple string) string {
 // narrowView is the phone layout: a list of threads, or the open thread
 // with a way back to the list.
 func (a *app) narrowView(cx *core.Scope) core.Node {
+	cx.OnBackPress(func() bool {
+		if a.showNewThread.GetUntracked() {
+			if target := a.newThreadTarget(); target == nil || !target.threadBusy.GetUntracked() {
+				a.showNewThread.Set(false)
+			}
+		} else if a.mobileSurface.GetUntracked() != "" {
+			a.mobileSurface.Set("")
+		} else if a.selected.GetUntracked() != "" {
+			a.persistView()
+			a.selected.Set("")
+		} else if a.mobilePage.GetUntracked() == "settings" && a.mobileSettingsDetail.GetUntracked() != "" {
+			a.mobileSettingsDetail.Set("")
+		} else if a.mobilePage.GetUntracked() != "threads" {
+			a.mobilePage.Set("threads")
+		} else {
+			return false
+		}
+		return true
+	})
+	if a.showNewThread.Get() {
+		return core.Func(a.mobileNewThread)
+	}
 	if a.selected.Get() != "" {
+		if a.mobileSurface.Get() != "" {
+			return core.Func(a.mobileSurfaceView)
+		}
 		return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Overflow: core.Hidden},
 			Children: []core.Node{
-				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexShrink: 0,
-					Padding: core.Symmetric(8, 8), Gap: 8}, Children: []core.Node{
-					ui.IconButton{Icon: lucide.ChevronLeft, Label: "Back to threads", OnPress: func() {
-						a.persistView()
-						a.selected.Set("")
-					}},
-					core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{core.Dynamic(a.contentHeader)}},
-					ui.IconButton{Icon: lucide.Settings, Label: "Settings", TestID: "settings",
-						Size: iconButtonSize(cx), OnPress: a.openSettings},
-				}},
-				core.View{Style: ui.FillRest, Children: []core.Node{a.threadPane(cx)}},
+				core.Dynamic(a.mobileConversationHeader),
+				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Overflow: core.Hidden,
+					CornerRadius: 24, Background: ui.ColorsOf(cx).Surface()}, Children: []core.Node{a.threadPane(cx)}},
 			}}
 	}
 	return a.mobileHome(cx)
@@ -624,6 +641,7 @@ func (a *app) dialogs(cx *core.Scope) core.Node {
 		core.Dynamic(a.editMessageDialog), core.Dynamic(a.newBranchDialog), core.Dynamic(a.branchesDialog),
 		core.Dynamic(a.promptArgsDialog), core.Dynamic(a.devicesDialog),
 		core.Dynamic(a.restoreDialog), core.Dynamic(a.dirsDialog), core.Dynamic(a.newDirDialog),
+		core.Dynamic(a.mobileNewThreadOptions),
 	}
 	if a.manager == nil {
 		dialogs = append(dialogs, core.Dynamic(a.customModelDialog))
@@ -749,6 +767,9 @@ func (a *app) newProjectDialog(cx *core.Scope) core.Node {
 }
 
 func (a *app) newThreadDialog(cx *core.Scope) core.Node {
+	if compactSettings(cx) {
+		return core.Group{}
+	}
 	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showNewThread.Get, OnOpenChange: closeDialog(a.showNewThread), Title: "New thread",
 		Description: "The agent runs in the project's directory, or in its own worktree.",
 		TestID:      "new-thread-dialog", Style: dialogWidth(cx, 540),
@@ -941,11 +962,12 @@ func dialogWidth(cx *core.Scope, width core.Points) core.Style {
 // settingsFooter saves only the current environment's preference draft.
 func settingsFooter(cx *core.Scope, a, target *app) []core.Node {
 	save := ui.Button{Text: "Save", Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "settings-save",
+		Size:     controlSize(cx),
 		Disabled: a.settingsSaveBusy.Get, OnPress: func() { a.saveTargetSettings(target) }}
 	if compactSettings(cx) {
 		return []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
 			Gap: 8, Width: core.Pct(100)}, Children: []core.Node{
-			ui.Button{Text: "Close", Variant: ui.ButtonGhost, TestID: "settings-close", OnPress: a.closeSettings},
+			ui.Button{Text: "Close", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "settings-close", OnPress: a.closeSettings},
 			ui.Spacer{},
 			save,
 		}}}
