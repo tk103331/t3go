@@ -449,16 +449,11 @@ func (a *app) environmentList(cx *core.Scope) core.Node {
 	if a.manager == nil {
 		return core.Group{}
 	}
+	names := a.manager.environmentNames()
 	var rows []core.Node
 	for _, profile := range a.manager.profiles.Get() {
 		p := profile
-		name := p.Name
-		if p.Alias != "" {
-			name = p.Alias
-		}
-		if name == "" {
-			name = p.ID
-		}
+		name := names[p.ID]
 		if p.ID == a.manager.defaultID {
 			name += " · Default"
 		}

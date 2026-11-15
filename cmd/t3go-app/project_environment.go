@@ -54,9 +54,6 @@ func (a *app) projectEnvironmentSelector(cx *core.Scope) core.Node {
 			variant = ui.ButtonPrimary
 		}
 		label := session.envName()
-		if label == "T3Go" && p.Name != "" {
-			label = p.Name
-		}
 		if !session.connected.Get() || session.offline.Get() || session.transportBlocked.Get() {
 			label += " · " + session.connectionLabel()
 		}

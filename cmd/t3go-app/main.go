@@ -161,24 +161,6 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 	}}
 }
 
-// envName is what the environment calls itself, the brand until it is
-// renamed in settings.
-func (a *app) envName() string {
-	if a.manager != nil {
-		_ = a.manager.profiles.Get()
-		if p := a.manager.find(a.profile.ID); p.Alias != "" {
-			return p.Alias
-		}
-	}
-	if a.profile.Alias != "" {
-		return a.profile.Alias
-	}
-	if name := a.settings.Get().Title; name != "" {
-		return name
-	}
-	return "T3Go"
-}
-
 // errorBanner shows an action's failure above the content, with a way to
 // dismiss it.
 func (a *app) errorBanner(cx *core.Scope) core.Node {
@@ -232,9 +214,6 @@ func (a *app) sidebarSections(cx *core.Scope) []ui.SidebarSection {
 		}
 		colors := ui.ColorsOf(cx)
 		name := session.envName()
-		if name == "T3Go" && p.Name != "" {
-			name = p.Name
-		}
 		sections = append(sections, ui.SidebarSection{
 			Title: name, TestID: "sidebar-environment-" + p.ID,
 			Trailing: core.Text{Content: session.connectionLabel(), TestID: "environment-status-" + p.ID,
