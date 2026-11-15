@@ -15,6 +15,7 @@ import (
 
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/nsgotest"
+	"github.com/oneo-me/nsgo/ui"
 	"github.com/tk/t3go/internal/client"
 	"github.com/tk/t3go/internal/proto"
 )
@@ -45,6 +46,7 @@ func startMobilePages(t *testing.T, fixtures ...*settingsFixture) (*nsgotest.App
 	}
 	var manager *environmentManager
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		cx.SetTheme(ui.DefaultTheme())
 		manager = newEnvironmentManager(cx)
 		manager.start()
 		return manager.view(cx)

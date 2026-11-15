@@ -988,6 +988,9 @@ func settingsFooter(cx *core.Scope, a, target *app) []core.Node {
 		Size:     controlSize(cx),
 		Disabled: a.settingsSaveBusy.Get, OnPress: func() { a.saveTargetSettings(target) }}
 	if compactSettings(cx) {
+		if ui.Touch(cx) {
+			return []core.Node{ui.Spacer{}, save}
+		}
 		return []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
 			Gap: 8, Width: core.Pct(100)}, Children: []core.Node{
 			ui.Button{Text: "Close", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "settings-close", OnPress: a.closeSettings},
@@ -1112,10 +1115,15 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 			}
 		}
 		selected := draft.Accent == choice.Hex
+		minHeight := core.Points(0)
+		if ui.Touch(cx) {
+			minHeight = 40
+		}
 		accentButtons = append(accentButtons, base.Button{OnPress: func(core.PressEvent) {
 			update(func(s *proto.Settings) { s.Accent = choice.Hex })
 		}, Label: choice.Name, TestID: "settings-accent-" + choice.Name,
-			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Padding: core.Symmetric(3, 7),
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5,
+				MinHeight: core.Pt(minHeight), Padding: core.Symmetric(3, 7),
 				CornerRadius: 6, BorderWidth: 1, Cursor: core.CursorDefault},
 			StyleFunc: func() core.Style {
 				border := colors.Border()
@@ -1146,7 +1154,9 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: editorButtons},
 		core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{
 			core.Text{Content: "Server", Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-			core.Text{Content: a.serverURL.Get(), MaxLines: 1, Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+			core.Text{Content: a.serverURL.Get(), MaxLines: 1,
+				Style:     core.Style{FontSize: 12, FlexShrink: 1, MinWidth: core.Pt(0)},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 		}},
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 12, Padding: core.Edges{Right: 16}}, Children: fields}

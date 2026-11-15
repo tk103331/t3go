@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 
+	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
@@ -92,8 +93,9 @@ func (a *app) mobileNewThread(cx *core.Scope) core.Node {
 								label += " · Current HEAD"
 							}
 						}
-						return ui.Button{Text: label, Icon: lucide.GitBranch, Size: controlSize(cx), Variant: ui.ButtonGhost,
-							TestID: "new-thread-checkout", OnPress: func() { a.newThreadOptions.Set(true) }}
+						return base.Button{Label: label, TestID: "new-thread-checkout",
+							OnPress:  func(core.PressEvent) { a.newThreadOptions.Set(true) },
+							Children: []core.Node{mobileMenuFace(cx, label, lucide.GitBranch)}}
 					}),
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						target := a.newThreadTarget()
@@ -110,7 +112,8 @@ func (a *app) mobileNewThread(cx *core.Scope) core.Node {
 							Disabled: target.threadBusy.Get,
 							OnSend:   func() { a.createMobileThread(true) },
 							Accessory: func(cx *core.Scope) core.Node {
-								return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+								return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+									FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 									ui.IconButton{Icon: lucide.Plus, Label: "Thread options", TestID: "new-thread-more", Size: 40,
 										OnPress: func() { a.newThreadOptions.Set(true) }},
 									core.Dynamic(func(cx *core.Scope) core.Node {
@@ -118,8 +121,10 @@ func (a *app) mobileNewThread(cx *core.Scope) core.Node {
 										if label == "" {
 											label = "Choose model"
 										}
-										return ui.Button{Text: oneLine(label, 22), Icon: lucide.ChevronDown, Variant: ui.ButtonGhost,
-											TestID: "new-thread-model-options", OnPress: func() { a.newThreadOptions.Set(true) }}
+										return base.Button{Label: label, TestID: "new-thread-model-options",
+											Style:    core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+											OnPress:  func(core.PressEvent) { a.newThreadOptions.Set(true) },
+											Children: []core.Node{mobileMenuFace(cx, label, nil)}}
 									}),
 								}}
 							}}
@@ -141,8 +146,12 @@ func (a *app) mobileNewThreadEnvironment(cx *core.Scope) core.Node {
 		items = append(items, ui.MenuItem{Text: session.envName(), TestID: "new-thread-environment-" + session.profile.ID,
 			OnSelect: func() { a.selectThreadEnvironment(session.profile.ID) }})
 	}
-	return ui.Menu{TestID: "new-thread-environment", Trigger: ui.Button{Text: "on " + name, Icon: lucide.Laptop,
-		Size: controlSize(cx), Variant: ui.ButtonGhost}, Children: items, MaxHeight: 360}
+	return core.View{Style: core.Style{Width: core.Pct(100), MinWidth: core.Pt(0), Direction: core.Row},
+		Children: []core.Node{
+			ui.Menu{TestID: "new-thread-environment", Trigger: ui.Button{Text: "on " + name, Icon: lucide.Laptop,
+				Flex: 1, Size: controlSize(cx), Variant: ui.ButtonGhost}, Face: mobileMenuFace(cx, "on "+name, lucide.Laptop),
+				Children: items, MaxHeight: 360},
+		}}
 }
 
 func (a *app) mobileNewThreadOptions(cx *core.Scope) core.Node {

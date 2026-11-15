@@ -142,7 +142,7 @@ func (a *app) mobilePullRequests(cx *core.Scope) core.Node {
 						OnSelect: func() { a.mobilePRState.Set(value) }})
 				}
 				return ui.Menu{TestID: "mobile-pr-state", Trigger: ui.Button{Text: label, Icon: lucide.ChevronDown,
-					Variant: ui.ButtonGhost, Size: controlSize(cx)}, Children: items}
+					Variant: ui.ButtonGhost, Size: controlSize(cx)}, Face: mobileMenuFace(cx, label, nil), Children: items}
 			}),
 			ui.Text("Pull requests associated with your project threads.", 12, ui.Regular, colors.Muted),
 		}},

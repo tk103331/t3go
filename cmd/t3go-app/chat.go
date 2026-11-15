@@ -75,6 +75,9 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 	)
 	accessory := func(cx *core.Scope) core.Node {
 		attach := ui.IconButton{Icon: lucide.Paperclip, Label: "Attach files", TestID: "attach", OnPress: a.pickAttachments}
+		if touch {
+			attach.Size, attach.IconSize = 38, 20
+		}
 		children := []core.Node{
 			attach,
 			core.Show{When: func() bool { return a.cx.Env().CanRecognizeSpeech() }, Then: func(*core.Scope) core.Node {

@@ -104,9 +104,11 @@ func (a *app) mobileEnvironmentMenu(cx *core.Scope, selected *core.Signal[string
 			choices = append(choices, ui.MenuItem{Text: name, TestID: id + "-" + env, OnSelect: choose(env)})
 		}
 		trigger := ui.Button{Text: label, Icon: lucide.ChevronDown, Variant: ui.ButtonGhost, Size: controlSize(cx)}
+		var face core.Node = mobileMenuFace(cx, label, nil)
 		if iconOnly {
 			trigger = ui.Button{Icon: lucide.ListFilter, Label: "Filter environments", Side: 44, IconSize: 24, Variant: ui.ButtonGhost}
+			face = nil
 		}
-		return ui.Menu{TestID: id, Trigger: trigger, MaxHeight: 360, Children: choices}
+		return ui.Menu{TestID: id, Trigger: trigger, Face: face, MaxHeight: 360, Children: choices}
 	})
 }

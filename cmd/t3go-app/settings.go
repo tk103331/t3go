@@ -144,7 +144,8 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 			if model.ContextWindow > 0 {
 				label += " · " + humanTokens(int64(model.ContextWindow))
 			}
-			children := []core.Node{core.Text{Content: label, Style: core.Style{FontSize: 10.5},
+			children := []core.Node{core.Text{Content: label, MaxLines: 1,
+				Style:     core.Style{FontSize: 10.5, FlexShrink: 1, MinWidth: core.Pt(0)},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }}}
 			if model.Custom {
 				children = append(children, ui.IconButton{Icon: lucide.X, Label: "Remove " + model.Name, Size: 16, IconSize: 9,
@@ -152,14 +153,24 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 					OnPress: func() { a.removeCustomModel(provider.ID, model.ID) }})
 			}
 			labels = append(labels, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
-				Gap: 2, Padding: core.Symmetric(2, 7), Background: colors.Inset(), CornerRadius: 5}, Children: children})
+				Gap: 2, MaxWidth: core.Pct(100), MinWidth: core.Pt(0),
+				Padding: core.Symmetric(2, 7), Background: colors.Inset(), CornerRadius: 5}, Children: children})
 		}
 		meta := provider.Version
 		var body []core.Node
+		headingStyle := core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}
+		if ui.Touch(cx) && compactSettings(cx) {
+			headingStyle.Direction, headingStyle.AlignItems = core.Column, core.AlignStart
+		}
 		body = append(body,
-			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-				ui.Text(provider.Name, 12.5, ui.Semibold, colors.Text),
-				ui.Text(provider.ID, 10.5, ui.Regular, colors.Faint),
+			core.View{Style: headingStyle, Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, MinWidth: core.Pt(0),
+					FlexShrink: 1, Gap: 6}, Children: []core.Node{
+					core.Text{Content: provider.Name, MaxLines: 1,
+						Style:     core.Style{FontSize: 12.5, FontWeight: ui.Semibold, FlexShrink: 1, MinWidth: core.Pt(0)},
+						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+					ui.Text(provider.ID, 10.5, ui.Regular, colors.Faint),
+				}},
 				ui.Spacer{},
 				core.View{TestID: "settings-provider-status-" + provider.ID,
 					StyleFunc: func() core.Style {
@@ -228,9 +239,9 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 			Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter}, Children: []core.Node{
 			core.Text{Content: fmt.Sprintf("%d providers · %d models · %s", len(providers), len(models), a.envName()),
-				MaxLines: 1, Style: core.Style{FontSize: 11.5},
+				MaxLines: 2, Style: core.Style{FontSize: 11.5, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-			ui.Spacer{}, refresh,
+			refresh,
 		}},
 		core.View{Style: core.Style{Direction: core.Column, Gap: 6}, Children: cards},
 	}}
@@ -421,7 +432,8 @@ func (a *app) aboutRow(cx *core.Scope, label, value string) core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(4, 0)}, Children: []core.Node{
 		core.Text{Content: label, Style: core.Style{FontSize: 12, Width: core.Pt(90), FlexShrink: 0},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-		core.Text{Content: value, MaxLines: 2, Selectable: core.SelectableOn, Style: core.Style{FontSize: 12, FlexGrow: 1},
+		core.Text{Content: value, MaxLines: 2, Selectable: core.SelectableOn,
+			Style:     core.Style{FontSize: 12, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 	}}
 }

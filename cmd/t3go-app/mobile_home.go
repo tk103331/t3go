@@ -81,9 +81,6 @@ func (a *app) mobileHome(cx *core.Scope) core.Node {
 					return core.Func(a.mobilePullRequests)
 				case "projects":
 					return core.View{Style: ui.FillRest, Children: []core.Node{
-						core.View{Style: core.Style{Padding: core.Symmetric(10, 18)}, Children: []core.Node{
-							ui.Text("Projects", 18, ui.Semibold, colors.Text),
-						}},
 						core.Dynamic(a.sidebarProjects),
 					}}
 				}

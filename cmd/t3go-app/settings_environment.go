@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
@@ -80,9 +81,34 @@ func (a *app) settingsEnvironmentSelector(cx *core.Scope) core.Node {
 		if p.ID == selected {
 			variant = ui.ButtonPrimary
 		}
-		choices = append(choices, ui.Button{Text: names[p.ID], Variant: variant, Size: controlSize(cx),
+		var choice core.Node = ui.Button{Text: names[p.ID], Variant: variant, Size: controlSize(cx),
 			TestID: "settings-environment-" + p.ID, Disabled: a.settingsSaveBusy.Get,
-			OnPress: func() { a.selectSettingsEnvironment(p.ID) }})
+			OnPress: func() { a.selectSettingsEnvironment(p.ID) }}
+		if compactSettings(cx) && ui.Touch(cx) {
+			colors := ui.ColorsOf(cx)
+			choice = base.Button{Label: names[p.ID], TestID: "settings-environment-" + p.ID,
+				Disabled: a.settingsSaveBusy.Get, Selected: func() bool { return p.ID == selected },
+				OnPress: func(core.PressEvent) { a.selectSettingsEnvironment(p.ID) },
+				Style: core.Style{MinHeight: core.Pt(40), MaxWidth: core.Pct(100), MinWidth: core.Pt(0),
+					Direction: core.Row, AlignItems: core.AlignCenter, Padding: core.Symmetric(8, 12), CornerRadius: 8},
+				StyleFunc: func() core.Style {
+					fill := colors.Inset()
+					if p.ID == selected {
+						fill = colors.AccentFill()
+					}
+					return core.Style{Background: fill, Focus: ui.FocusRing(cx, -2)}
+				},
+				Children: []core.Node{core.Text{Content: names[p.ID], MaxLines: 1,
+					Style: core.Style{FontSize: 14, FlexShrink: 1, MinWidth: core.Pt(0)},
+					StyleFunc: func() core.Style {
+						color := colors.Text()
+						if p.ID == selected {
+							color = colors.OnAccent()
+						}
+						return core.Style{Color: color}
+					}}}}
+		}
+		choices = append(choices, choice)
 	}
 	return core.View{TestID: "settings-environment", Style: core.Style{Gap: 6}, Children: []core.Node{
 		ui.Text("Environment", 12, ui.Semibold, ui.ColorsOf(cx).Muted),
@@ -124,7 +150,8 @@ func (a *app) settingsProvidersByEnvironment(cx *core.Scope) core.Node {
 			detail = "Authorization required"
 		}
 		heading := []core.Node{
-			core.Text{Content: name, MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold},
+			core.Text{Content: name, MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold,
+				FlexShrink: 1, MinWidth: core.Pt(0)},
 				StyleFunc: func() core.Style {
 					if profile.ID == selected {
 						return core.Style{Color: colors.Accent()}

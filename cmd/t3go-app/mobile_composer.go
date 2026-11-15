@@ -112,10 +112,14 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 			}
 		},
 	}
+	accessoryGrow := float32(0)
+	if m.Controls == nil {
+		accessoryGrow = 1
+	}
 	row := []core.Node{
 		core.View{
 			Style: core.Style{
-				Direction: core.Row, FlexShrink: 1,
+				Direction: core.Row, FlexShrink: 1, FlexGrow: accessoryGrow,
 				MinWidth: core.Pt(0), AlignItems: core.AlignCenter, Gap: 4,
 			},
 			Children: []core.Node{core.Func(m.Accessory)},

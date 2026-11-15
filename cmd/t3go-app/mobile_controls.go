@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
+	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
 )
 
@@ -22,6 +23,23 @@ func iconButtonSize(cx *core.Scope) core.Points {
 		return 34
 	}
 	return 28
+}
+
+func mobileMenuFace(cx *core.Scope, label string, icon func() *core.SVG) core.Node {
+	colors := ui.ColorsOf(cx)
+	var children []core.Node
+	if icon != nil {
+		children = append(children, ui.Icon(icon, 18, colors.Muted))
+	}
+	children = append(children,
+		core.Text{Content: label, MaxLines: 1,
+			Style:     core.Style{FontSize: 14, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+		ui.Icon(lucide.ChevronDown, 16, colors.Muted))
+	return core.View{Style: core.Style{
+		Direction: core.Row, AlignItems: core.AlignCenter, MinWidth: core.Pt(0),
+		MinHeight: core.Pt(44), Gap: 6, Padding: core.Symmetric(0, 8),
+	}, Children: children}
 }
 
 // mobileInput is the app's larger touch-friendly text field. NSGo's standard
