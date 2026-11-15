@@ -21,10 +21,10 @@ func UsableName(name string) bool {
 	}
 	name = strings.TrimRight(strings.ToLower(strings.Trim(name, "[]")), ".")
 	switch name {
-	case "", "localhost", "localhost.localdomain", "localhost6", "localhost6.localdomain6", "ip6-localhost", "(none)":
+	case "", "bogon", "localhost", "localhost.localdomain", "localhost6", "localhost6.localdomain6", "ip6-localhost", "(none)":
 		return false
 	}
-	if strings.HasSuffix(name, ".localhost") {
+	if strings.HasSuffix(name, ".bogon") || strings.HasSuffix(name, ".localhost") {
 		return false
 	}
 	if ip, err := netip.ParseAddr(name); err == nil {

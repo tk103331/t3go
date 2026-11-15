@@ -5,6 +5,8 @@ import "testing"
 func TestUsableName(t *testing.T) {
 	for name, want := range map[string]bool{
 		"":                   false,
+		"bogon":              false,
+		"host.bogon":         false,
 		"localhost":          false,
 		"LOCALHOST.":         false,
 		"api.localhost":      false,
