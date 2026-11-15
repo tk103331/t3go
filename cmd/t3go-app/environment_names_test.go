@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"strings"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/oneo-me/nsgo/nsgotest"
 	"github.com/tk/t3go/internal/client"
 	"github.com/tk/t3go/internal/orchestrator"
+	"github.com/tk/t3go/internal/proto"
 )
 
 func TestEnvironmentDisplayNames(t *testing.T) {
@@ -25,6 +26,14 @@ func TestEnvironmentDisplayNames(t *testing.T) {
 		want     []string
 	}{
 		{
+			name: "default names use execution hostnames",
+			profiles: []client.EnvironmentProfile{
+				{ID: "cloud-one", Name: "T3Go", Hostname: " cloud-box ", Routes: direct("http://82.156.132.143:4870")},
+				{ID: "desktop-one", Name: "t3go", Hostname: "desktop-box", Routes: relay("desktop-one")},
+			},
+			want: []string{"cloud-box", "desktop-box"},
+		},
+		{
 			name: "default names use addresses",
 			profiles: []client.EnvironmentProfile{
 				{ID: "cloud-one", Name: "T3Go", Routes: direct("http://82.156.132.143:4870")},
@@ -35,10 +44,34 @@ func TestEnvironmentDisplayNames(t *testing.T) {
 		{
 			name: "unique custom names and aliases are kept",
 			profiles: []client.EnvironmentProfile{
-				{ID: "cloud-one", Name: "Cloud", Routes: direct("http://cloud.example")},
-				{ID: "desktop-one", Name: "T3Go", Alias: " My desktop ", Routes: direct("http://desktop.local")},
+				{ID: "cloud-one", Name: "Cloud", Hostname: "cloud-box", Routes: direct("http://cloud.example")},
+				{ID: "desktop-one", Name: "T3Go", Hostname: "desktop-box", Alias: " My desktop ", Routes: direct("http://desktop.local")},
 			},
 			want: []string{"Cloud", "My desktop"},
+		},
+		{
+			name: "same hostname gains addresses",
+			profiles: []client.EnvironmentProfile{
+				{ID: "cloud-one", Name: "T3Go", Hostname: "ubuntu", Routes: direct("https://cloud.example")},
+				{ID: "desktop-one", Name: "T3Go", Hostname: "ubuntu", Routes: direct("http://desktop.local:4870")},
+			},
+			want: []string{"ubuntu · cloud.example", "ubuntu · desktop.local:4870"},
+		},
+		{
+			name: "same hostname sharing relay gains stable identities",
+			profiles: []client.EnvironmentProfile{
+				{ID: "desktop-one", Name: "T3Go", Hostname: "ubuntu", Routes: relay("desktop-one")},
+				{ID: "desktop-two", Name: "T3Go", Hostname: "ubuntu", Routes: relay("desktop-two")},
+			},
+			want: []string{"ubuntu · hub.example · desktop-o", "ubuntu · hub.example · desktop-t"},
+		},
+		{
+			name: "cached hostname replaces a legacy URL label",
+			profiles: []client.EnvironmentProfile{
+				{ID: "desktop-one", Name: "http://desktop.local:4870", Hostname: "desktop-box"},
+				{ID: "cloud-one", Name: "T3Go", Hostname: "  ", Routes: direct("https://cloud.example")},
+			},
+			want: []string{"desktop-box", "cloud.example"},
 		},
 		{
 			name: "same custom names gain addresses",
@@ -97,6 +130,7 @@ func TestUIDefaultEnvironmentNamesStayConsistent(t *testing.T) {
 		t.Run(map[bool]string{true: "phone", false: "desktop"}[width < 760], func(t *testing.T) {
 			alpha, ta, ca := startEnv(t)
 			beta, tb, cb := startEnv(t)
+			alpha.Hostname, beta.Hostname = "cloud-box", "desktop-box"
 			ctx := context.Background()
 			project, err := beta.Service.CreateProject(ctx, "Desktop project", t.TempDir())
 			if err != nil {
@@ -114,7 +148,7 @@ func TestUIDefaultEnvironmentNamesStayConsistent(t *testing.T) {
 				PublicKey: beta.Identity.PublicKey(), Routes: []client.Route{{URL: tb.URL, Kind: "relay"}}}
 			app := nsgotest.Start(t, Root, nsgotest.Size(width, 844),
 				nsgotest.Storage(map[string]string{"environments:v1": workspaceRegistry(pa, pb)}))
-			names := []string{strings.TrimPrefix(ta.URL, "http://"), strings.TrimPrefix(tb.URL, "http://")}
+			names := []string{"cloud-box", "desktop-box"}
 			app.WaitFor("id:thread-"+pb.ID+"/"+thread.ID, 10*time.Second)
 			if width < 760 {
 				app.WaitUntil(5*time.Second, func() bool {
@@ -128,6 +162,17 @@ func TestUIDefaultEnvironmentNamesStayConsistent(t *testing.T) {
 			})
 			for i, p := range []client.EnvironmentProfile{pa, pb} {
 				app.WaitFor("id:sidebar-environment-"+p.ID+" >> text:"+names[i], 5*time.Second)
+			}
+			raw, _ := app.Storage().GetItem("environments:v1")
+			var saved savedEnvironments
+			if err := json.Unmarshal([]byte(raw), &saved); err != nil {
+				t.Fatal(err)
+			}
+			offlineNames := environmentDisplayNames(saved.Profiles)
+			for i, p := range []client.EnvironmentProfile{pa, pb} {
+				if got := offlineNames[p.ID]; got != names[i] {
+					t.Errorf("cached environment %s: got %q, want %q", p.ID, got, names[i])
+				}
 			}
 			app.Press("id:new-project")
 			for i, p := range []client.EnvironmentProfile{pa, pb} {
@@ -174,4 +219,47 @@ func TestUIDefaultEnvironmentNamesStayConsistent(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestUIHostnameRefreshKeepsDraftAndAlias(t *testing.T) {
+	fixture := newSettingsFixture(t, "Alpha")
+	fixture.profile.Alias = ""
+	rendered, manager := startMobilePages(t, fixture)
+	owner := manager.app
+	rendered.Press("id:thread-same-thread")
+	rendered.WaitFor("label:Message", 5*time.Second)
+	rendered.Type("label:Message", "Keep this draft")
+	inputID := rendered.Find("label:Message").ID
+	rendered.Post(func() {
+		st := proto.State{Hostname: "renamed-desktop", Settings: owner.settings.GetUntracked(),
+			Projects: owner.projects.GetUntracked(), Threads: owner.threads.GetUntracked(),
+			Providers: owner.providers.GetUntracked(), Models: owner.models.GetUntracked()}
+		owner.applyState(st)
+	})
+	rendered.WaitUntil(5*time.Second, func() bool {
+		return rendered.Find("id:current-environment-name").Text == "renamed-desktop"
+	})
+	if field := rendered.Find("label:Message"); field.ID != inputID || field.Text != "Keep this draft" || !field.Focused {
+		t.Fatal("hostname refresh disturbed the composer")
+	}
+	raw, _ := rendered.Storage().GetItem("environments:v1")
+	var saved savedEnvironments
+	if err := json.Unmarshal([]byte(raw), &saved); err != nil {
+		t.Fatal(err)
+	}
+	if got := environmentDisplayNames(saved.Profiles)[fixture.profile.ID]; got != "renamed-desktop" {
+		t.Fatalf("hostname refresh did not persist: %q", got)
+	}
+	rendered.Post(func() {
+		profile := manager.find(fixture.profile.ID)
+		profile.Alias = "Office"
+		manager.update(profile)
+		st := proto.State{Hostname: "another-hostname", Settings: owner.settings.GetUntracked(),
+			Projects: owner.projects.GetUntracked(), Threads: owner.threads.GetUntracked(),
+			Providers: owner.providers.GetUntracked(), Models: owner.models.GetUntracked()}
+		owner.applyState(st)
+	})
+	rendered.WaitUntil(5*time.Second, func() bool {
+		return rendered.Find("id:current-environment-name").Text == "Office"
+	})
 }

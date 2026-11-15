@@ -145,6 +145,27 @@ func TestStateCarriesLastSeq(t *testing.T) {
 	}
 }
 
+func TestStateReportsExecutionHostname(t *testing.T) {
+	e := newTestEnv(t)
+	hostname, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/state", nil, "", nil); code != http.StatusUnauthorized {
+		t.Fatalf("anonymous state = %d", code)
+	}
+	var st proto.State
+	if code := e.request(t, http.MethodGet, "/api/v1/state", nil, e.token, &st); code != http.StatusOK {
+		t.Fatalf("state = %d", code)
+	}
+	if st.Hostname != strings.TrimSpace(hostname) {
+		t.Fatalf("hostname = %q, want %q", st.Hostname, hostname)
+	}
+	if st.Name != proto.DefaultSettings().Title || st.Settings.Title != st.Name {
+		t.Fatalf("hostname changed the configured title: name=%q title=%q", st.Name, st.Settings.Title)
+	}
+}
+
 func TestProjectThreadAndDetail(t *testing.T) {
 	e := newTestEnv(t)
 	p := e.project(t)

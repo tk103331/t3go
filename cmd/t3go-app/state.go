@@ -835,6 +835,12 @@ func (a *app) applyState(st proto.State) {
 	// One rebuild for the whole snapshot: each signal on its own would
 	// redraw the screen five times.
 	a.cx.Batch(func() {
+		if hostname := strings.TrimSpace(st.Hostname); hostname != a.profile.Hostname {
+			a.profile.Hostname = hostname
+			if a.manager != nil {
+				a.manager.update(a.profile)
+			}
+		}
 		a.projects.Set(st.Projects)
 		a.threads.Set(st.Threads)
 		a.providers.Set(st.Providers)

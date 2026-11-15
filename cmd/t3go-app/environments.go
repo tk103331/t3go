@@ -412,6 +412,7 @@ func (a *app) adoptEnvironment(p client.EnvironmentProfile, c *client.Client, st
 		p.ID = client.LegacyEnvironmentID(c.BaseURL)
 	}
 	p.Name = st.Name
+	p.Hostname = strings.TrimSpace(st.Hostname)
 	if p.Name == "" {
 		p.Name = c.BaseURL
 	}

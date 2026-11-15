@@ -27,12 +27,19 @@ func environmentBaseName(p client.EnvironmentProfile) string {
 	if alias := strings.TrimSpace(p.Alias); alias != "" {
 		return alias
 	}
+	hostname := strings.TrimSpace(p.Hostname)
 	if name := strings.TrimSpace(p.Name); name != "" && !strings.EqualFold(name, "T3Go") {
 		// Legacy profiles can use the full connection URL as their name.
 		if u, err := url.Parse(name); err == nil && u.Host != "" {
-			return u.Host
+			if hostname == "" {
+				return u.Host
+			}
+		} else {
+			return name
 		}
-		return name
+	}
+	if hostname != "" {
+		return hostname
 	}
 	if host := environmentHost(p); host != "" {
 		return host

@@ -28,6 +28,7 @@ type Route struct {
 type EnvironmentProfile struct {
 	ID         string  `json:"id"`
 	Name       string  `json:"name"`
+	Hostname   string  `json:"hostname,omitempty"` // cached execution host for offline labels
 	Alias      string  `json:"alias,omitempty"`
 	PublicKey  string  `json:"publicKey,omitempty"`
 	Token      string  `json:"token"`

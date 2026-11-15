@@ -431,6 +431,7 @@ type State struct {
 	IdentityKey   string     `json:"identityKey,omitempty"`
 	Capabilities  []string   `json:"capabilities,omitempty"`
 	Name          string     `json:"name"`
+	Hostname      string     `json:"hostname,omitempty"`
 	Projects      []Project  `json:"projects"`
 	Threads       []Thread   `json:"threads"`
 	Providers     []Provider `json:"providers"`
