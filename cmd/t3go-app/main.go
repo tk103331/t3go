@@ -952,7 +952,7 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 		Title: "Settings", Description: "Manage environments and workspace preferences.",
 		TestID: "settings-dialog", Style: settingsDialogStyle(cx), Children: []core.Node{core.Dynamic(a.settingsBody)},
 		Footer: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
-			if a.settingsSection.Get() != "general" {
+			if a.settingsSection.Get() != "environment-defaults" {
 				return ui.Button{Text: "Close", Variant: ui.ButtonGhost, TestID: "settings-close", OnPress: a.closeSettings}
 			}
 			target := a.settingsTarget()
@@ -1005,8 +1005,8 @@ func settingsFooter(cx *core.Scope, a, target *app) []core.Node {
 	}
 }
 
-// settingsGeneral is the environment defaults page of settings.
-func (a *app) settingsGeneral(cx *core.Scope) core.Node {
+// settingsEnvironmentDefaults configures execution defaults on one machine.
+func (a *app) settingsEnvironmentDefaults(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	draft := a.settingsDraft.Get()
 	update := func(fn func(*proto.Settings)) {
@@ -1078,18 +1078,6 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 				update(func(s *proto.Settings) { s.DefaultPermission = string(p) })
 			}})
 	}
-	var themeButtons []core.Node
-	for _, theme := range []string{"system", "light", "dark"} {
-		theme := theme
-		variant := ui.ButtonSecondary
-		if theme == draft.Theme {
-			variant = ui.ButtonPrimary
-		}
-		themeButtons = append(themeButtons, ui.Button{Text: theme, Variant: variant, Size: controlSize(cx),
-			TestID: "settings-theme-" + theme, OnPress: func() {
-				update(func(s *proto.Settings) { s.Theme = theme })
-			}})
-	}
 	var editorButtons []core.Node
 	for _, choice := range []string{"auto", "zed", "code", "cursor", "finder"} {
 		choice := choice
@@ -1100,43 +1088,6 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 		editorButtons = append(editorButtons, ui.Button{Text: choice, Variant: variant, Size: controlSize(cx),
 			TestID: "settings-editor-" + choice, OnPress: func() { a.setEditor(choice) }})
 	}
-	type accentChoice struct {
-		Name, Hex string
-	}
-	accents := []accentChoice{{"default", ""}, {"blue", "#007aff"}, {"violet", "#7c3aed"},
-		{"green", "#16a34a"}, {"orange", "#ea580c"}, {"pink", "#db2777"}, {"teal", "#0d9488"}}
-	var accentButtons []core.Node
-	for _, choice := range accents {
-		choice := choice
-		swatch := ui.Alpha(colors.Text(), 0.25)
-		if choice.Hex != "" {
-			if value, err := strconv.ParseUint(strings.TrimPrefix(choice.Hex, "#"), 16, 32); err == nil {
-				swatch = core.RGB(uint32(value))
-			}
-		}
-		selected := draft.Accent == choice.Hex
-		minHeight := core.Points(0)
-		if ui.Touch(cx) {
-			minHeight = 40
-		}
-		accentButtons = append(accentButtons, base.Button{OnPress: func(core.PressEvent) {
-			update(func(s *proto.Settings) { s.Accent = choice.Hex })
-		}, Label: choice.Name, TestID: "settings-accent-" + choice.Name,
-			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5,
-				MinHeight: core.Pt(minHeight), Padding: core.Symmetric(3, 7),
-				CornerRadius: 6, BorderWidth: 1, Cursor: core.CursorDefault},
-			StyleFunc: func() core.Style {
-				border := colors.Border()
-				if selected {
-					border = colors.Accent()
-				}
-				return core.Style{BorderColor: border, Hover: &core.Style{Background: colors.Inset()}}
-			}, Children: []core.Node{
-				core.View{Style: core.Style{Width: core.Pt(13), Height: core.Pt(13), CornerRadius: 7, Background: swatch}},
-				core.Text{Content: choice.Name, Style: core.Style{FontSize: 10.5},
-					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-			}})
-	}
 	fields := []core.Node{
 		mobileInput{Scope: cx, Input: base.Input{Value: a.settingsTitle.Get, OnChange: a.settingsTitle.Set,
 			Placeholder: "Environment name", Label: "Environment name"}},
@@ -1146,10 +1097,6 @@ func (a *app) settingsGeneral(cx *core.Scope) core.Node {
 		modelField,
 		ui.Text("Default permission", 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: permButtons},
-		ui.Text("Theme", 11, ui.Semibold, colors.Muted),
-		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: themeButtons},
-		ui.Text("Accent", 11, ui.Semibold, colors.Muted),
-		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 5}, Children: accentButtons},
 		ui.Text("Editor", 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: editorButtons},
 		core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{

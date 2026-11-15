@@ -128,10 +128,12 @@ type environmentManager struct {
 	sidebarKeys   *core.Signal[bool]
 	sidebarOffset core.Points
 	appliedAccent string
+	appearance    *core.Signal[clientAppearance]
 }
 
 func newEnvironmentManager(cx *core.Scope) *environmentManager {
 	m := &environmentManager{cx: cx, store: cx.Storage(), sessions: map[string]*app{},
+		appearance:  core.NewSignal(cx, loadClientAppearance(cx.Storage())),
 		sidebarKeys: core.NewSignal(cx, false),
 		active:      core.NewSignal[*app](cx, nil), pending: core.NewSignal[*app](cx, nil), profiles: core.NewSignalFunc(cx,
 			[]client.EnvironmentProfile{}, func([]client.EnvironmentProfile, []client.EnvironmentProfile) bool { return false }),
@@ -197,7 +199,6 @@ func (m *environmentManager) activate(id string) {
 		next.sidebarWidth.Set(m.app.sidebarWidth.GetUntracked())
 	}
 	m.current, m.app = id, next
-	next.applyAppearance(next.settings.GetUntracked())
 	m.active.Set(next)
 	_ = m.save()
 }
@@ -233,6 +234,7 @@ func (m *environmentManager) start() {
 		m.defaultID = m.current
 	}
 	m.active.Set(m.app)
+	m.app.applyAppearance()
 }
 
 func (m *environmentManager) addEnvironment() {
@@ -413,6 +415,7 @@ func (a *app) adoptEnvironment(p client.EnvironmentProfile, c *client.Client, st
 	}
 	p.Name = st.Name
 	p.Hostname = strings.TrimSpace(st.Hostname)
+	p.System = st.System
 	if p.Name == "" {
 		p.Name = c.BaseURL
 	}
@@ -500,9 +503,12 @@ func (a *app) environmentList(cx *core.Scope) core.Node {
 		rows = append(rows, core.View{TestID: "environment-" + p.ID,
 			Style: core.Style{Gap: 6, Padding: core.All(10), CornerRadius: 8, BorderWidth: 1, BorderColor: colors.Border()},
 			Children: []core.Node{
-				ui.Text(name, 14, ui.Semibold, colors.Text),
+				core.Text{Content: name, MaxLines: 2, Style: core.Style{FontSize: 14, FontWeight: ui.Semibold},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 				core.Text{Content: status, TestID: "settings-environment-status-" + p.ID,
 					Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+				environmentHardware(cx, p),
+				a.environmentAliasEditor(cx, p.ID),
 				ui.Text(strings.Join(addresses, "\n"), 11, ui.Regular, colors.Muted),
 				ui.Text(sessionError, 11, ui.Regular, colors.Danger),
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: []core.Node{
@@ -527,10 +533,12 @@ func (a *app) environmentList(cx *core.Scope) core.Node {
 					ui.Button{Text: "Forget", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "environment-forget-" + p.ID, OnPress: func() {
 						a.forgetEnvironment.Set(p.ID)
 					}},
-					ui.Button{Text: "Rename", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "environment-rename-" + p.ID, OnPress: func() {
+					ui.Button{Text: "Edit alias", Icon: lucide.Pencil, Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "environment-rename-" + p.ID, OnPress: func() {
 						a.environmentAlias.Set(p.Alias)
 						a.renameEnvironment.Set(p.ID)
 					}},
+					ui.Button{Text: "Configure", Icon: lucide.Settings, Variant: ui.ButtonGhost, Size: controlSize(cx),
+						TestID: "environment-configure-" + p.ID, OnPress: func() { a.openEnvironmentSettings(p.ID) }},
 				}},
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: modes},
 			}})
@@ -557,17 +565,6 @@ func (a *app) environmentManagement(cx *core.Scope) core.Node {
 		ui.Button{Text: "Add environment", Icon: lucide.Plus, TestID: "environment-add", Size: controlSize(cx),
 			OnPress: func() { a.manager.addEnvironment() }},
 		core.Dynamic(a.environmentList),
-		core.Show{When: func() bool { return a.renameEnvironment.Get() != "" }, Then: func(cx *core.Scope) core.Node {
-			return core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
-				mobileInput{Scope: cx, Input: base.Input{Label: "Environment alias", Value: a.environmentAlias.Get, OnChange: a.environmentAlias.Set}},
-				ui.Button{Text: "Save alias", OnPress: func() {
-					p := a.manager.find(a.renameEnvironment.GetUntracked())
-					p.Alias = strings.TrimSpace(a.environmentAlias.GetUntracked())
-					a.manager.update(p)
-					a.renameEnvironment.Set("")
-				}},
-			}}
-		}},
 		core.Show{When: func() bool { return a.forgetEnvironment.Get() != "" }, Then: func(*core.Scope) core.Node {
 			return core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
 				ui.Text("Forget this connection? Local drafts and queued messages are kept. Remote projects and running tasks are not deleted.", 12, ui.Regular, ui.ColorsOf(cx).Muted),

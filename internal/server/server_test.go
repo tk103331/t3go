@@ -20,6 +20,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/tk/t3go/internal/config"
 	"github.com/tk/t3go/internal/git"
+	"github.com/tk/t3go/internal/hostinfo"
 	"github.com/tk/t3go/internal/proto"
 	"github.com/tk/t3go/internal/provider"
 )
@@ -147,10 +148,7 @@ func TestStateCarriesLastSeq(t *testing.T) {
 
 func TestStateReportsExecutionHostname(t *testing.T) {
 	e := newTestEnv(t)
-	hostname, err := os.Hostname()
-	if err != nil {
-		t.Fatal(err)
-	}
+	hostname, _ := hostinfo.Collect()
 	if code := e.request(t, http.MethodGet, "/api/v1/state", nil, "", nil); code != http.StatusUnauthorized {
 		t.Fatalf("anonymous state = %d", code)
 	}
@@ -160,6 +158,9 @@ func TestStateReportsExecutionHostname(t *testing.T) {
 	}
 	if st.Hostname != strings.TrimSpace(hostname) {
 		t.Fatalf("hostname = %q, want %q", st.Hostname, hostname)
+	}
+	if st.System == nil || st.System.OS == "" || st.System.Arch == "" || st.System.LogicalCPUs == 0 {
+		t.Fatalf("missing execution system information: %+v", st.System)
 	}
 	if st.Name != proto.DefaultSettings().Title || st.Settings.Title != st.Name {
 		t.Fatalf("hostname changed the configured title: name=%q title=%q", st.Name, st.Settings.Title)

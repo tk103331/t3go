@@ -57,6 +57,13 @@ func TestUIMobileLayoutMatrix(t *testing.T) {
 			owner.openMobileSettingsSection(section)
 		}})
 	}
+	screens = append(screens, struct {
+		name string
+		open func()
+	}{"settings/environment-defaults", func() {
+		owner.openSettings()
+		owner.openEnvironmentSettings(owner.profile.ID)
+	}})
 	for _, size := range []struct{ width, height, keyboard core.Points }{
 		{320, 740, 0}, {390, 844, 0}, {320, 740, 300}, {390, 844, 300},
 	} {

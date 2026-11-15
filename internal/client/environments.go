@@ -26,15 +26,16 @@ type Route struct {
 // EnvironmentProfile is local connection configuration, not execution state.
 // Token retains the existing shared-token pairing contract for compatibility.
 type EnvironmentProfile struct {
-	ID         string  `json:"id"`
-	Name       string  `json:"name"`
-	Hostname   string  `json:"hostname,omitempty"` // cached execution host for offline labels
-	Alias      string  `json:"alias,omitempty"`
-	PublicKey  string  `json:"publicKey,omitempty"`
-	Token      string  `json:"token"`
-	Routes     []Route `json:"routes"`
-	Preference string  `json:"preference,omitempty"` // auto, direct-only, relay-only
-	Legacy     bool    `json:"legacy,omitempty"`
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
+	Hostname   string            `json:"hostname,omitempty"` // cached execution host for offline labels
+	System     *proto.SystemInfo `json:"system,omitempty"`
+	Alias      string            `json:"alias,omitempty"`
+	PublicKey  string            `json:"publicKey,omitempty"`
+	Token      string            `json:"token"`
+	Routes     []Route           `json:"routes"`
+	Preference string            `json:"preference,omitempty"` // auto, direct-only, relay-only
+	Legacy     bool              `json:"legacy,omitempty"`
 }
 
 // PairingProfile accepts existing links and identity-pinned multi-route links.

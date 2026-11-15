@@ -30,6 +30,7 @@ import (
 	"github.com/tk/t3go/internal/environment"
 	"github.com/tk/t3go/internal/events"
 	"github.com/tk/t3go/internal/git"
+	"github.com/tk/t3go/internal/hostinfo"
 	"github.com/tk/t3go/internal/id"
 	"github.com/tk/t3go/internal/orchestrator"
 	"github.com/tk/t3go/internal/proto"
@@ -51,6 +52,7 @@ type Server struct {
 
 	ID        string
 	Hostname  string
+	System    *proto.SystemInfo
 	StartedAt time.Time
 	Identity  *environment.Identity
 	Relay     *relay.Hub
@@ -81,11 +83,11 @@ func New(cfg config.Config, logger *log.Logger) (*Server, error) {
 		return nil, err
 	}
 	providers := provider.NewRegistry()
-	hostname, _ := os.Hostname()
+	hostname, system := hostinfo.Collect()
 	svc := orchestrator.New(st, providers, bus, cfg.Home, logger)
 	svc.ApprovalToken = cfg.Token
 	s := &Server{Config: cfg, Store: st, Service: svc, Bus: bus, Terminals: terminal.NewManager(),
-		Log: logger, ID: id.New("env"), Hostname: strings.TrimSpace(hostname), StartedAt: time.Now(),
+		Log: logger, ID: id.New("env"), Hostname: hostname, System: system, StartedAt: time.Now(),
 		closing: make(chan struct{}), tickets: map[string]time.Time{}, Identity: identity}
 	if cfg.Relay {
 		if cfg.NoAuth {
@@ -446,7 +448,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	providers := s.Service.Providers.Snapshot(ctx)
 	settings := s.Service.Settings(ctx)
 	writeJSON(w, 200, proto.State{
-		Version: proto.ProtocolVersion, Seq: seq, ServerID: s.ID, Name: settings.Title, Hostname: s.Hostname,
+		Version: proto.ProtocolVersion, Seq: seq, ServerID: s.ID, Name: settings.Title, Hostname: s.Hostname, System: s.System,
 		EnvironmentID: s.Identity.ID, IdentityKey: s.Identity.PublicKey(),
 		Capabilities: []string{proto.CapabilityIdempotentMessages},
 		Projects:     nonNil(projects), Threads: nonNil(threads),

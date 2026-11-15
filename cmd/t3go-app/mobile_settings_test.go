@@ -18,11 +18,13 @@ func TestUIMobileSettingsPage(t *testing.T) {
 		t.Fatal("mobile settings still lists the keyboard shortcuts")
 	}
 	app.Press("id:settings-nav-providers")
-	app.WaitFor("id:settings-providers-environments", 10*time.Second)
+	app.WaitFor("id:settings-provider-card-claude", 10*time.Second)
+	if app.Exists("id:settings-providers-environments") {
+		t.Fatal("providers page repeats the environment summary")
+	}
 	if app.Exists("id:settings-close") {
 		t.Fatal("mobile settings page still has a close button")
 	}
-	app.WaitFor("id:settings-provider-card-claude", 10*time.Second)
 	// The card names the CLI once; it used to repeat the name and the id
 	// under the heading.
 	dump := app.Dump()

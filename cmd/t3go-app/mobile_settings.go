@@ -24,7 +24,7 @@ func (a *app) mobileSettings(cx *core.Scope) core.Node {
 			}},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				target := a.settingsTarget()
-				if a.settingsSection.Get() != "general" || target == nil || !target.settingsConnectionReady() {
+				if a.settingsSection.Get() != "environment-defaults" || target == nil || !target.settingsConnectionReady() {
 					return core.View{}
 				}
 				return core.View{Style: core.Style{Direction: core.Row, FlexShrink: 0, Gap: 8, Padding: core.Symmetric(8, 18)},
@@ -58,7 +58,7 @@ func (a *app) mobileSettings(cx *core.Scope) core.Node {
 			core.View{Style: core.Style{CornerRadius: 24, Background: colors.Inset(), Overflow: core.Hidden}, Children: []core.Node{
 				row("Environments", fmt.Sprintf("%d saved · manage connections and names", count), "settings-nav-environments", lucide.Monitor,
 					func() { a.openMobileSettingsSection("environments") }),
-				row("General & appearance", "Defaults, theme, accent and editor", "settings-nav-general", lucide.Settings,
+				row("Appearance", "Theme and accent on this client", "settings-nav-general", lucide.Settings,
 					func() { a.openMobileSettingsSection("general") }),
 				row("Providers", "CLI status, models and sign in by environment", "settings-nav-providers", lucide.Bot,
 					func() { a.openMobileSettingsSection("providers") }),

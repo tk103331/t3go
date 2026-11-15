@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/tk/t3go/internal/client"
+	"github.com/tk/t3go/internal/environment"
+	"github.com/tk/t3go/internal/proto"
 )
 
 // Keep display names independent of the active route: a relay fallback should
@@ -15,7 +17,7 @@ func environmentHost(p client.EnvironmentProfile) string {
 			if (route.Kind == "relay") != relay {
 				continue
 			}
-			if u, err := url.Parse(route.URL); err == nil && u.Host != "" {
+			if u, err := url.Parse(route.URL); err == nil && u.Host != "" && environment.UsableName(u.Hostname()) {
 				return u.Host
 			}
 		}
@@ -24,11 +26,14 @@ func environmentHost(p client.EnvironmentProfile) string {
 }
 
 func environmentBaseName(p client.EnvironmentProfile) string {
-	if alias := strings.TrimSpace(p.Alias); alias != "" {
+	if alias := strings.TrimSpace(p.Alias); environment.UsableName(alias) {
 		return alias
 	}
 	hostname := strings.TrimSpace(p.Hostname)
-	if name := strings.TrimSpace(p.Name); name != "" && !strings.EqualFold(name, "T3Go") {
+	if !environment.UsableName(hostname) {
+		hostname = ""
+	}
+	if name := strings.TrimSpace(p.Name); environment.UsableName(name) && !strings.EqualFold(name, "T3Go") {
 		// Legacy profiles can use the full connection URL as their name.
 		if u, err := url.Parse(name); err == nil && u.Host != "" {
 			if hostname == "" {
@@ -41,6 +46,9 @@ func environmentBaseName(p client.EnvironmentProfile) string {
 	if hostname != "" {
 		return hostname
 	}
+	if p.System != nil && strings.TrimSpace(p.System.OS) != "" {
+		return p.System.OS
+	}
 	if host := environmentHost(p); host != "" {
 		return host
 	}
@@ -48,6 +56,13 @@ func environmentBaseName(p client.EnvironmentProfile) string {
 		return "Environment"
 	}
 	return "T3Go"
+}
+
+func sameSystemInfo(a, b *proto.SystemInfo) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 func environmentIDLabel(p client.EnvironmentProfile, profiles []client.EnvironmentProfile) string {

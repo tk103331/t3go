@@ -101,6 +101,9 @@ func (a *app) mobileHeader(cx *core.Scope) core.Node {
 	case "settings":
 		name := "Settings"
 		if detail := a.mobileSettingsDetail.Get(); detail != "" {
+			if detail == "environment-defaults" {
+				name = "Environment configuration"
+			}
 			for _, item := range settingsNav {
 				if item.ID == detail {
 					name = item.Label
@@ -116,7 +119,14 @@ func (a *app) mobileHeader(cx *core.Scope) core.Node {
 	var children []core.Node
 	if page == "settings" && a.mobileSettingsDetail.Get() != "" {
 		children = append(children, ui.IconButton{Icon: lucide.ChevronLeft, Label: "Back to settings", Size: 44,
-			TestID: "mobile-settings-back", OnPress: func() { a.mobileSettingsDetail.Set("") }})
+			TestID: "mobile-settings-back", OnPress: func() {
+				if a.mobileSettingsDetail.GetUntracked() == "environment-defaults" {
+					a.setSettingsSection("environments")
+					a.mobileSettingsDetail.Set("environments")
+				} else {
+					a.mobileSettingsDetail.Set("")
+				}
+			}})
 	}
 	children = append(children, title, ui.Spacer{})
 	if page == "threads" || page == "projects" {

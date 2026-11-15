@@ -193,6 +193,10 @@ func TestUISettingsEnvironmentIsolation(t *testing.T) {
 	app.WaitFor("label:Message", 5*time.Second)
 	app.Type("label:Message", "Keep Alpha draft")
 	app.Press("id:settings")
+	app.WaitFor("id:settings-nav-environments", 5*time.Second)
+	app.Press("id:settings-nav-environments")
+	app.WaitFor("id:environment-configure-"+alpha.profile.ID, 5*time.Second)
+	app.Press("id:environment-configure-" + alpha.profile.ID)
 	app.WaitFor("label:Environment name", 5*time.Second)
 	app.Clear("label:Environment name")
 	app.Type("label:Environment name", "Alpha draft name")
@@ -237,8 +241,9 @@ func TestUISettingsEnvironmentIsolation(t *testing.T) {
 	app.Press("id:settings")
 	app.Press("id:settings-nav-providers")
 	app.WaitFor("text:\"Alpha CLI\"", 5*time.Second)
-	app.WaitFor("id:settings-providers-environment-"+alpha.profile.ID, 5*time.Second)
-	app.WaitFor("id:settings-providers-environment-"+beta.profile.ID, 5*time.Second)
+	if app.Exists("id:settings-providers-environments") {
+		t.Fatal("providers page repeats the environment summary")
+	}
 	if app.Exists("id:settings-providers-show-" + beta.profile.ID) {
 		t.Fatal("providers page repeats the environment switch")
 	}
@@ -299,6 +304,26 @@ func TestUISettingsEnvironmentIsolation(t *testing.T) {
 		}
 	})
 	app.Settle()
+}
+
+func TestUIClientAppearanceIsSharedAcrossEnvironments(t *testing.T) {
+	alpha, beta := newSettingsFixture(t, "Alpha"), newSettingsFixture(t, "Beta")
+	rendered, manager := startMobilePages(t, alpha, beta)
+	rendered.Press("id:settings")
+	rendered.WaitFor("id:mobile-settings-index", 5*time.Second)
+	rendered.Press("id:settings-nav-general")
+	rendered.WaitFor("id:settings-appearance", 5*time.Second)
+	rendered.Press("id:settings-theme-dark")
+	rendered.WaitUntil(5*time.Second, func() bool { return manager.appearance.Get().Theme == "dark" })
+	rendered.Post(func() { manager.activate(beta.profile.ID) })
+	rendered.WaitUntil(5*time.Second, func() bool {
+		return manager.appearance.Get().Theme == "dark" && manager.app.profile.ID == beta.profile.ID
+	})
+	for _, fixture := range []*settingsFixture{alpha, beta} {
+		if got := fixture.server.Service.Settings(context.Background()).Theme; got != "system" {
+			t.Fatalf("client theme was stored in %s: %q", fixture.profile.Alias, got)
+		}
+	}
 }
 
 func TestUISettingsDelayedProvidersAndSetupTarget(t *testing.T) {

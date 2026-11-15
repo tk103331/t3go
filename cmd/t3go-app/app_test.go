@@ -135,20 +135,31 @@ func TestUISettingsDefaults(t *testing.T) {
 	app.WaitFor("id:settings", 15*time.Second)
 
 	app.Press("id:settings")
+	app.WaitFor("id:settings-appearance", 5*time.Second)
+	app.Press("id:settings-theme-dark")
+	app.WaitUntil(5*time.Second, func() bool {
+		raw, _ := app.Storage().GetItem("appearance:v1")
+		return strings.Contains(raw, `"theme":"dark"`)
+	})
+	app.Press("id:settings-nav-environments")
+	app.WaitFor("id:environment-configure-"+srv.Identity.ID, 5*time.Second)
+	app.Press("id:environment-configure-" + srv.Identity.ID)
 	app.WaitFor("id:settings-save", 5*time.Second)
 	app.Clear("label:Environment name")
 	app.Type("label:Environment name", "Team env")
 	app.Press("id:settings-perm-accept-edits")
-	app.Press("id:settings-theme-dark")
 	app.Press("id:settings-save")
 	app.WaitFor("id:content-header >> text:Team env", 10*time.Second)
 	app.WaitUntil(10*time.Second, func() bool {
 		s := srv.Service.Settings(ctx)
-		return s.Title == "Team env" && s.DefaultPermission == string(proto.PermissionAcceptEdits) && s.Theme == "dark"
+		return s.Title == "Team env" && s.DefaultPermission == string(proto.PermissionAcceptEdits) && s.Theme == "system"
 	})
 
 	// A closed dialog keeps its draft out of the environment.
 	app.Press("id:settings")
+	app.Press("id:settings-nav-environments")
+	app.WaitFor("id:environment-configure-"+srv.Identity.ID, 5*time.Second)
+	app.Press("id:environment-configure-" + srv.Identity.ID)
 	app.WaitFor("id:settings-save", 5*time.Second)
 	app.Clear("label:Environment name")
 	app.Type("label:Environment name", "Draft name")
@@ -659,6 +670,9 @@ func TestUISettingsFromAnotherClient(t *testing.T) {
 	app.WaitFor("id:content-header >> text:Shared env", 10*time.Second)
 
 	app.Press("id:settings")
+	app.Press("id:settings-nav-environments")
+	app.WaitFor("id:environment-configure-"+srv.Identity.ID, 5*time.Second)
+	app.Press("id:environment-configure-" + srv.Identity.ID)
 	app.WaitFor("id:settings-save", 5*time.Second)
 	if got := app.Find("label:Environment name").Text; got != "Shared env" {
 		t.Fatalf("environment name field = %q", got)
@@ -961,6 +975,9 @@ func TestUIDialogsFit(t *testing.T) {
 	}
 	app.Press("id:settings")
 	app.WaitFor("id:settings-dialog", 5*time.Second)
+	app.Press("id:settings-nav-environments")
+	app.WaitFor("id:environment-configure-"+srv.Identity.ID, 5*time.Second)
+	app.Press("id:environment-configure-" + srv.Identity.ID)
 	app.WaitFor("id:settings-model", 5*time.Second)
 	check("id:settings-dialog")
 	// A button inside the dialog must not rebuild the dialog itself.
@@ -970,6 +987,7 @@ func TestUIDialogsFit(t *testing.T) {
 	if after := app.Find("id:settings-save"); after.ID != save.ID {
 		t.Fatal("pressing a setting rebuilt the dialog")
 	}
+	app.Press("id:settings-nav-general")
 	app.Press("text:Close")
 	app.WaitForGone("id:settings-dialog", 5*time.Second)
 
@@ -1696,6 +1714,10 @@ func TestUISettingsSections(t *testing.T) {
 	app.Press("id:settings-nav-about")
 	app.WaitFor("text:About T3Go", 5*time.Second)
 	app.Press("id:settings-nav-general")
+	app.WaitFor("id:settings-appearance", 5*time.Second)
+	app.Press("id:settings-nav-environments")
+	app.WaitFor("id:environment-configure-"+srv.Identity.ID, 5*time.Second)
+	app.Press("id:environment-configure-" + srv.Identity.ID)
 	app.WaitFor("id:settings-model", 5*time.Second)
 }
 
@@ -2739,6 +2761,9 @@ echo "$@" >> "$EDITOR_LOG"
 		}
 		return app.Exists("id:settings-nav-general")
 	})
+	app.Press("id:settings-nav-environments")
+	app.WaitFor("id:environment-configure-"+srv.Identity.ID, 5*time.Second)
+	app.Press("id:environment-configure-" + srv.Identity.ID)
 	app.WaitFor("id:settings-editor-zed", 5*time.Second)
 	app.Press("id:settings-editor-zed")
 	app.Press("text:Close")
@@ -2797,7 +2822,7 @@ func TestUISearchMessages(t *testing.T) {
 	app.WaitFor("id:content-header >> text:Search thread", 10*time.Second)
 }
 
-// TestUISettingsAccent saves a custom accent color.
+// TestUISettingsAccent saves a client color without changing the environment.
 func TestUISettingsAccent(t *testing.T) {
 	srv, ts, cfg := startEnv(t)
 	ctx := context.Background()
@@ -2817,10 +2842,13 @@ func TestUISettingsAccent(t *testing.T) {
 		return app.Exists("id:settings-accent-violet")
 	})
 	app.Press("id:settings-accent-violet")
-	app.Press("id:settings-save")
 	app.WaitUntil(10*time.Second, func() bool {
-		return srv.Service.Settings(ctx).Accent == "#7c3aed"
+		raw, _ := app.Storage().GetItem("appearance:v1")
+		return strings.Contains(raw, `"accent":"#7c3aed"`)
 	})
+	if got := srv.Service.Settings(ctx).Accent; got != "" {
+		t.Fatalf("client accent was written to the environment: %q", got)
+	}
 }
 
 // TestUIMobileComposerStaysVisible keeps the composer above the keyboard
@@ -2922,12 +2950,18 @@ func TestUIMobileSettings(t *testing.T) {
 		return app.Exists("id:settings-nav-general")
 	})
 	app.Press("id:settings-nav-general")
+	app.WaitFor("id:settings-appearance", 5*time.Second)
+	app.Press("id:mobile-settings-back")
+	app.Press("id:settings-nav-environments")
+	app.WaitFor("id:environment-configure-"+srv.Identity.ID, 5*time.Second)
+	app.Press("id:environment-configure-" + srv.Identity.ID)
 	app.WaitFor("id:settings-editor-auto", 5*time.Second)
 	save := mobileScreenFrame(app.Find("id:settings-save"))
 	if save.Origin.X < 0 || save.Origin.X+save.Size.Width > 390 ||
 		save.Origin.Y+save.Size.Height > 844-16 || save.Size.Height < 32 {
 		t.Fatalf("save is too small or outside the phone window: %v", save)
 	}
+	app.Press("id:mobile-settings-back")
 	app.Press("id:mobile-settings-back")
 	app.Press("id:settings-nav-about")
 	app.WaitFor("id:settings-manage-environments", 5*time.Second)

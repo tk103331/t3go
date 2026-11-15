@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
-	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/tk/t3go/internal/client"
 	"github.com/tk/t3go/internal/proto"
@@ -118,81 +116,12 @@ func (a *app) settingsEnvironmentSelector(cx *core.Scope) core.Node {
 	}}
 }
 
-// settingsProvidersByEnvironment shows what each environment detected, so
-// the providers of one machine are never mixed with another's.
-func (a *app) settingsProvidersByEnvironment(cx *core.Scope) core.Node {
-	colors := ui.ColorsOf(cx)
-	if a.manager == nil {
-		return core.View{}
-	}
-	_ = a.manager.revision.Get()
-	names := a.manager.environmentNames()
-	selected := a.settingsEnv.Get()
-	var rows []core.Node
-	for _, profile := range a.manager.profiles.Get() {
-		profile := profile
-		session := a.manager.sessions[profile.ID]
-		if session == nil {
-			continue
-		}
-		name := names[profile.ID]
-		if name == "" {
-			name = profile.Alias
-		}
-		state := session.connectionLabel()
-		detail := "Not connected"
-		switch {
-		case session.connected.Get() && len(session.providers.Get()) == 0 && !session.providersBusy.Get():
-			detail = "No providers detected yet"
-		case session.connected.Get():
-			detail = fmt.Sprintf("%d providers · %d models", len(session.providers.Get()), len(session.allModels()))
-		case session.transportBlocked.Get():
-			detail = "Authorization required"
-		}
-		heading := []core.Node{
-			core.Text{Content: name, MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold,
-				FlexShrink: 1, MinWidth: core.Pt(0)},
-				StyleFunc: func() core.Style {
-					if profile.ID == selected {
-						return core.Style{Color: colors.Accent()}
-					}
-					return core.Style{Color: colors.Text()}
-				}},
-		}
-		if profile.ID == selected {
-			heading = append(heading, ui.Icon(lucide.Check, 14, colors.Accent))
-		}
-		rows = append(rows, core.View{TestID: "settings-providers-environment-" + profile.ID,
-			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(8, 10),
-				Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{
-				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
-					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: heading},
-					core.Text{Content: detail, MaxLines: 2, Style: core.Style{FontSize: 10.5},
-						StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-					core.Text{Content: state, MaxLines: 1, Style: core.Style{FontSize: 10.5},
-						StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-				}},
-				ui.Button{Icon: lucide.RefreshCw, Label: "Detect providers on " + name, Variant: ui.ButtonGhost,
-					Side: 44, IconSize: 20, Size: 44,
-					TestID: "settings-providers-detect-" + profile.ID, Disabled: session.providersBusy.Get,
-					OnPress: func() { session.refreshProviders() }},
-			}})
-	}
-	if len(rows) == 0 {
-		return core.View{}
-	}
-	return core.View{TestID: "settings-providers-environments", Style: core.Style{Direction: core.Column, Gap: 4},
-		Children: []core.Node{
-			core.Text{Content: "By environment", Style: core.Style{FontSize: 11.5, FontWeight: ui.Semibold},
-				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-			core.View{Style: core.Style{Direction: core.Column, Gap: 4}, Children: rows},
-		}}
-}
-
 // The settings window owns navigation, while every environment owns its data,
 // drafts and requests. Choosing a settings target leaves the conversation open.
 func (a *app) settingsPage(cx *core.Scope) core.Node {
 	switch a.settingsSection.Get() {
+	case "general":
+		return a.settingsAppearance(cx)
 	case "environments":
 		if a.manager != nil {
 			return a.environmentManagement(cx)
@@ -234,7 +163,7 @@ func (a *app) settingsPage(cx *core.Scope) core.Node {
 			case "about":
 				return target.settingsAbout(cx, func() { a.setSettingsSection("environments") })
 			default:
-				return target.settingsGeneral(cx)
+				return target.settingsEnvironmentDefaults(cx)
 			}
 		}),
 	}}
@@ -262,9 +191,25 @@ func (a *app) saveTargetSettings(target *app) {
 			return
 		}
 		target.settings.Set(saved)
-		target.applyAppearance(saved)
 		a.closeSettings()
 	})
+}
+
+func (a *app) openEnvironmentSettings(id string) {
+	if target := a.manager.sessions[id]; target != nil {
+		if a.settingsVisited == nil {
+			a.settingsVisited = map[*app]bool{}
+		}
+		if !a.settingsVisited[target] {
+			target.beginSettingsDraft()
+			a.settingsVisited[target] = true
+		}
+		a.selectSettingsEnvironment(id)
+		a.setSettingsSection("environment-defaults")
+		if compactSettings(a.cx) {
+			a.mobileSettingsDetail.Set("environment-defaults")
+		}
+	}
 }
 
 func (a *app) runSettingsProviderCommand(target *app, command string) {

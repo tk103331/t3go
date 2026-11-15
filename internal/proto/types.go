@@ -420,24 +420,35 @@ func DefaultSettings() Settings {
 	return Settings{DefaultProvider: "claude", DefaultPermission: string(PermissionFullAccess), Theme: "system", Title: "T3Go"}
 }
 
+// SystemInfo describes the execution host, not the client or relay.
+type SystemInfo struct {
+	OS               string `json:"os"`
+	OSVersion        string `json:"osVersion,omitempty"`
+	Arch             string `json:"arch"`
+	CPUModel         string `json:"cpuModel,omitempty"`
+	LogicalCPUs      int    `json:"logicalCpus,omitempty"`
+	MemoryTotalBytes uint64 `json:"memoryTotalBytes,omitempty"`
+}
+
 // State is everything a client needs to render the home screen.
 type State struct {
 	Version int `json:"version"`
 	// Seq is the newest event the environment recorded when it built the
 	// snapshot; a client streams after it to catch what changed since.
-	Seq           int64      `json:"seq"`
-	ServerID      string     `json:"serverId"`
-	EnvironmentID string     `json:"environmentId,omitempty"`
-	IdentityKey   string     `json:"identityKey,omitempty"`
-	Capabilities  []string   `json:"capabilities,omitempty"`
-	Name          string     `json:"name"`
-	Hostname      string     `json:"hostname,omitempty"`
-	Projects      []Project  `json:"projects"`
-	Threads       []Thread   `json:"threads"`
-	Providers     []Provider `json:"providers"`
-	Models        []Model    `json:"models"`
-	Settings      Settings   `json:"settings"`
-	ServerTime    time.Time  `json:"serverTime"`
+	Seq           int64       `json:"seq"`
+	ServerID      string      `json:"serverId"`
+	EnvironmentID string      `json:"environmentId,omitempty"`
+	IdentityKey   string      `json:"identityKey,omitempty"`
+	Capabilities  []string    `json:"capabilities,omitempty"`
+	Name          string      `json:"name"`
+	Hostname      string      `json:"hostname,omitempty"`
+	System        *SystemInfo `json:"system,omitempty"`
+	Projects      []Project   `json:"projects"`
+	Threads       []Thread    `json:"threads"`
+	Providers     []Provider  `json:"providers"`
+	Models        []Model     `json:"models"`
+	Settings      Settings    `json:"settings"`
+	ServerTime    time.Time   `json:"serverTime"`
 }
 
 const CapabilityIdempotentMessages = "idempotentMessages"

@@ -54,6 +54,7 @@ type app struct {
 	connectionRecovered  *core.Signal[bool]
 	recoveryNoticeCancel func() bool
 	appliedAccent        string
+	appearance           *core.Signal[clientAppearance]
 
 	// connection
 	serverURL  *core.Signal[string]
@@ -541,6 +542,12 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		terminalBusy:        core.NewSignal(cx, false),
 		terminalErr:         core.NewSignal(cx, ""),
 	}
+	if manager != nil {
+		a.appearance = manager.appearance
+	} else {
+		a.appearance = core.NewSignal(cx, loadClientAppearance(cx.Storage()))
+		a.applyAppearance()
+	}
 	a.conv = chat.NewConversationState(cx)
 	if manager == nil {
 		a.bindKeysOn(cx)
@@ -831,12 +838,12 @@ func (a *app) client() *client.Client {
 
 func (a *app) applyState(st proto.State) {
 	a.idempotentMessages = slices.Contains(st.Capabilities, proto.CapabilityIdempotentMessages)
-	a.applyAppearance(st.Settings)
 	// One rebuild for the whole snapshot: each signal on its own would
 	// redraw the screen five times.
 	a.cx.Batch(func() {
-		if hostname := strings.TrimSpace(st.Hostname); hostname != a.profile.Hostname {
+		if hostname := strings.TrimSpace(st.Hostname); hostname != a.profile.Hostname || !sameSystemInfo(st.System, a.profile.System) {
 			a.profile.Hostname = hostname
+			a.profile.System = st.System
 			if a.manager != nil {
 				a.manager.update(a.profile)
 			}
@@ -1400,7 +1407,6 @@ func (a *app) applyEvent(e proto.Event) {
 		}
 	case proto.EventSettings:
 		if settings, ok := decodeData[proto.Settings](e.Data); ok {
-			a.applyAppearance(settings)
 			a.settings.Set(settings)
 		}
 	case proto.EventTerminalExit:
@@ -4437,8 +4443,9 @@ func (a *app) closeSettings() {
 	}
 }
 
-// applyAppearance follows the environment's theme and accent.
-func (a *app) applyAppearance(s proto.Settings) {
+// applyAppearance uses the client's shared local preferences.
+func (a *app) applyAppearance() {
+	s := a.appearance.GetUntracked()
 	cx := a.cx
 	if a.manager != nil {
 		if a.manager.app != a {
@@ -4530,7 +4537,6 @@ func shadeColor(c core.Color, factor float64) core.Color {
 // saveSettings writes the draft and its values into the environment.
 func (a *app) saveSettings(s proto.Settings) {
 	a.settings.Set(s)
-	a.applyAppearance(s)
 	a.call(func(ctx context.Context, c *client.Client) error {
 		_, err := c.SaveSettings(ctx, s)
 		return err

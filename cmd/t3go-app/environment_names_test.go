@@ -74,6 +74,16 @@ func TestEnvironmentDisplayNames(t *testing.T) {
 			want: []string{"desktop-box", "cloud.example"},
 		},
 		{
+			name: "local-only names fall back to system",
+			profiles: []client.EnvironmentProfile{
+				{ID: "desktop-one", Name: "localhost", Hostname: "127.0.0.1", Alias: "localhost",
+					Routes: direct("http://localhost:4870"), System: &proto.SystemInfo{OS: "macOS"}},
+				{ID: "desktop-two", Name: "T3Go", Hostname: "::1",
+					Routes: relay("desktop-two"), System: &proto.SystemInfo{OS: "Linux"}},
+			},
+			want: []string{"macOS", "Linux"},
+		},
+		{
 			name: "same custom names gain addresses",
 			profiles: []client.EnvironmentProfile{
 				{ID: "cloud-one", Alias: "Office", Routes: direct("https://cloud.example")},
@@ -192,9 +202,16 @@ func TestUIDefaultEnvironmentNamesStayConsistent(t *testing.T) {
 			app.WaitFor("id:settings-nav-environments", 5*time.Second)
 			app.Press("id:settings-nav-environments")
 			app.WaitFor("id:environment-"+pb.ID+" >> text:\""+names[1]+"\"", 5*time.Second)
+			app.WaitFor("id:environment-system-"+pb.ID, 5*time.Second)
+			app.WaitFor("id:environment-cpu-"+pb.ID, 5*time.Second)
 			app.Press("id:environment-rename-" + pb.ID)
+			app.WaitFor("id:environment-alias-editor-"+pb.ID, 5*time.Second)
+			app.Clear("label:Environment alias")
+			app.Type("label:Environment alias", "localhost")
+			app.WaitFor("text:Use a device name instead of localhost or a loopback address.", 5*time.Second)
+			app.Clear("label:Environment alias")
 			app.Type("label:Environment alias", "My desktop")
-			app.Press("label:Save alias")
+			app.Press("id:environment-alias-save-" + pb.ID)
 			app.WaitFor("id:environment-"+pb.ID+" >> text:My desktop", 5*time.Second)
 			if width < 760 {
 				// The phone settings are a page with a back arrow; the
