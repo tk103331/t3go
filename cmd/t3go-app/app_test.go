@@ -2858,6 +2858,10 @@ func TestUIMobileComposerStaysVisible(t *testing.T) {
 	app.WaitFor("id:composer-model", 10*time.Second)
 	app.WaitFor("id:composer-send", 5*time.Second)
 	emptySend := app.Find("id:composer-send").Frame
+	editor := app.Find("id:composer")
+	if editor.Frame.Size.Height > 24 {
+		t.Fatalf("unfocused composer is not single-line: %v", editor.Frame)
+	}
 	app.Type("label:Message", "hello")
 	app.WaitFor("id:composer-send", 5*time.Second)
 	composer := app.Find("id:composer-card")
@@ -2873,6 +2877,12 @@ func TestUIMobileComposerStaysVisible(t *testing.T) {
 	if emptySend.Size.Width == 0 || send.Frame.Size.Width == 0 {
 		t.Fatalf("send button collapsed during draft transition: empty=%v typed=%v", emptySend, send.Frame)
 	}
+	focused := app.Find("id:composer")
+	if focused.Frame.Size.Height < 66 {
+		t.Fatalf("focused composer is not three lines: %v", focused.Frame)
+	}
+	app.Find("id:composer-card >> id:composer-model")
+	app.Find("id:composer-card >> id:composer-send")
 }
 
 // TestUIMobileSettings fits settings into a phone-sized window.

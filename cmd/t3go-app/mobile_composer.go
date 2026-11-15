@@ -39,16 +39,33 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 	}
 	focused, dragging := core.NewSignal(cx, false), core.NewSignal(cx, false)
 	height := core.NewSignal(cx, core.Points(20))
+	minHeight := func() core.Points {
+		if focused.Get() {
+			return 66
+		}
+		return 20
+	}
 
 	editor := base.Input{
 		Value: draft, OnChange: m.OnDraftChange, Multiline: true, Disabled: m.Disabled,
 		SubmitBehavior: core.SubmitBehaviorNewline, Label: m.Label,
 		Placeholder: m.Placeholder, TestID: "composer", OnPaste: m.OnPaste,
-		OnFocus: func() { focused.Set(true) },
-		OnBlur:  func() { focused.Set(false) },
+		OnFocus: func() {
+			focused.Set(true)
+			if height.Get() < 66 {
+				height.Set(66)
+			}
+		},
+		OnBlur: func() {
+			focused.Set(false)
+			if strings.TrimSpace(draft()) == "" {
+				height.Set(20)
+			}
+		},
 		OnContentSizeChange: func(s core.Size) {
-			if s.Height < 20 {
-				s.Height = 20
+			minimum := minHeight()
+			if s.Height < minimum {
+				s.Height = minimum
 			}
 			if s.Height > 200 {
 				s.Height = 200
@@ -56,8 +73,8 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 			height.Set(s.Height)
 		},
 		Style: core.Style{
-			Padding:   core.Edges{Top: 2, Right: 14, Left: 14},
-			MinHeight: core.Pt(44), FontSize: 16, LineHeight: 22,
+			Padding:  core.Edges{Top: 2, Right: 14, Left: 14},
+			FontSize: 16, LineHeight: 22,
 			TextAlignVertical: core.TextAlignVerticalTop,
 		},
 		StyleFunc: func() core.Style {
@@ -110,11 +127,6 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 	row = append(row, send)
 
 	var body []core.Node
-	if m.Controls != nil {
-		body = append(body, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
-			Padding: core.Edges{Left: 10, Right: 10, Bottom: 6}},
-			Children: []core.Node{core.Func(m.Controls)}})
-	}
 	if m.Attachments != nil {
 		body = append(body, core.Show{
 			When: func() bool {
@@ -131,7 +143,13 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 			},
 		})
 	}
-	body = append(body, editor, core.View{
+	if m.Controls != nil {
+		body = append(body, editor, core.View{Style: core.Style{Direction: core.Row, MinWidth: core.Pt(0),
+			AlignItems: core.AlignCenter}, Children: []core.Node{core.Func(m.Controls)}})
+	} else {
+		body = append(body, editor)
+	}
+	body = append(body, core.View{
 		Style: core.Style{
 			Direction: core.Row, MinWidth: core.Pt(0),
 			Margin: core.Edges{Top: 8}, Padding: core.Symmetric(0, 10),
