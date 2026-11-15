@@ -18,7 +18,8 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - HTTP REST API、SSE 事件流、WebSocket 事件流、Bearer token 鉴权、CORS
 - Web 客户端：同一份 NSGo 代码用 `GOOS=js GOARCH=wasm` 构建，由 `t3go serve --web` 直接提供
 - `t3go` CLI：`serve`、`pair`、`relay`、`doctor`、`version`
-- 多环境管理：持久化身份、环境别名与默认环境、按环境隔离草稿和排队消息；
+- 多环境管理：在设置中管理连接，侧栏同时展示多个环境的项目与会话，
+  新建项目可选目标环境；持久化身份、环境别名与默认环境、按环境隔离草稿和排队消息；
   局域网直连优先、中继回退、出站反向隧道，使用说明见
   [docs/environments-and-relay.md](docs/environments-and-relay.md)
 - 交互式权限审批：supervised 模式下 Claude Code 通过本地 MCP 询问 T3Go 客户端，允许/拒绝工具调用

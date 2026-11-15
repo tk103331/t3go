@@ -186,6 +186,7 @@ type app struct {
 	newProjectName   *core.Signal[string]
 	newProjectPath   *core.Signal[string]
 	newProjectRemote *core.Signal[bool]
+	newProjectEnv    *core.Signal[string]
 	projectBusy      *core.Signal[bool]
 
 	// folders on the connected environment's machine
@@ -198,6 +199,7 @@ type app struct {
 	newDirName *core.Signal[string]
 	newDirBusy *core.Signal[bool]
 	newDirErr  *core.Signal[string]
+	newDirSeq  int
 
 	newThreadTitle  *core.Signal[string]
 	newThreadProv   *core.Signal[string]
@@ -411,6 +413,7 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		newProjectName:   core.NewSignal(cx, ""),
 		newProjectPath:   core.NewSignal(cx, ""),
 		newProjectRemote: core.NewSignal(cx, false),
+		newProjectEnv:    core.NewSignal(cx, profile.ID),
 		projectBusy:      core.NewSignal(cx, false),
 
 		showDirs: core.NewSignal(cx, false),
@@ -472,7 +475,9 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		terminalErr:         core.NewSignal(cx, ""),
 	}
 	a.conv = chat.NewConversationState(cx)
-	a.bindKeys()
+	if manager == nil {
+		a.bindKeysOn(cx)
+	}
 	// The sidebar keeps the size and state it had last time.
 	if raw, ok := a.store.GetItem("sidebarOpen"); ok {
 		a.sidebarOpen.Set(raw != "false")
@@ -522,9 +527,6 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 	a.serverURL.Set(url)
 	a.token.Set(token)
 	cx.Cleanup(a.disposeEnvironmentSession)
-	if manager != nil {
-		manager.app = a
-	}
 	a.monitorDirect()
 	if manager != nil && profile.ID != "" && len(profile.Routes) > 0 {
 		a.serverURL.Set(profile.Routes[0].URL)
@@ -574,6 +576,9 @@ func (a *app) connectProfile(profile client.EnvironmentProfile) {
 			}
 			a.connecting.Set(false)
 			if err != nil {
+				if client.IsAuthorizationError(err) {
+					a.transportBlocked.Set(true)
+				}
 				if a.showCredentials.GetUntracked() {
 					a.credentialError.Set(friendlyError(err))
 				} else {
@@ -588,6 +593,28 @@ func (a *app) connectProfile(profile client.EnvironmentProfile) {
 				}
 				return
 			}
+			// A second address for an existing identity updates that session.
+			// Never replace its in-memory drafts or create a duplicate stream.
+			if a.manager != nil && a.manager.pending.GetUntracked() == a {
+				environmentID := st.EnvironmentID
+				if environmentID == "" {
+					environmentID = profile.ID
+				}
+				if environmentID == "" {
+					environmentID = client.LegacyEnvironmentID(c.BaseURL)
+				}
+				if existing := a.manager.sessions[environmentID]; existing != nil && existing != a {
+					if err := existing.adoptEnvironment(profile, c, st); err != nil {
+						a.connErr.Set("Could not save environment: " + err.Error())
+						return
+					}
+					existing.connectionAttempt++
+					existing.connecting.Set(false)
+					existing.finishConnection(c, st, existing.connected.GetUntracked())
+					a.manager.closePending()
+					return
+				}
+			}
 			if err := a.adoptEnvironment(profile, c, st); err != nil {
 				message := "Could not save environment: " + err.Error()
 				if a.showCredentials.GetUntracked() {
@@ -600,34 +627,45 @@ func (a *app) connectProfile(profile client.EnvironmentProfile) {
 				}
 				return
 			}
-			a.mu.Lock()
-			a.cli = c
-			a.mu.Unlock()
-			_ = a.store.SetItem("serverUrl", c.BaseURL)
-			_ = a.store.SetItem("token", c.Token)
-			a.serverURL.Set(c.BaseURL)
-			a.token.Set(c.Token)
-			a.applyState(st)
-			a.transportBlocked.Set(false)
-			a.showCredentials.Set(false)
-			a.credentialToken.Set("")
-			a.credentialError.Set("")
-			a.routeRecovery.enter(time.Now(), routeKind(a.profile.Routes, c.BaseURL))
-			a.eventSeq = st.Seq
-			a.markOnline()
-			a.connected.Set(true)
-			a.startStream(c, st.Seq)
-			a.loadApprovals()
-			if thread, ok := a.store.GetItem("selectedThread"); ok && thread != "" {
-				for _, th := range st.Threads {
-					if th.ID == thread {
-						a.selectThread(thread)
-						break
-					}
-				}
-			}
+			a.finishConnection(c, st, wasConnected)
 		})
 	}()
+}
+
+func (a *app) finishConnection(c *client.Client, st proto.State, wasConnected bool) {
+	a.mu.Lock()
+	a.cli = c
+	a.mu.Unlock()
+	_ = a.store.SetItem("serverUrl", c.BaseURL)
+	_ = a.store.SetItem("token", c.Token)
+	a.serverURL.Set(c.BaseURL)
+	a.token.Set(c.Token)
+	a.applyState(st)
+	a.transportBlocked.Set(false)
+	a.showCredentials.Set(false)
+	a.credentialToken.Set("")
+	a.credentialError.Set("")
+	a.routeRecovery.enter(time.Now(), routeKind(a.profile.Routes, c.BaseURL))
+	a.eventSeq = st.Seq
+	a.markOnline()
+	a.connected.Set(true)
+	a.startStream(c, st.Seq)
+	a.loadApprovals()
+	if wasConnected {
+		if thread := a.selected.GetUntracked(); thread != "" {
+			// The new snapshot's sequence skips events missed while offline.
+			// Refresh the transcript without replacing the unsent draft.
+			a.loadDetail(thread)
+		}
+	}
+	if thread, ok := a.store.GetItem("selectedThread"); !wasConnected && ok && thread != "" {
+		for _, th := range st.Threads {
+			if th.ID == thread {
+				a.selectThread(thread)
+				break
+			}
+		}
+	}
 }
 
 func (a *app) startStream(c *client.Client, after int64) {
@@ -682,8 +720,9 @@ func (a *app) startStream(c *client.Client, after int64) {
 
 func (a *app) disconnect() {
 	if a.manager != nil {
-		a.saveEnvironmentSession()
-		a.manager.activate("")
+		a.openSettings()
+		a.setSettingsSection("environments")
+		a.forgetEnvironment.Set(a.profile.ID)
 		return
 	}
 	// Files the user attached but never sent go with the connection.
@@ -1236,7 +1275,9 @@ func (a *app) applyEvent(e proto.Event) {
 		}
 		a.upsertThread(t)
 		if a.selected.GetUntracked() == t.ID {
-			a.markSeen(t)
+			if a.manager == nil || a.manager.app == a {
+				a.markSeen(t)
+			}
 			d := a.detail.GetUntracked()
 			d.Thread = t
 			a.detail.Set(d)
@@ -2265,7 +2306,7 @@ func (a *app) persistDrafts() {
 
 // draftFor is a thread's unsent text when it is not the open one.
 func (a *app) draftFor(id string) string {
-	if id == a.selected.Get() {
+	if id == a.selected.Get() && (a.manager == nil || a.manager.app == a) {
 		return ""
 	}
 	return a.drafts.Get()[id]
@@ -2442,7 +2483,7 @@ func (a *app) markSeen(t proto.Thread) {
 // threadUnread reports whether a thread finished work after the reader
 // last saw it.
 func (a *app) threadUnread(t proto.Thread) bool {
-	if t.ID == a.selected.Get() || t.Status == proto.ThreadRunning {
+	if (t.ID == a.selected.Get() && (a.manager == nil || a.manager.app == a)) || t.Status == proto.ThreadRunning {
 		return false
 	}
 	at, ok := a.seen.Get()[t.ID]
@@ -3638,7 +3679,7 @@ func (a *app) createProject() {
 	// On phones and touch clients, the project path belongs to the
 	// connected environment, not the device running this UI. The host
 	// browser can select those paths, so let the server validate them.
-	if !a.newProjectRemote.GetUntracked() {
+	if a.manager == nil && !a.newProjectRemote.GetUntracked() {
 		if info, err := os.Stat(path); err != nil {
 			a.connErr.Set("That directory does not exist.")
 			return
@@ -3653,7 +3694,12 @@ func (a *app) createProject() {
 			name = "Project"
 		}
 	}
-	for _, project := range a.projects.GetUntracked() {
+	target := a.projectTarget()
+	if target == nil {
+		a.connErr.Set("Choose an environment.")
+		return
+	}
+	for _, project := range target.projects.GetUntracked() {
 		if filepath.Clean(project.Path) == filepath.Clean(path) {
 			a.connErr.Set("That directory is already a project.")
 			return
@@ -3661,7 +3707,7 @@ func (a *app) createProject() {
 	}
 	a.connErr.Set("")
 	a.projectBusy.Set(true)
-	a.call(func(ctx context.Context, c *client.Client) error {
+	a.callProjectTarget(func(ctx context.Context, c *client.Client) error {
 		_, err := c.CreateProject(ctx, name, path)
 		return err
 	}, func(err error) {
@@ -3674,12 +3720,12 @@ func (a *app) createProject() {
 		a.newProjectName.Set("")
 		a.newProjectPath.Set("")
 		a.newProjectRemote.Set(false)
-		a.reload()
+		target.reload()
 	})
 }
 
 func (a *app) browseProject() {
-	if a.cx != nil && (compactSettings(a.cx) || ui.Touch(a.cx)) {
+	if a.manager != nil || (a.cx != nil && (compactSettings(a.cx) || ui.Touch(a.cx))) {
 		a.openDirs()
 		return
 	}
@@ -3707,6 +3753,8 @@ func (a *app) openDirs() {
 
 // closeDirs hides the environment's folder browser.
 func (a *app) closeDirs() {
+	a.dirsSeq++
+	a.dirsBusy.Set(false)
 	a.showDirs.Set(false)
 }
 
@@ -3717,6 +3765,8 @@ func (a *app) openNewDir() {
 }
 
 func (a *app) closeNewDir() {
+	a.newDirSeq++
+	a.newDirBusy.Set(false)
 	a.showNewDir.Set(false)
 	a.newDirName.Set("")
 	a.newDirErr.Set("")
@@ -3734,12 +3784,17 @@ func (a *app) createDir() {
 	a.newDirErr.Set("")
 	a.newDirBusy.Set(true)
 	parent := a.dirs.GetUntracked().Path
+	a.newDirSeq++
+	seq := a.newDirSeq
 	var listing proto.HostDirs
-	a.call(func(ctx context.Context, c *client.Client) error {
+	a.callProjectTarget(func(ctx context.Context, c *client.Client) error {
 		var err error
 		listing, err = c.CreateDir(ctx, parent, name)
 		return err
 	}, func(err error) {
+		if seq != a.newDirSeq {
+			return
+		}
 		a.newDirBusy.Set(false)
 		if err != nil {
 			a.newDirErr.Set(friendlyError(err))
@@ -3757,7 +3812,7 @@ func (a *app) loadDirs(path string) {
 	a.dirsErr.Set("")
 	a.dirsBusy.Set(true)
 	var listing proto.HostDirs
-	a.call(func(ctx context.Context, c *client.Client) error {
+	a.callProjectTarget(func(ctx context.Context, c *client.Client) error {
 		var err error
 		listing, err = c.Dirs(ctx, path)
 		return err
@@ -3767,6 +3822,7 @@ func (a *app) loadDirs(path string) {
 		}
 		a.dirsBusy.Set(false)
 		if err != nil {
+			a.dirs.Set(proto.HostDirs{})
 			a.dirsErr.Set(friendlyError(err))
 			return
 		}
@@ -3873,7 +3929,12 @@ func (a *app) currentProject() string {
 
 func (a *app) openNewProject() {
 	a.connErr.Set("")
-	a.newProjectRemote.Set(false)
+	id := a.profile.ID
+	if a.manager != nil && a.selected.GetUntracked() == "" && a.manager.defaultID != "" {
+		id = a.manager.defaultID
+	}
+	a.selectProjectEnvironment(id)
+	a.newProjectRemote.Set(a.manager != nil)
 	a.showNewProject.Set(true)
 }
 
@@ -3923,28 +3984,28 @@ func (a *app) openNewThread() {
 }
 
 // bindKeys gives the app its keyboard shortcuts.
-func (a *app) bindKeys() {
-	a.cx.OnKey("mod+k", func() {
+func (a *app) bindKeysOn(cx *core.Scope) {
+	cx.OnKey("mod+k", func() {
 		if a.connected.GetUntracked() {
 			a.openPalette()
 		}
 	})
-	a.cx.OnKey("mod+n", func() {
+	cx.OnKey("mod+n", func() {
 		if a.connected.GetUntracked() {
 			a.openNewThread()
 		}
 	})
-	a.cx.OnKey("mod+shift+n", func() {
+	cx.OnKey("mod+shift+n", func() {
 		if a.connected.GetUntracked() {
 			a.openNewProject()
 		}
 	})
-	a.cx.OnKey("mod+,", func() {
+	cx.OnKey("mod+,", func() {
 		if a.connected.GetUntracked() {
 			a.openSettings()
 		}
 	})
-	a.cx.OnKey("mod+b", func() {
+	cx.OnKey("mod+b", func() {
 		if a.connected.GetUntracked() {
 			a.setSidebarOpen(!a.sidebarOpen.GetUntracked())
 		}
@@ -4121,18 +4182,25 @@ func (a *app) saveSettingsDraft() {
 
 // applyAppearance follows the environment's theme and accent.
 func (a *app) applyAppearance(s proto.Settings) {
+	cx := a.cx
+	if a.manager != nil {
+		if a.manager.app != a {
+			return
+		}
+		cx = a.manager.cx
+	}
 	switch s.Theme {
 	case "light":
-		a.cx.SetAppearance(core.AppearanceLight)
+		cx.SetAppearance(core.AppearanceLight)
 	case "dark":
-		a.cx.SetAppearance(core.AppearanceDark)
+		cx.SetAppearance(core.AppearanceDark)
 	default:
-		a.cx.SetAppearance(core.AppearanceSystem)
+		cx.SetAppearance(core.AppearanceSystem)
 	}
 	if accent := accentTheme(s.Accent); accent != nil {
-		a.cx.SetTheme(accent)
+		cx.SetTheme(accent)
 	} else {
-		a.cx.SetTheme(nil)
+		cx.SetTheme(nil)
 	}
 }
 

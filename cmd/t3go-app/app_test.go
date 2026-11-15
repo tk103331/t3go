@@ -1750,7 +1750,7 @@ func TestUIBranchToolbar(t *testing.T) {
 	app.WaitFor("id:new-branch-dialog", 5*time.Second)
 	app.Type("label:Branch name", "toolbar")
 	app.Press("id:confirm-new-branch")
-	app.WaitForGone("id:new-branch-dialog", 10*time.Second)
+	waitSheetGone(app, "id:new-branch-dialog")
 	app.WaitUntil(10*time.Second, func() bool { return git.Status(ctx, repo).Branch == "toolbar" })
 }
 
@@ -2351,14 +2351,14 @@ func TestUINewProject(t *testing.T) {
 		return app.Find("label:Project path").Text == "/definitely/not/here"
 	})
 	app.WaitUntil(10*time.Second, func() bool {
-		if app.Exists("text:That directory does not exist.") {
+		if app.Exists("text:path is not a directory") {
 			return true
 		}
 		if app.Exists("id:create-project") {
 			app.Press("id:create-project")
 			app.Settle()
 		}
-		return app.Exists("text:That directory does not exist.")
+		return app.Exists("text:path is not a directory")
 	})
 	if !app.Exists("id:new-project-dialog") {
 		t.Fatal("the dialog closed on an invalid path")
@@ -2914,7 +2914,12 @@ func TestUIMobileSettings(t *testing.T) {
 			app.Find("id:settings-dialog").Frame, app.Find("id:settings-nav-general").Frame)
 	}
 	app.Press("id:settings-nav-about")
-	app.WaitFor("id:settings-disconnect", 5*time.Second)
+	app.WaitFor("id:settings-manage-environments", 5*time.Second)
+	app.Press("id:settings-manage-environments")
+	app.WaitFor("id:environment-add", 5*time.Second)
+	if app.Exists("id:settings-save") {
+		t.Fatal("environment management exposes unrelated settings save")
+	}
 }
 
 // TestUIMobileDialogsFit keeps the dialogs inside a phone and above the

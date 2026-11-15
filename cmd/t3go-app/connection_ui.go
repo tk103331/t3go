@@ -10,34 +10,16 @@ import (
 	"github.com/oneo-me/nsgo/ui"
 )
 
-// The header owns its subscriptions, so connection changes keep the composer
-// mounted and focused. An environment name always identifies the target machine.
-func (a *app) environmentHeader(cx *core.Scope) core.Node {
+// Status has its own reactive boundary so transport changes keep input focus.
+func (a *app) environmentStatus(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	height := core.Points(32)
-	if ui.Touch(cx) {
-		height = 44
-	}
-	return core.View{Style: core.Style{Padding: core.Symmetric(4, 12), FlexShrink: 0,
-		BorderWidth: 1, BorderColor: colors.Border()}, Children: []core.Node{
-		base.Button{Label: "Switch environment", TestID: "environment-switcher",
-			OnPress: func(core.PressEvent) { a.showEnvironments.Set(true) },
-			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
-				MinHeight: core.Pt(height), Width: core.Pct(100), MaxWidth: core.Pt(460), MinWidth: core.Pt(0),
-				Padding: core.Symmetric(0, 8), CornerRadius: 6},
-			StyleFunc: func() core.Style {
-				return core.Style{Hover: &core.Style{Background: colors.Inset()}, Focus: ui.FocusRing(cx, -2)}
-			},
-			Children: []core.Node{
-				ui.Icon(lucide.Network, 16, colors.Muted),
-				core.Text{Content: a.envName(), MaxLines: 1, TestID: "current-environment-name",
-					Style:     core.Style{FontSize: 13, FontWeight: ui.Semibold, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
-					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-				core.Text{Content: a.connectionLabel(), TestID: "connection-status", MaxLines: 1,
-					Style:     core.Style{FontSize: 11, FlexShrink: 0},
-					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-				ui.Icon(lucide.ChevronDown, 14, colors.Muted),
-			}},
+	return core.View{Style: core.Style{Direction: core.Row, Gap: 5, MinWidth: core.Pt(0)}, Children: []core.Node{
+		core.Text{Content: a.envName(), TestID: "current-environment-name", MaxLines: 1,
+			Style:     core.Style{FontSize: 10, FlexShrink: 1, MinWidth: core.Pt(0)},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+		core.Text{Content: a.connectionLabel(), TestID: "connection-status", MaxLines: 1,
+			Style:     core.Style{FontSize: 10, FlexShrink: 0},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 	}}
 }
 
@@ -50,6 +32,9 @@ func (a *app) connectionLabel() string {
 	}
 	if a.offline.Get() {
 		return "Reconnecting…"
+	}
+	if !a.connected.Get() {
+		return "Not connected"
 	}
 	switch routeKind(a.profile.Routes, a.serverURL.Get()) {
 	case "relay":

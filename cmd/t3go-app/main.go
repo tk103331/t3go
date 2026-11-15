@@ -20,23 +20,51 @@ func main() {
 	nsgo.Run(Root, nsgo.WindowSize(1100, 760))
 }
 
-// Root builds the app: a connection screen until an environment answers,
-// then the projects and threads in it.
+// Root keeps every saved environment connected while rendering one conversation.
 func Root(cx *core.Scope) core.Node {
 	manager := newEnvironmentManager(cx)
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		_ = manager.revision.Get()
-		var a *app
-		// Storage reads initialize a session; they must not subscribe this
-		// switch boundary to every later draft or preference write.
-		cx.Untrack(func() { a = newAppForEnvironment(cx, manager, manager.find(manager.current)) })
-		return core.Group{core.Dynamic(a.environmentDialog), core.Func(a.credentialsDialog), core.Dynamic(func(cx *core.Scope) core.Node {
-			if !a.connected.Get() {
-				return a.connectView(cx)
+	manager.start()
+	return manager.view(cx)
+}
+
+func (manager *environmentManager) view(cx *core.Scope) core.Node {
+	return core.Group{
+		core.Dynamic(func(cx *core.Scope) core.Node {
+			a := manager.active.Get()
+			a.bindKeysOn(cx)
+			return core.Group{core.Dynamic(a.environmentDialog), core.Dynamic(func(cx *core.Scope) core.Node {
+				if !a.connected.Get() {
+					if a.profile.ID == "" {
+						return a.connectView(cx)
+					}
+					if a.connecting.Get() {
+						ready := false
+						for _, session := range manager.sessions {
+							ready = session.connected.Get() || ready
+						}
+						if !ready {
+							return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+								Children: []core.Node{ui.Spinner{Size: 20, Label: "Connecting environments"}}}
+						}
+					}
+				}
+				return a.mainView(cx)
+			})}
+		}),
+		core.Each(func() []string {
+			_ = manager.revision.Get()
+			var ids []string
+			for _, p := range manager.profiles.Get() {
+				if manager.sessions[p.ID] != nil {
+					ids = append(ids, p.ID)
+				}
 			}
-			return a.mainView(cx)
-		})}
-	})
+			return ids
+		}, func(id string) string { return id }, func(_ *core.Scope, item func() string, _ func() int) core.Node {
+			return core.Func(manager.sessions[item()].credentialsDialog)
+		}),
+		core.Dynamic(manager.addEnvironmentDialog),
+	}
 }
 
 func (a *app) connectView(cx *core.Scope) core.Node {
@@ -76,12 +104,15 @@ func (a *app) connectView(cx *core.Scope) core.Node {
 				}
 				return "Connect"
 			}(), Icon: lucide.LogIn, Variant: ui.ButtonPrimary, Size: controlSize(cx),
+				TestID:   "connect-environment",
 				OnPress:  func() { a.connect(a.serverURL.Get(), a.token.Get()) },
 				Disabled: a.connecting.Get, Flex: 1},
 			core.Text{Content: "Find the token in the environment data directory, or run `t3go pair`.",
 				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-			ui.Button{Text: "Saved environments", Icon: lucide.Network, Variant: ui.ButtonGhost,
-				TestID: "environments", Size: controlSize(cx), OnPress: func() { a.showEnvironments.Set(true) }},
+			core.Show{When: func() bool { return a.manager == nil || a.manager.pending.Get() != a }, Then: func(*core.Scope) core.Node {
+				return ui.Button{Text: "Saved environments", Icon: lucide.Network, Variant: ui.ButtonGhost,
+					TestID: "environments", Size: controlSize(cx), OnPress: func() { a.showEnvironments.Set(true) }}
+			}},
 		}},
 	}}
 }
@@ -122,7 +153,6 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 		style.PaddingEnv = core.EnvAll(core.EnvSafeArea)
 	}
 	return core.View{Style: style, Children: []core.Node{
-		core.Dynamic(a.environmentHeader),
 		core.Show{When: func() bool { return a.connErr.Get() != "" && !a.transportBlocked.Get() },
 			Then: func(*core.Scope) core.Node { return core.Dynamic(a.errorBanner) }},
 		core.Dynamic(a.connectionBanner),
@@ -134,6 +164,12 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 // envName is what the environment calls itself, the brand until it is
 // renamed in settings.
 func (a *app) envName() string {
+	if a.manager != nil {
+		_ = a.manager.profiles.Get()
+		if p := a.manager.find(a.profile.ID); p.Alias != "" {
+			return p.Alias
+		}
+	}
 	if a.profile.Alias != "" {
 		return a.profile.Alias
 	}
@@ -156,14 +192,20 @@ func (a *app) errorBanner(cx *core.Scope) core.Node {
 }
 
 func (a *app) sidebar(cx *core.Scope) core.Node {
+	var takingKeys *core.Signal[bool]
+	var offset *core.Points
+	if a.manager != nil {
+		takingKeys, offset = a.manager.sidebarKeys, &a.manager.sidebarOffset
+	}
 	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
 		core.View{Style: core.Style{Padding: core.Edges{Top: 4, Right: 10, Bottom: 2, Left: 10}}, Children: []core.Node{
 			mobileInput{Scope: cx, Input: base.Input{Value: a.sidebarQuery.Get, OnChange: a.sidebarQuery.Set,
 				Placeholder: "Search threads", Label: "Search threads"}},
 		}},
 		core.View{Style: ui.FillRest, Children: []core.Node{
-			ui.Sidebar{SectionsFunc: func() []ui.SidebarSection { return a.sidebarSections(cx) },
-				Selected: a.selected.Get, OnSelect: a.selectThread},
+			scopedSidebar{Sections: func() []ui.SidebarSection { return a.sidebarSections(cx) },
+				TakingKeys: takingKeys, Offset: offset,
+				Selected: func() string { return a.threadKey(a.selected.Get()) }, OnSelect: a.selectSidebarThread},
 		}},
 		a.sidebarFooter(cx),
 	}}
@@ -172,12 +214,81 @@ func (a *app) sidebar(cx *core.Scope) core.Node {
 // sidebarSections builds the project and thread groups under the current
 // search, inside the sidebar's own scope so typing keeps the field still.
 func (a *app) sidebarSections(cx *core.Scope) []ui.SidebarSection {
+	query := strings.ToLower(strings.TrimSpace(a.sidebarQuery.Get()))
+	showArchived := a.showArchived.Get()
+	if a.manager == nil {
+		return a.projectSections(cx, query, showArchived)
+	}
+	_ = a.manager.revision.Get()
+	var sections []ui.SidebarSection
+	for _, p := range a.manager.profiles.Get() {
+		session := a.manager.sessions[p.ID]
+		if session == nil {
+			continue
+		}
+		groups := session.projectSections(cx, query, showArchived)
+		if query != "" && len(groups) == 0 {
+			continue
+		}
+		colors := ui.ColorsOf(cx)
+		name := session.envName()
+		if name == "T3Go" && p.Name != "" {
+			name = p.Name
+		}
+		sections = append(sections, ui.SidebarSection{
+			Title: name, TestID: "sidebar-environment-" + p.ID,
+			Trailing: core.Text{Content: session.connectionLabel(), TestID: "environment-status-" + p.ID,
+				Style: core.Style{FontSize: 10}, StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+		})
+		sections = append(sections, groups...)
+	}
+	if len(sections) == 0 && query != "" {
+		sections = append(sections, ui.SidebarSection{Title: "Projects", TestID: "sidebar-no-results",
+			Note: ui.Text("No threads match your search.", 12, ui.Regular, ui.ColorsOf(cx).Faint)})
+	}
+	return sections
+}
+
+func (a *app) threadKey(id string) string {
+	if id == "" || a.manager == nil {
+		return id
+	}
+	return a.profile.ID + "/" + id
+}
+
+func (a *app) sidebarID(id string) string {
+	if a.manager != nil && len(a.manager.profiles.Get()) > 1 {
+		return a.profile.ID + "/" + id
+	}
+	return id
+}
+
+func (a *app) selectSidebarThread(key string) {
+	if a.manager == nil {
+		a.selectThread(key)
+		return
+	}
+	env, thread, ok := strings.Cut(key, "/")
+	if session := a.manager.sessions[env]; ok && session != nil {
+		a.manager.activate(env)
+		session.selectThread(thread)
+	}
+}
+
+func (a *app) inEnvironment(action func()) func() {
+	return func() {
+		if a.manager != nil {
+			a.manager.activate(a.profile.ID)
+		}
+		action()
+	}
+}
+
+func (a *app) projectSections(cx *core.Scope, query string, showArchived bool) []ui.SidebarSection {
 	colors := ui.ColorsOf(cx)
 	projects := a.projects.Get()
 	allThreads := a.threads.Get()
-	showArchived := a.showArchived.Get()
 	pinned := a.pinned.Get()
-	query := strings.ToLower(strings.TrimSpace(a.sidebarQuery.Get()))
 	var sections []ui.SidebarSection
 	for _, p := range projects {
 		p := p
@@ -209,14 +320,15 @@ func (a *app) sidebarSections(cx *core.Scope) []ui.SidebarSection {
 			if a.threadPinned(t.ID) {
 				pinText = "Unpin thread"
 			}
-			items = append(items, ui.SidebarItem{ID: t.ID, Text: t.Title, TestID: "thread-" + t.ID,
+			rowID := a.sidebarID(t.ID)
+			items = append(items, ui.SidebarItem{ID: a.threadKey(t.ID), Text: t.Title, TestID: "thread-" + rowID,
 				Content: a.threadRow(cx, t, colors),
 				Menu: []core.Node{
-					ui.MenuItem{Text: pinText, TestID: "pin-thread-" + t.ID, OnSelect: func() { a.togglePin(t) }},
-					ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread-" + t.ID, OnSelect: func() { a.askRenameThread(t) }},
-					ui.MenuItem{Text: archiveText, TestID: "archive-thread-" + t.ID, OnSelect: func() { a.setArchived(t, !t.Archived) }},
+					ui.MenuItem{Text: pinText, TestID: "pin-thread-" + rowID, OnSelect: func() { a.togglePin(t) }},
+					ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread-" + rowID, OnSelect: a.inEnvironment(func() { a.askRenameThread(t) })},
+					ui.MenuItem{Text: archiveText, TestID: "archive-thread-" + rowID, OnSelect: func() { a.setArchived(t, !t.Archived) }},
 					ui.MenuItem{Text: "Delete thread", Variant: ui.MenuItemDanger,
-						TestID: "delete-thread-" + t.ID, OnSelect: func() { a.askDeleteThread(t) }},
+						TestID: "delete-thread-" + rowID, OnSelect: a.inEnvironment(func() { a.askDeleteThread(t) })},
 				}})
 		}
 		if query != "" && len(items) == 0 {
@@ -226,16 +338,16 @@ func (a *app) sidebarSections(cx *core.Scope) []ui.SidebarSection {
 			Open:         func() bool { return !a.projectCollapsed(p.ID) },
 			OnOpenChange: func(open bool) { a.setProjectCollapsed(p.ID, !open) },
 			Trailing:     ui.Text(strconv.Itoa(len(items)), 10.5, ui.Regular, colors.Faint),
-			TestID:       "project-" + p.ID,
+			TestID:       "project-" + a.sidebarID(p.ID),
 		}
 		section.Actions = ui.Menu{
-			TestID:  "project-menu-" + p.ID,
-			Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Project actions", TestID: "project-actions-" + p.ID},
+			TestID:  "project-menu-" + a.sidebarID(p.ID),
+			Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Project actions", TestID: "project-actions-" + a.sidebarID(p.ID)},
 			Children: []core.Node{
-				ui.MenuItem{Text: "New thread…", TestID: "new-thread-in-" + p.ID, OnSelect: func() { a.openNewThreadIn(p.ID) }},
-				ui.MenuItem{Text: "Rename project…", TestID: "rename-project-" + p.ID, OnSelect: func() { a.askRenameProject(p) }},
+				ui.MenuItem{Text: "New thread…", TestID: "new-thread-in-" + a.sidebarID(p.ID), OnSelect: a.inEnvironment(func() { a.openNewThreadIn(p.ID) })},
+				ui.MenuItem{Text: "Rename project…", TestID: "rename-project-" + a.sidebarID(p.ID), OnSelect: a.inEnvironment(func() { a.askRenameProject(p) })},
 				ui.MenuItem{Text: "Delete project", Variant: ui.MenuItemDanger,
-					TestID: "delete-project-" + p.ID, OnSelect: func() { a.askDeleteProject(p) }},
+					TestID: "delete-project-" + a.sidebarID(p.ID), OnSelect: a.inEnvironment(func() { a.askDeleteProject(p) })},
 			},
 		}
 		if len(items) == 0 {
@@ -251,6 +363,9 @@ func (a *app) sidebarSections(cx *core.Scope) []ui.SidebarSection {
 		sections = append(sections, section)
 	}
 	if len(sections) == 0 {
+		if query != "" && a.manager != nil {
+			return nil
+		}
 		note := "Add a project to start."
 		switch {
 		case query != "":
@@ -258,7 +373,8 @@ func (a *app) sidebarSections(cx *core.Scope) []ui.SidebarSection {
 		case len(projects) > 0:
 			note = "No threads yet."
 		}
-		sections = append(sections, ui.SidebarSection{Title: "Projects", Note: ui.Text(note, 12, ui.Regular, colors.Faint)})
+		sections = append(sections, ui.SidebarSection{Title: "Projects", TestID: "projects-empty-" + a.profile.ID,
+			Note: ui.Text(note, 12, ui.Regular, colors.Faint)})
 	}
 	return sections
 }
@@ -362,7 +478,6 @@ func (a *app) sidebarFooter(cx *core.Scope) core.Node {
 		ui.IconButton{Icon: lucide.FolderPlus, Label: "New project", Size: iconButtonSize(cx), TestID: "new-project", OnPress: a.openNewProject},
 		ui.IconButton{Icon: lucide.MessageSquarePlus, Label: "New thread", Size: iconButtonSize(cx), TestID: "new-thread", OnPress: a.openNewThread},
 		ui.Spacer{},
-		a.environmentButton(cx),
 		ui.IconButton{IconFunc: func() *core.SVG {
 			if a.showArchived.Get() {
 				return lucide.ArchiveRestore()
@@ -379,7 +494,7 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 	d := a.detail.Get()
 	if d.Thread.ID == "" {
 		return core.View{Style: core.Style{Height: core.Pt(32), Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-			ui.Text(a.envName(), 13, ui.Semibold, colors.Muted), ui.Spacer{}, a.rightToggle(),
+			core.Dynamic(a.environmentStatus), ui.Spacer{}, a.rightToggle(),
 		}}
 	}
 	meta := d.Thread.Provider
@@ -392,6 +507,7 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 		core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 11},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+		core.Dynamic(a.environmentStatus),
 	}}
 	if compactSettings(cx) {
 		// A phone row has no space for every action beside the title.
@@ -505,8 +621,13 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 			Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexShrink: 0,
 					Padding: core.Symmetric(8, 8), Gap: 8}, Children: []core.Node{
-					ui.IconButton{Icon: lucide.ChevronLeft, Label: "Back to threads", OnPress: func() { a.selected.Set("") }},
+					ui.IconButton{Icon: lucide.ChevronLeft, Label: "Back to threads", OnPress: func() {
+						a.persistView()
+						a.selected.Set("")
+					}},
 					core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{core.Dynamic(a.contentHeader)}},
+					ui.IconButton{Icon: lucide.Settings, Label: "Settings", TestID: "settings",
+						Size: iconButtonSize(cx), OnPress: a.openSettings},
 				}},
 				core.View{Style: ui.FillRest, Children: []core.Node{a.threadPane(cx)}},
 			}}
@@ -515,17 +636,23 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 		Overflow: core.Hidden}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexShrink: 0,
 			Padding: core.Symmetric(8, 12), Gap: 8}, Children: []core.Node{
-			ui.Text(a.envName(), 16, ui.Bold, colors.Text), ui.Spacer{},
+			ui.Text("T3Go", 16, ui.Bold, colors.Text), ui.Spacer{},
 		}},
 		core.View{Style: ui.FillRest, Children: []core.Node{core.Dynamic(a.sidebar)}},
 	}}
 }
 
 func (a *app) dialogs(cx *core.Scope) core.Node {
-	return core.Group{a.newProjectDialog(cx), a.newThreadDialog(cx), a.settingsDialog(cx), a.diffDialog(cx), a.runsDialog(cx),
-		a.renameDialog(cx), a.deleteDialog(cx), a.paletteDialog(cx), a.approvalDialog(cx), a.discardDialog(cx),
-		a.editMessageDialog(cx), a.newBranchDialog(cx), a.branchesDialog(cx), a.promptArgsDialog(cx),
-		a.devicesDialog(cx), a.customModelDialog(cx), a.restoreDialog(cx), a.dirsDialog(cx), a.newDirDialog(cx)}
+	// Each modal owns its subscriptions. Keyboard/layout changes in one dialog
+	// must not dispose a focused field in another one.
+	return core.Group{
+		core.Dynamic(a.newProjectDialog), core.Dynamic(a.newThreadDialog), core.Dynamic(a.settingsDialog),
+		core.Dynamic(a.diffDialog), core.Dynamic(a.runsDialog), core.Dynamic(a.renameDialog), core.Dynamic(a.deleteDialog),
+		core.Dynamic(a.paletteDialog), core.Dynamic(a.approvalDialog), core.Dynamic(a.discardDialog),
+		core.Dynamic(a.editMessageDialog), core.Dynamic(a.newBranchDialog), core.Dynamic(a.branchesDialog),
+		core.Dynamic(a.promptArgsDialog), core.Dynamic(a.devicesDialog), core.Dynamic(a.customModelDialog),
+		core.Dynamic(a.restoreDialog), core.Dynamic(a.dirsDialog), core.Dynamic(a.newDirDialog),
+	}
 }
 
 // approvalDialog asks about the first tool call a supervised run is
@@ -596,9 +723,7 @@ func (a *app) paletteDialog(cx *core.Scope) core.Node {
 		// Keep the palette above the software keyboard, which covers the
 		// bottom of the window on phones. A sheet swipe would take the
 		// list's drags, so phones close the palette with this button.
-		if keyboard := cx.Env().KeyboardHeight(); keyboard > 0 {
-			style.Margin = core.Edges{Bottom: keyboard}
-		}
+		style.MarginEnv = core.EnvEdges{Bottom: core.EnvKeyboard}
 		footer = []core.Node{ui.Button{Text: "Close", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "palette-close",
 			OnPress: func() { a.showPalette.Set(false) }}}
 	}
@@ -621,7 +746,7 @@ func (a *app) newProjectDialog(cx *core.Scope) core.Node {
 	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showNewProject.Get, OnOpenChange: closeDialog(a.showNewProject), Title: "New project",
 		Description: "Register a directory the agent can work in. The folder must already exist.",
 		TestID:      "new-project-dialog", Style: dialogWidth(cx, 520), Children: []core.Node{
-			a.environmentContext(cx, "project-environment"),
+			core.Dynamic(a.projectEnvironmentSelector),
 			mobileInput{Scope: cx, Input: base.Input{Value: a.newProjectName.Get, OnChange: a.newProjectName.Set,
 				Placeholder: "Defaults to the folder's name", Label: "Project name"}},
 			core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{
@@ -631,7 +756,7 @@ func (a *app) newProjectDialog(cx *core.Scope) core.Node {
 						OnSubmit: func(string) { a.createProject() }}},
 				}},
 				ui.Button{Text: browseLabel, Icon: lucide.FolderOpen, Variant: ui.ButtonSecondary,
-					TestID: "browse-project", OnPress: a.browseProject},
+					TestID: "browse-project", Disabled: a.projectBusy.Get, OnPress: a.browseProject},
 			}},
 			core.Text{Content: "The project's path is used for diffs, files, terminals and worktrees.",
 				Style:     core.Style{FontSize: 11},
@@ -804,15 +929,20 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 			a.closeSettings()
 		}
 	}, NoCloseOnBackdropPress: compactSettings(cx),
-		Title: "Settings", Description: "Defaults for new threads in this environment.",
+		Title: "Settings", Description: "Manage environments and workspace preferences.",
 		TestID: "settings-dialog", Style: settingsDialogStyle(cx), Children: []core.Node{core.Dynamic(a.settingsBody)},
-		Footer: settingsFooter(cx, a)}
+		Footer: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
+			if a.settingsSection.Get() == "environments" {
+				return ui.Button{Text: "Close", Variant: ui.ButtonGhost, TestID: "settings-close", OnPress: a.closeSettings}
+			}
+			return core.View{Style: core.Style{Direction: core.Row, Gap: 8, Width: core.Pct(100)}, Children: settingsFooter(cx, a)}
+		})}}
 }
 
 // settingsDialogStyle is wide on desktops and the sheet's width on phones.
 func settingsDialogStyle(cx *core.Scope) core.Style {
 	if compactSettings(cx) {
-		return core.Style{}
+		return dialogWidth(cx, 780)
 	}
 	return core.Style{Width: core.Pt(780)}
 }
@@ -828,8 +958,7 @@ func dialogWidth(cx *core.Scope, width core.Points) core.Style {
 	return core.Style{Width: core.Pt(width)}
 }
 
-// settingsFooter keeps Disconnect out of the phone's short footer; it
-// lives in About there instead.
+// settingsFooter saves only the current environment's preference draft.
 func settingsFooter(cx *core.Scope, a *app) []core.Node {
 	if compactSettings(cx) {
 		return []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
@@ -843,7 +972,6 @@ func settingsFooter(cx *core.Scope, a *app) []core.Node {
 		}}}
 	}
 	return []core.Node{
-		ui.Button{Text: "Disconnect", Variant: ui.ButtonGhost, TestID: "disconnect", OnPress: func() { a.closeSettings(); a.disconnect() }},
 		ui.Spacer{},
 		ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: a.closeSettings},
 		ui.Button{Text: "Save", Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "settings-save", OnPress: func() {

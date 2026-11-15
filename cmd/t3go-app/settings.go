@@ -18,6 +18,7 @@ type settingsNavItem struct {
 
 var settingsNav = []settingsNavItem{
 	{ID: "general", Label: "General", Icon: lucide.Settings},
+	{ID: "environments", Label: "Environments", Icon: lucide.Network},
 	{ID: "providers", Label: "Providers", Icon: lucide.Bot},
 	{ID: "usage", Label: "Usage", Icon: lucide.ChartColumn},
 	{ID: "worktrees", Label: "Worktrees", Icon: lucide.GitBranch},
@@ -67,6 +68,12 @@ func (a *app) settingsBody(cx *core.Scope) core.Node {
 	}
 	var page core.Node
 	switch section {
+	case "environments":
+		if a.manager != nil {
+			page = a.environmentManagement(cx)
+		} else {
+			page = ui.Text("Connect an environment to manage its routes.", 12, ui.Regular, colors.Muted)
+		}
 	case "providers":
 		page = a.settingsProviders(cx)
 	case "usage":
@@ -91,12 +98,11 @@ func (a *app) settingsBody(cx *core.Scope) core.Node {
 			chips = append(chips, ui.Button{Text: item.Label, Variant: variant, Size: controlSize(cx),
 				TestID: "settings-nav-" + item.ID, OnPress: func() { a.setSettingsSection(item.ID) }})
 		}
-		height := core.Points(cx.Env().Window().Height * 0.62)
-		if height < 320 {
-			height = 320
-		}
 		return core.View{Style: core.Style{Direction: core.Column, Width: core.Pct(100),
-			Height: core.Pt(height), MinHeight: core.Pt(0), Gap: 8}, Children: []core.Node{
+			MinHeight: core.Pt(0), Gap: 8}, StyleFunc: func() core.Style {
+			height := max(160, (cx.Env().Window().Height-cx.Env().KeyboardHeight())*0.62)
+			return core.Style{Height: core.Pt(height)}
+		}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: chips},
 			core.Scroll{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), MinWidth: core.Pt(0)},
 				Children: []core.Node{page}},
@@ -404,9 +410,9 @@ func (a *app) settingsAbout(cx *core.Scope) core.Node {
 		core.Text{Content: "Agent CLIs run locally on the environment machine. The client never sees a provider's tokens or process output beyond the thread.",
 			MaxLines: 4, Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 	}
-	if compactSettings(cx) {
-		body = append(body, ui.Button{Text: "Disconnect environment", Variant: ui.ButtonGhost, Size: controlSize(cx),
-			TestID: "settings-disconnect", OnPress: func() { a.closeSettings(); a.disconnect() }})
+	if a.manager != nil {
+		body = append(body, ui.Button{Text: "Manage environments", Variant: ui.ButtonGhost, Size: controlSize(cx),
+			TestID: "settings-manage-environments", OnPress: func() { a.setSettingsSection("environments") }})
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: body}
 }

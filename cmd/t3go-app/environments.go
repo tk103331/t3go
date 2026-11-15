@@ -102,19 +102,27 @@ func (a *app) restoreEnvironmentData() {
 }
 
 type environmentManager struct {
-	store     core.Storage
-	profiles  *core.Signal[[]client.EnvironmentProfile]
-	revision  *core.Signal[int]
-	current   string
-	defaultID string
-	adding    bool
-	migrating bool
-	app       *app
+	cx            *core.Scope
+	store         core.Storage
+	profiles      *core.Signal[[]client.EnvironmentProfile]
+	revision      *core.Signal[int]
+	current       string
+	defaultID     string
+	adding        bool
+	migrating     bool
+	app           *app
+	sessions      map[string]*app
+	active        *core.Signal[*app]
+	pending       *core.Signal[*app]
+	sidebarKeys   *core.Signal[bool]
+	sidebarOffset core.Points
 }
 
 func newEnvironmentManager(cx *core.Scope) *environmentManager {
-	m := &environmentManager{store: cx.Storage(), profiles: core.NewSignalFunc(cx,
-		[]client.EnvironmentProfile{}, func([]client.EnvironmentProfile, []client.EnvironmentProfile) bool { return false }),
+	m := &environmentManager{cx: cx, store: cx.Storage(), sessions: map[string]*app{},
+		sidebarKeys: core.NewSignal(cx, false),
+		active:      core.NewSignal[*app](cx, nil), pending: core.NewSignal[*app](cx, nil), profiles: core.NewSignalFunc(cx,
+			[]client.EnvironmentProfile{}, func([]client.EnvironmentProfile, []client.EnvironmentProfile) bool { return false }),
 		revision: core.NewSignal(cx, 0)}
 	var saved savedEnvironments
 	if raw, ok := m.store.GetItem("environments:v1"); ok && json.Unmarshal([]byte(raw), &saved) == nil && saved.Version == 1 {
@@ -161,12 +169,119 @@ func (m *environmentManager) save() error {
 }
 
 func (m *environmentManager) activate(id string) {
-	if m.app != nil {
-		m.app.saveEnvironmentSession()
+	if id == "" {
+		m.addEnvironment()
+		return
 	}
-	m.current, m.adding = id, id == ""
+	next := m.sessions[id]
+	if next == nil || next == m.app {
+		return
+	}
+	if m.app != nil {
+		m.app.persistView()
+		next.sidebarQuery.Set(m.app.sidebarQuery.GetUntracked())
+		next.showArchived.Set(m.app.showArchived.GetUntracked())
+		next.sidebarOpen.Set(m.app.sidebarOpen.GetUntracked())
+		next.sidebarWidth.Set(m.app.sidebarWidth.GetUntracked())
+	}
+	m.current, m.app = id, next
+	next.applyAppearance(next.settings.GetUntracked())
+	m.active.Set(next)
+	_ = m.save()
+}
+
+// Sessions belong to the workspace scope, never to the selected conversation's
+// render scope. Changing the visible conversation must not cancel another SSE.
+func (m *environmentManager) newSession(p client.EnvironmentProfile) *app {
+	var a *app
+	m.cx.Run(func() {
+		child := m.cx.Child()
+		child.Run(func() {
+			child.Untrack(func() { a = newAppForEnvironment(child, m, p) })
+		})
+	})
+	return a
+}
+
+func (m *environmentManager) start() {
+	for _, p := range m.profiles.GetUntracked() {
+		m.sessions[p.ID] = m.newSession(p)
+	}
+	m.app = m.sessions[m.current]
+	if m.app == nil {
+		for _, p := range m.profiles.GetUntracked() {
+			m.app, m.current = m.sessions[p.ID], p.ID
+			break
+		}
+	}
+	if m.app == nil {
+		m.app = m.newSession(client.EnvironmentProfile{})
+	}
+	if m.defaultID == "" {
+		m.defaultID = m.current
+	}
+	m.active.Set(m.app)
+}
+
+func (m *environmentManager) addEnvironment() {
+	if m.pending.GetUntracked() != nil {
+		return
+	}
+	m.adding = true
+	pending := m.newSession(client.EnvironmentProfile{})
+	m.adding = false
+	m.pending.Set(pending)
+}
+
+func (m *environmentManager) closePending() {
+	pending := m.pending.GetUntracked()
+	if pending != nil {
+		pending.connectionAttempt++
+	}
+	m.pending.Set(nil)
+	if pending != nil {
+		m.cx.Post(func() {
+			if m.sessions[pending.profile.ID] != pending && m.app != pending {
+				pending.cx.Dispose()
+			}
+		})
+	}
+}
+
+func (m *environmentManager) register(a *app, previous string) {
+	if previous != a.profile.ID && m.sessions[previous] == a {
+		delete(m.sessions, previous)
+	}
+	m.sessions[a.profile.ID] = a
+	if m.app == a {
+		m.current = a.profile.ID
+	}
+	if m.pending.GetUntracked() == a {
+		// Keep the current conversation visible after adding an environment.
+		m.pending.Set(nil)
+		if m.app == nil || (m.app.profile.ID == "" && !m.app.connected.GetUntracked()) {
+			previousApp := m.app
+			m.app, m.current = a, a.profile.ID
+			m.active.Set(a)
+			if previousApp != nil {
+				m.cx.Post(func() { previousApp.cx.Dispose() })
+			}
+		}
+	}
 	_ = m.save()
 	m.revision.Set(m.revision.GetUntracked() + 1)
+}
+
+func (a *app) persistView() {
+	if a.draftSave != nil {
+		a.draftSave()
+		a.draftSave = nil
+	}
+	a.persistDrafts()
+	a.saveAttachmentDraft()
+	_ = a.store.SetItem("selectedThread", a.selected.GetUntracked())
+	a.persistPendingMessages()
+	a.stopDictation()
 }
 
 // Disposing a reactive scope must not change its signals: doing so can re-enter
@@ -206,7 +321,6 @@ func (a *app) disposeEnvironmentSession() {
 
 func (m *environmentManager) remember(p client.EnvironmentProfile, previous string) error {
 	all := append([]client.EnvironmentProfile(nil), m.profiles.GetUntracked()...)
-	var next []client.EnvironmentProfile
 	for _, old := range all {
 		if old.ID == p.ID || old.ID == previous {
 			if p.Alias == "" {
@@ -230,31 +344,46 @@ func (m *environmentManager) remember(p client.EnvironmentProfile, previous stri
 				}
 			}
 			p.Legacy = p.Legacy || old.Legacy
-			continue
 		}
-		next = append(next, old)
 	}
-	next = append(next, p)
+	var next []client.EnvironmentProfile
+	inserted := false
+	for _, old := range all {
+		if old.ID == p.ID || old.ID == previous {
+			if !inserted {
+				next = append(next, p)
+				inserted = true
+			}
+		} else {
+			next = append(next, old)
+		}
+	}
+	if !inserted {
+		next = append(next, p)
+	}
+	current, defaultID := m.current, m.defaultID
+	if current == previous {
+		current = p.ID
+	}
+	if defaultID == "" || defaultID == previous {
+		defaultID = p.ID
+	}
+	raw, err := json.Marshal(savedEnvironments{Version: 1, Active: current, Default: defaultID, Profiles: next})
+	if err != nil {
+		return err
+	}
+	if err := m.store.SetItem("environments:v1", string(raw)); err != nil {
+		return err
+	}
+	m.current, m.defaultID = current, defaultID
 	m.profiles.Set(next)
-	m.current = p.ID
-	if m.defaultID == "" || m.defaultID == previous {
-		m.defaultID = p.ID
-	}
 	m.adding = false
 	m.migrating = false
-	return m.save()
+	return nil
 }
 
 func (a *app) saveEnvironmentSession() {
-	if a.draftSave != nil {
-		a.draftSave()
-		a.draftSave = nil
-	}
-	a.persistDrafts()
-	a.saveAttachmentDraft()
-	_ = a.store.SetItem("selectedThread", a.selected.GetUntracked())
-	a.persistPendingMessages()
-	a.stopDictation()
+	a.persistView()
 	a.mu.Lock()
 	if a.streamCancel != nil {
 		a.streamCancel()
@@ -306,12 +435,13 @@ func (a *app) adoptEnvironment(p client.EnvironmentProfile, c *client.Client, st
 		}
 	}
 	a.profile = p
+	if a.newProjectEnv.GetUntracked() == old {
+		a.newProjectEnv.Set(p.ID)
+	}
+	if a.manager != nil {
+		a.manager.register(a, old)
+	}
 	return nil
-}
-
-func (a *app) environmentButton(cx *core.Scope) core.Node {
-	return ui.IconButton{Icon: lucide.Network, Label: "Environments", TestID: "environments",
-		Size: iconButtonSize(cx), OnPress: func() { a.showEnvironments.Set(true) }}
 }
 
 func (a *app) environmentList(cx *core.Scope) core.Node {
@@ -328,9 +458,6 @@ func (a *app) environmentList(cx *core.Scope) core.Node {
 		}
 		if name == "" {
 			name = p.ID
-		}
-		if p.ID == a.profile.ID {
-			name += " · Current"
 		}
 		if p.ID == a.manager.defaultID {
 			name += " · Default"
@@ -350,27 +477,49 @@ func (a *app) environmentList(cx *core.Scope) core.Node {
 				TestID: "environment-mode-" + p.ID + "-" + mode.value, OnPress: func() {
 					p.Preference = mode.value
 					a.manager.update(p)
-					if p.ID == a.profile.ID {
-						a.manager.activate(p.ID)
+					if session := a.manager.sessions[p.ID]; session != nil {
+						session.connectProfile(p)
 					}
 				}})
+		}
+		status := "Not connected"
+		var sessionError string
+		session := a.manager.sessions[p.ID]
+		if session != nil {
+			status = session.connectionLabel()
+			sessionError = session.connErr.Get()
 		}
 		rows = append(rows, core.View{TestID: "environment-" + p.ID,
 			Style: core.Style{Gap: 6, Padding: core.All(10), CornerRadius: 8, BorderWidth: 1, BorderColor: colors.Border()},
 			Children: []core.Node{
 				ui.Text(name, 14, ui.Semibold, colors.Text),
+				core.Text{Content: status, TestID: "settings-environment-status-" + p.ID,
+					Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 				ui.Text(strings.Join(addresses, "\n"), 11, ui.Regular, colors.Muted),
+				ui.Text(sessionError, 11, ui.Regular, colors.Danger),
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: []core.Node{
-					ui.Button{Text: "Open", Size: controlSize(cx), TestID: "environment-open-" + p.ID, OnPress: func() { a.manager.activate(p.ID) }},
-					ui.Button{Text: "Default", Variant: ui.ButtonGhost, Size: controlSize(cx), OnPress: func() {
+					ui.Button{Text: "Reconnect", Size: controlSize(cx), TestID: "environment-reconnect-" + p.ID,
+						Disabled: func() bool { return session == nil || session.connecting.Get() },
+						OnPress: func() {
+							if session != nil {
+								session.connectProfile(a.manager.find(p.ID))
+							}
+						}},
+					ui.Button{Text: "Update token", Variant: ui.ButtonGhost, Size: controlSize(cx),
+						TestID: "environment-token-" + p.ID, OnPress: func() {
+							if session != nil {
+								session.openCredentials()
+							}
+						}},
+					ui.Button{Text: "Default", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "environment-default-" + p.ID, OnPress: func() {
 						a.manager.defaultID = p.ID
 						_ = a.manager.save()
 						a.manager.profiles.Set(append([]client.EnvironmentProfile(nil), a.manager.profiles.GetUntracked()...))
 					}},
-					ui.Button{Text: "Forget", Variant: ui.ButtonGhost, Size: controlSize(cx), OnPress: func() {
+					ui.Button{Text: "Forget", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "environment-forget-" + p.ID, OnPress: func() {
 						a.forgetEnvironment.Set(p.ID)
 					}},
-					ui.Button{Text: "Rename", Variant: ui.ButtonGhost, Size: controlSize(cx), OnPress: func() {
+					ui.Button{Text: "Rename", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "environment-rename-" + p.ID, OnPress: func() {
 						a.environmentAlias.Set(p.Alias)
 						a.renameEnvironment.Set(p.ID)
 					}},
@@ -386,62 +535,102 @@ func (a *app) environmentList(cx *core.Scope) core.Node {
 
 func (a *app) environmentDialog(cx *core.Scope) core.Node {
 	return ui.Dialog{Open: a.showEnvironments.Get, OnOpenChange: closeDialog(a.showEnvironments),
-		Title: "Environments", Description: "Projects and threads belong to the selected environment.",
+		Title: "Environments", Description: "Manage connections to your machines.",
 		TestID: "environments-dialog", Style: dialogWidth(cx, 620),
-		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
-			_ = a.serverURL.Get()
-			return ui.Text(a.routeLabel(), 11, ui.Regular, ui.ColorsOf(cx).Muted)
-		}),
-			core.Scroll{Style: core.Style{MaxHeight: core.Pt(360)}, Children: []core.Node{core.Dynamic(a.environmentList)}},
-			core.Show{When: func() bool { return a.renameEnvironment.Get() != "" }, Then: func(cx *core.Scope) core.Node {
-				return core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
-					mobileInput{Scope: cx, Input: base.Input{Label: "Environment alias", Value: a.environmentAlias.Get, OnChange: a.environmentAlias.Set}},
-					ui.Button{Text: "Save alias", OnPress: func() {
-						p := a.manager.find(a.renameEnvironment.GetUntracked())
-						p.Alias = strings.TrimSpace(a.environmentAlias.GetUntracked())
-						a.manager.update(p)
-						a.renameEnvironment.Set("")
-						if p.ID == a.profile.ID {
-							a.manager.activate(p.ID)
-						}
-					}},
-				}}
-			}},
-			core.Show{When: func() bool { return a.forgetEnvironment.Get() != "" }, Then: func(*core.Scope) core.Node {
-				return core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
-					ui.Text("Forget this connection? Local drafts and queued messages are kept. Remote projects and running tasks are not deleted.", 12, ui.Regular, ui.ColorsOf(cx).Muted),
-					ui.Button{Text: "Confirm forget", TestID: "environment-confirm-forget", OnPress: func() {
-						id := a.forgetEnvironment.GetUntracked()
-						var next []client.EnvironmentProfile
-						for _, p := range a.manager.profiles.GetUntracked() {
-							if p.ID != id {
-								next = append(next, p)
-							} else {
-								s := environmentStorage{base: a.manager.store, id: p.ID, legacy: p.Legacy}
-								s.RemoveItem("token")
-								s.RemoveItem("serverUrl")
-							}
-						}
-						a.manager.profiles.Set(next)
-						if a.manager.defaultID == id {
-							a.manager.defaultID = ""
-						}
-						if a.manager.current == id {
-							a.store.RemoveItem("token")
-							a.store.RemoveItem("serverUrl")
-							a.manager.activate("")
-						} else {
-							_ = a.manager.save()
-							a.forgetEnvironment.Set("")
-						}
-					}},
-				}}
-			}}},
+		Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{a.environmentManagement(cx)}}},
 		Footer: []core.Node{
-			ui.Button{Text: "Add environment", Icon: lucide.Plus, TestID: "environment-add", Size: controlSize(cx),
-				OnPress: func() { a.manager.activate("") }},
 			ui.Button{Text: "Close", Variant: ui.ButtonGhost, Size: controlSize(cx), OnPress: func() { a.showEnvironments.Set(false) }},
 		}}
+}
+
+func (a *app) environmentManagement(cx *core.Scope) core.Node {
+	return core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
+		settingsSectionTitle(cx, "Environments", "All connected environments appear in the session list. Choose a target when creating a project."),
+		ui.Button{Text: "Add environment", Icon: lucide.Plus, TestID: "environment-add", Size: controlSize(cx),
+			OnPress: func() { a.manager.addEnvironment() }},
+		core.Dynamic(a.environmentList),
+		core.Show{When: func() bool { return a.renameEnvironment.Get() != "" }, Then: func(cx *core.Scope) core.Node {
+			return core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
+				mobileInput{Scope: cx, Input: base.Input{Label: "Environment alias", Value: a.environmentAlias.Get, OnChange: a.environmentAlias.Set}},
+				ui.Button{Text: "Save alias", OnPress: func() {
+					p := a.manager.find(a.renameEnvironment.GetUntracked())
+					p.Alias = strings.TrimSpace(a.environmentAlias.GetUntracked())
+					a.manager.update(p)
+					a.renameEnvironment.Set("")
+				}},
+			}}
+		}},
+		core.Show{When: func() bool { return a.forgetEnvironment.Get() != "" }, Then: func(*core.Scope) core.Node {
+			return core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
+				ui.Text("Forget this connection? Local drafts and queued messages are kept. Remote projects and running tasks are not deleted.", 12, ui.Regular, ui.ColorsOf(cx).Muted),
+				ui.Button{Text: "Confirm forget", TestID: "environment-confirm-forget", OnPress: func() {
+					id := a.forgetEnvironment.GetUntracked()
+					a.forgetEnvironment.Set("")
+					a.manager.forget(id)
+				}},
+			}}
+		}},
+	}}
+}
+
+func (m *environmentManager) addEnvironmentDialog(cx *core.Scope) core.Node {
+	pending := m.pending.Get()
+	if pending == nil {
+		return core.Group{}
+	}
+	return ui.Dialog{Open: func() bool { return m.pending.Get() != nil },
+		OnOpenChange: func(open bool, _ base.Reason) {
+			if !open {
+				m.closePending()
+			}
+		},
+		Title: "Add environment", TestID: "add-environment-dialog", Style: dialogWidth(cx, 560),
+		Children: []core.Node{core.Scroll{StyleFunc: func() core.Style {
+			height := (cx.Env().Window().Height - cx.Env().KeyboardHeight()) * 0.72
+			return core.Style{MaxHeight: core.Pt(height)}
+		},
+			Children: []core.Node{core.Dynamic(pending.connectView)}}},
+		Footer: []core.Node{ui.Button{Text: "Cancel", TestID: "environment-add-cancel", Variant: ui.ButtonGhost,
+			Size: controlSize(cx), OnPress: m.closePending}}}
+}
+
+func (m *environmentManager) forget(id string) {
+	session := m.sessions[id]
+	if session != nil {
+		session.persistView()
+	}
+	var next []client.EnvironmentProfile
+	for _, p := range m.profiles.GetUntracked() {
+		if p.ID != id {
+			next = append(next, p)
+		} else {
+			s := environmentStorage{base: m.store, id: p.ID, legacy: p.Legacy}
+			s.RemoveItem("token")
+			s.RemoveItem("serverUrl")
+		}
+	}
+	delete(m.sessions, id)
+	if m.defaultID == id {
+		m.defaultID = ""
+	}
+	if m.current == id {
+		m.app = nil
+		if len(next) > 0 {
+			m.activate(next[0].ID)
+		} else {
+			m.current = ""
+			m.adding = true
+			m.app = m.newSession(client.EnvironmentProfile{})
+			m.adding = false
+			m.active.Set(m.app)
+		}
+	}
+	m.profiles.Set(next)
+	_ = m.save()
+	m.revision.Set(m.revision.GetUntracked() + 1)
+	if session != nil {
+		m.cx.Post(func() { session.cx.Dispose() })
+	}
 }
 
 func (m *environmentManager) update(profile client.EnvironmentProfile) {
@@ -453,6 +642,9 @@ func (m *environmentManager) update(profile client.EnvironmentProfile) {
 		}
 	}
 	m.profiles.Set(next)
+	if session := m.sessions[profile.ID]; session != nil {
+		session.profile = profile
+	}
 	_ = m.save()
 }
 

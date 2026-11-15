@@ -51,31 +51,37 @@ func TestUIMultipleEnvironmentsKeepDraftsAndThreadsSeparate(t *testing.T) {
 	raw, _ := json.Marshal(savedEnvironments{Version: 1, Active: profiles[0].ID, Profiles: profiles})
 	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{"environments:v1": string(raw)}))
 	app.WaitFor("text:Environment Alpha", 10*time.Second)
-	app.Press("id:thread-same-thread")
+	app.WaitFor("text:Environment Beta", 10*time.Second)
+	if app.Exists("id:environment-switcher") || app.Exists("id:environments") {
+		t.Fatal("environment management still appears outside Settings")
+	}
+	alphaRow := "id:thread-" + a.Identity.ID + "/same-thread"
+	betaRow := "id:thread-" + b.Identity.ID + "/same-thread"
+	app.Press(alphaRow)
 	app.WaitFor("label:Message", 10*time.Second)
 	app.Type("label:Message", "Alpha draft")
 	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "Alpha draft" })
-	openEnvironments := func(target string) {
-		t.Helper()
-		app.WaitUntil(5*time.Second, func() bool {
-			if app.Exists("id:environment-open-" + target) {
-				return true
-			}
-			app.Press("id:environments")
-			return false
-		})
+	// Background events from Beta arrive while Alpha's composer stays mounted.
+	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Focused })
+	inputID := app.Find("label:Message").ID
+	if _, err := b.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: pb.ID, Title: "Live Beta update", Provider: "claude", Model: "test",
+	}); err != nil {
+		t.Fatal(err)
 	}
-	openEnvironments(b.Identity.ID)
-	app.Press("id:environment-open-" + b.Identity.ID)
-	app.WaitFor("text:Environment Beta", 10*time.Second)
-	app.WaitForGone("text:Environment Alpha", 5*time.Second)
-	app.Press("id:thread-same-thread")
+	app.WaitFor("text:Live Beta update", 5*time.Second)
+	if input := app.Find("label:Message"); input.ID != inputID || !input.Focused || input.Text != "Alpha draft" {
+		t.Fatalf("background event disturbed composer: %+v", input)
+	}
+	app.Press(betaRow)
+	app.WaitFor("text:Environment Alpha", 5*time.Second)
 	app.WaitFor("label:Message", 10*time.Second)
 	app.Type("label:Message", "Beta draft")
 	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "Beta draft" })
-	openEnvironments(a.Identity.ID)
-	app.Press("id:environment-open-" + a.Identity.ID)
-	app.WaitFor("text:Environment Alpha", 10*time.Second)
+	app.Press(alphaRow)
+	app.WaitUntil(5*time.Second, func() bool {
+		return app.Exists("label:Message") && app.Find("label:Message").Text == "Alpha draft"
+	})
 	app.WaitUntil(5*time.Second, func() bool {
 		raw, _ := app.Storage().GetItem("env:" + a.Identity.ID + ":drafts")
 		var drafts map[string]string
@@ -90,16 +96,31 @@ func TestUIMultipleEnvironmentsKeepDraftsAndThreadsSeparate(t *testing.T) {
 	}
 	// Adding another connection to the existing identity merges routes without
 	// replacing that environment's saved drafts with the connection screen's data.
-	openEnvironments(a.Identity.ID)
+	// This message has no live event: reconnect must also refresh the transcript.
+	if _, err := a.Store.AppendMessage(ctx, proto.Message{ID: "missed-message", ThreadID: "same-thread",
+		Role: proto.RoleAssistant, Kind: proto.KindText, Content: "Received while disconnected",
+		Status: "completed", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	app.Press("id:settings")
+	app.WaitFor("id:settings-nav-environments", 5*time.Second)
+	app.Press("id:settings-nav-environments")
+	app.WaitFor("id:environment-reconnect-"+a.Identity.ID, 5*time.Second)
 	app.Press("id:environment-add")
 	app.WaitFor("label:Server address", 5*time.Second)
 	app.Type("label:Server address", ta.URL)
 	app.Type("label:Token", ca.Token)
-	app.Press("text:Connect")
-	app.WaitFor("text:Environment Alpha", 10*time.Second)
+	app.Press("id:connect-environment")
+	app.WaitUntil(5*time.Second, func() bool {
+		app.Advance(250 * time.Millisecond)
+		return !app.Exists("id:add-environment-dialog")
+	})
+	app.Press("id:settings-close")
+	app.WaitForGone("id:settings-dialog", 5*time.Second)
 	app.WaitUntil(5*time.Second, func() bool {
 		return app.Exists("label:Message") && app.Find("label:Message").Text == "Alpha draft"
 	})
+	app.WaitFor("text:Received while disconnected", 5*time.Second)
 }
 
 func TestUIRouteFailoverKeepsDraftAndPausesRestoredQueue(t *testing.T) {
@@ -254,9 +275,11 @@ func TestUIAuthorizationRecoveryKeepsDraftAndValidatesToken(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &saved); err != nil || saved.Profiles[0].Token != cfg.Token {
 		t.Fatal("verified replacement credentials were not saved")
 	}
-	// The environment switcher remains available in the phone's conversation.
-	app.Press("id:environment-switcher")
-	app.WaitFor("id:environment-open-"+profile.ID, 5*time.Second)
+	// Settings remains reachable directly from the phone's conversation.
+	app.Press("id:settings")
+	app.WaitFor("id:settings-nav-environments", 5*time.Second)
+	app.Press("id:settings-nav-environments")
+	app.WaitFor("id:environment-reconnect-"+profile.ID, 5*time.Second)
 }
 
 func TestUIRestoredUnknownSendUsesOriginalRequest(t *testing.T) {

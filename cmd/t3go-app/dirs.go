@@ -23,11 +23,11 @@ func (a *app) dirsDialog(cx *core.Scope) core.Node {
 		Description:            "Folders on the machine running T3Go.",
 		TestID:                 "dirs-dialog",
 		Style:                  dialogWidth(cx, 520),
-		Children:               []core.Node{a.environmentContext(cx, "dirs-environment"), core.Dynamic(a.dirsBody)},
+		Children:               []core.Node{a.projectEnvironmentContext(cx, "dirs-environment"), core.Dynamic(a.dirsBody)},
 		Footer: []core.Node{
 			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "dirs-cancel", OnPress: a.closeDirs},
 			ui.Button{Text: "Use this folder", Icon: lucide.FolderOpen, Variant: ui.ButtonPrimary, Size: controlSize(cx), TestID: "dirs-use",
-				Disabled: func() bool { return a.dirsBusy.Get() || a.dirs.GetUntracked().Path == "" },
+				Disabled: func() bool { return a.dirsBusy.Get() || a.dirsErr.Get() != "" || a.dirs.Get().Path == "" },
 				OnPress:  a.useDirs},
 		},
 	}
@@ -128,7 +128,7 @@ func (a *app) newDirDialog(cx *core.Scope) core.Node {
 		TestID:                 "new-dir-dialog",
 		Style:                  dialogWidth(cx, 420),
 		Children: []core.Node{
-			a.environmentContext(cx, "new-dir-environment"),
+			a.projectEnvironmentContext(cx, "new-dir-environment"),
 			mobileInput{Scope: cx, Input: base.Input{Value: a.newDirName.Get, OnChange: a.newDirName.Set,
 				Placeholder: "Folder name", Label: "Folder name", SubmitBehavior: core.SubmitBehaviorSubmit,
 				OnSubmit: func(string) { a.createDir() }}},
