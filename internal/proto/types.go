@@ -58,6 +58,8 @@ type Thread struct {
 	ProviderSession string         `json:"providerSession,omitempty"`
 	Summary         string         `json:"summary,omitempty"`
 	Archived        bool           `json:"archived"`
+	// Settled is an explicit inbox choice, independent of run completion.
+	Settled bool `json:"settled"`
 	// ParentID is the thread a side chat belongs to.
 	ParentID string `json:"parentId,omitempty"`
 	// SideChat hides the thread from lists and gives it handoff context.

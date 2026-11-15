@@ -22,11 +22,11 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
   新建项目可选目标环境；持久化身份、环境别名与默认环境、按环境隔离草稿和排队消息；
   局域网直连优先、中继回退、出站反向隧道，使用说明见
   [docs/environments-and-relay.md](docs/environments-and-relay.md)
-- 设置支持独立选择目标环境：Providers 自动检测该机器的 CLI、登录状态与模型；
-  General 默认值、Usage、Worktrees、About 和自定义模型均跟随所选环境，
+- 设置支持独立选择目标环境：Providers 显示各环境检测状态，可切换或单独检测，
+  CLI、登录状态与模型、General 默认值、Usage、Worktrees、About 和自定义模型均跟随所选环境，
   不切换当前会话。编辑器选择按环境保存，快捷键和连接管理由客户端共享。
-- 安卓端首页聚合各环境会话，按 Pinned / Working / Settled 分组，展示项目缩写、
-  所属机器和更新时间；Settled 可折叠并显示数量。底部可进入会话、PR、用量、设置，
+- 安卓端首页聚合各环境会话：Completed 置顶且无标题，Working 与显式 Settled 分组，
+  展示项目缩写、所属机器和更新时间；Settle 仅由用户手动触发。底部可进入会话、PR、用量、设置，
   项目管理从文件夹或筛选菜单进入；新建会话为独立页面，可选择环境、项目与 checkout，
   输入首条消息后创建并发送，各环境的待发送草稿独立保留。
 - 手机端 PR 页汇总项目会话当前 checkout 关联的 PR，支持环境和状态筛选；

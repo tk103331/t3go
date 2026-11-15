@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
@@ -26,22 +27,26 @@ func (a *app) mobileConversationHeader(cx *core.Scope) core.Node {
 			a.selected.Set("")
 		}},
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-			ui.Menu{TestID: "thread-actions", Trigger: ui.Button{Text: title, Label: "Thread actions", Variant: ui.ButtonGhost, Flex: 1},
+			ui.Menu{TestID: "thread-actions", Open: a.threadMenuOpen.Get,
+				OnOpenChange: func(open bool, _ base.Reason) {
+					a.threadMenuGuard.change(open, a.threadMenuOpen.Set)
+				},
+				Trigger: ui.Button{Text: title, Label: "Thread actions", Variant: ui.ButtonGhost, Flex: 1},
 				Face: core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 4}, Children: []core.Node{
 					core.Text{Content: title, MaxLines: 1, Style: core.Style{FontSize: 18, FontWeight: ui.Medium},
 						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-					core.View{Style: core.Style{Direction: core.Row, Gap: 4, MinWidth: core.Pt(0)}, Children: []core.Node{
+					core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinWidth: core.Pt(0)}, Children: []core.Node{
 						core.Text{Content: project + " ·", MaxLines: 1,
 							Style:     core.Style{FontSize: 11.5, FlexShrink: 1, MinWidth: core.Pt(0)},
 							StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 						core.Text{Content: a.envName(), MaxLines: 1, TestID: "current-environment-name",
 							Style:     core.Style{FontSize: 11.5, FlexShrink: 1, MinWidth: core.Pt(0)},
 							StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+						a.mobileConnectionIcon(cx),
 					}},
-					core.Text{Content: a.connectionLabel(), TestID: "connection-status", MaxLines: 1,
-						Style: core.Style{FontSize: 10}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 				}},
 				Children: []core.Node{
+					a.settleMenuItem(thread, thread.ID),
 					ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread", OnSelect: func() { a.askRenameThread(thread) }},
 					ui.MenuItem{Text: "Run history", TestID: "history", OnSelect: a.openRuns},
 					ui.MenuItem{Text: "Changes in this thread", TestID: "open-diff", OnSelect: a.openDiff},
@@ -53,11 +58,30 @@ func (a *app) mobileConversationHeader(cx *core.Scope) core.Node {
 		}},
 		ui.IconButton{Icon: lucide.Folder, Label: "Files", TestID: "mobile-open-files", Size: 44, IconSize: 24,
 			OnPress: func() { a.openMobileSurface("files") }},
-		ui.IconButton{Icon: lucide.GitBranch, Label: "Branches", TestID: "branch-menu", Size: 44, IconSize: 24,
-			OnPress: func() { a.showBranches.Set(true) }},
-		ui.IconButton{Icon: lucide.Terminal, Label: "Terminal", TestID: "mobile-open-terminal", Size: 44, IconSize: 24,
-			OnPress: func() { a.openMobileSurface("terminal") }},
+		core.Func(a.mobileGitMenu),
+		core.Func(a.mobileTerminalMenu),
 	}}
+}
+
+func (a *app) mobileConnectionIcon(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	status := a.connectionLabel()
+	icon, color := lucide.Cable, colors.Muted
+	switch status {
+	case "Relay":
+		icon = lucide.Cloud
+	case "Authorization required":
+		icon, color = lucide.LockKeyhole, colors.Danger
+	case "Not connected":
+		icon, color = lucide.CloudOff, colors.Danger
+	}
+	var glyph core.Node = ui.Icon(icon, 12, color)
+	if status == "Connecting…" || status == "Reconnecting…" {
+		glyph = ui.Spinner{Size: 12, Label: status}
+	}
+	return core.View{TestID: "connection-status", Label: status,
+		Style: core.Style{FlexShrink: 0, Width: core.Pt(16), Height: core.Pt(14), AlignItems: core.AlignCenter,
+			JustifyContent: core.JustifyCenter}, Children: []core.Node{glyph}}
 }
 
 func (a *app) openMobileSurface(name string) {

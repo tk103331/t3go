@@ -4,6 +4,8 @@ import (
 	_ "embed"
 	"encoding/json"
 	"strings"
+
+	"github.com/oneo-me/nsgo/core"
 )
 
 //go:embed terminal_assets/xterm.js
@@ -26,6 +28,17 @@ func (a *app) terminalHTML(sessionID string) string {
 		return ""
 	}
 	return terminalPageFor(c.TerminalURL(sessionID), a.cx.Dark())
+}
+
+// Give Android's inline WebView the environment's HTTP origin, including
+// its relay prefix, rather than an opaque about:blank origin.
+func (a *app) terminalSource(sessionID string) core.WebSource {
+	html := a.terminalHTML(sessionID)
+	c := a.client()
+	if c == nil {
+		return core.WebHTML(html, "")
+	}
+	return core.WebHTML(html, strings.TrimRight(c.BaseURL, "/")+"/")
 }
 
 // terminalTheme is the terminal's colors, following the app's appearance.
@@ -106,10 +119,14 @@ const terminalPage = `<!doctype html>
   .xterm .xterm-viewport::-webkit-scrollbar-thumb{background:__SCROLL__;
     border:2px solid __BG__;border-radius:5px}
   .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover{background:__SCROLL_HOVER__}
+  #reconnect{display:none;position:absolute;right:12px;top:8px;z-index:2;
+    min-height:44px;padding:0 14px;border:1px solid #888;border-radius:8px;
+    background:__BG__;color:inherit;cursor:pointer}
 </style>
 </head>
 <body>
 <div id="term"></div>
+<button id="reconnect" type="button">Reconnect</button>
 <script>/*XTERM_JS*/</script>
 <script>/*FIT_JS*/</script>
 <script>
@@ -128,34 +145,69 @@ const terminalPage = `<!doctype html>
   term.loadAddon(fit);
   term.open(document.getElementById('term'));
 
-  const ws = new WebSocket(__WS_URL__);
-  let ready = false;
+  let ws, timer, attempts = 0, ready = false, exited = false, disposed = false;
+  const reconnect = document.getElementById('reconnect');
   function sendResize() {
-    if (ready) ws.send(JSON.stringify({type: 'resize', cols: term.cols, rows: term.rows}));
+    if (ready && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'resize', cols: term.cols, rows: term.rows}));
   }
   function refit() {
     try { fit.fit(); } catch (e) {}
     sendResize();
   }
-  ws.onopen = function () {
-    ready = true;
-    requestAnimationFrame(function () { refit(); term.focus(); });
-  };
-  ws.onmessage = function (event) {
-    let message;
-    try { message = JSON.parse(event.data); } catch (e) { return; }
-    if (message.type === 'output' && message.data) term.write(message.data);
-    if (message.type === 'exit') {
-      term.write('\r\n\x1b[38;5;244m[process exited ' + message.code + ']\x1b[0m\r\n');
-      try { if (window.nsgo) window.nsgo.postMessage('exit'); } catch (e) {}
-    }
-  };
-  ws.onclose = function () {
+  function retry() {
+    if (disposed || exited || timer || attempts >= 5) return;
+    timer = setTimeout(function () { timer = null; connect(); }, Math.min(500 * Math.pow(2, attempts++), 8000));
+  }
+  function disconnected() {
+    if (disposed || exited) return;
     ready = false;
-    term.write('\r\n\x1b[38;5;244m[terminal disconnected]\x1b[0m\r\n');
+    reconnect.style.display = 'block';
+    term.write('\r\n\x1b[38;5;244m[terminal disconnected; retrying connection]\x1b[0m\r\n');
+    retry();
+  }
+  function connect() {
+    if (disposed || exited) return;
+    try { ws = new WebSocket(__WS_URL__); } catch (e) { disconnected(); return; }
+    ws.onopen = function () {
+      ready = true;
+      attempts = 0;
+      reconnect.style.display = 'none';
+      // The server replays its snapshot on every attachment.
+      term.reset();
+      requestAnimationFrame(function () { refit(); term.focus(); });
+    };
+    ws.onmessage = function (event) {
+      let message;
+      try { message = JSON.parse(event.data); } catch (e) { return; }
+      if (message.type === 'output' && message.data) term.write(message.data);
+      if (message.type === 'exit') {
+        exited = true;
+        ready = false;
+        clearTimeout(timer);
+        reconnect.style.display = 'none';
+        term.write('\r\n\x1b[38;5;244m[process exited ' + message.code + ']\x1b[0m\r\n');
+        try { if (window.nsgo) window.nsgo.postMessage('exit'); } catch (e) {}
+        ws.close();
+      }
+    };
+    ws.onerror = function () { /* onclose schedules the retry. */ };
+    ws.onclose = disconnected;
+  }
+  reconnect.onclick = function () {
+    clearTimeout(timer); timer = null; attempts = 0;
+    if (ws) {
+      ws.onclose = null;
+      ws.close();
+    }
+    connect();
   };
+  window.addEventListener('pagehide', function () {
+    disposed = true; ready = false; clearTimeout(timer);
+    if (ws) ws.close();
+  });
+  connect();
   term.onData(function (data) {
-    if (ready) ws.send(JSON.stringify({type: 'input', data: data}));
+    if (ready && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'input', data: data}));
   });
   term.onResize(sendResize);
   new ResizeObserver(function () { refit(); }).observe(document.getElementById('term'));

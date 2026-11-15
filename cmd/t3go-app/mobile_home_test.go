@@ -45,19 +45,30 @@ func TestUIMobileUnifiedInbox(t *testing.T) {
 	})
 	app.Settle()
 	app.WaitFor("id:mobile-group-working", 5*time.Second)
-	if mobileScreenFrame(app.Find("id:thread-"+betaID)).Origin.Y >= mobileScreenFrame(app.Find("id:thread-"+alphaID)).Origin.Y {
-		t.Fatal("working thread is not above settled threads")
+	if mobileScreenFrame(app.Find("id:thread-"+alphaID)).Origin.Y >= mobileScreenFrame(app.Find("id:thread-"+betaID)).Origin.Y {
+		t.Fatal("completed thread is not above working threads")
 	}
+	if app.Exists("id:mobile-group-settled") {
+		t.Fatal("idle/completed threads were implicitly settled")
+	}
+	app.LongPress("id:thread-" + alphaID)
+	app.Press("id:settle-thread-" + alphaID)
 	app.WaitFor("text:Settled (1)", 5*time.Second)
+	if mobileScreenFrame(app.Find("id:thread-"+betaID)).Origin.Y >= mobileScreenFrame(app.Find("id:thread-"+alphaID)).Origin.Y {
+		t.Fatal("working thread is not above explicitly settled threads")
+	}
 	app.Press("id:mobile-group-settled")
 	app.WaitForGone("id:thread-"+alphaID, 5*time.Second)
 	app.WaitFor("id:thread-"+betaID, 5*time.Second)
 	app.Press("id:mobile-group-settled")
 	app.WaitFor("id:thread-"+alphaID, 5*time.Second)
 	app.LongPress("id:thread-" + alphaID)
+	app.Press("id:settle-thread-" + alphaID)
+	app.WaitForGone("id:mobile-group-settled", 5*time.Second)
+	app.LongPress("id:thread-" + alphaID)
 	app.WaitFor("id:pin-thread-"+alphaID, 5*time.Second)
 	app.Press("id:pin-thread-" + alphaID)
-	app.WaitFor("id:mobile-group-pinned", 5*time.Second)
+	app.WaitFor("id:mobile-group-completed", 5*time.Second)
 	if mobileScreenFrame(app.Find("id:thread-"+alphaID)).Origin.Y >= mobileScreenFrame(app.Find("id:thread-"+betaID)).Origin.Y {
 		t.Fatal("pinned thread is not above working threads")
 	}
@@ -72,6 +83,14 @@ func TestUIMobileUnifiedInbox(t *testing.T) {
 			frame.Origin.Y < 24 || frame.Origin.Y+frame.Size.Height > 700-16 {
 			t.Fatalf("%s is too small or outside the safe area: %+v", id, frame)
 		}
+	}
+	for _, label := range []string{"Chats", "Pulls", "Usage", "Settings"} {
+		app.WaitFor("id:mobile-navigation >> text:"+label, 5*time.Second)
+	}
+	nav := mobileScreenFrame(app.Find("id:mobile-navigation"))
+	fab := mobileScreenFrame(app.Find("id:new-thread"))
+	if nav.Size.Width != 320 || fab.Origin.Y+fab.Size.Height > nav.Origin.Y {
+		t.Fatalf("navigation is not full width or creation action overlaps it: nav=%v fab=%v", nav, fab)
 	}
 	openMobileProjects(app)
 	app.WaitFor("id:project-"+beta.profile.ID+"/same-project", 5*time.Second)

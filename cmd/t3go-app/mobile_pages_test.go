@@ -323,7 +323,69 @@ func TestUIMobileConversationSurfacesPreserveDraft(t *testing.T) {
 	app.Press("id:mobile-surface-back")
 	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "Keep this draft" })
 	app.Press("id:mobile-open-terminal")
+	app.WaitFor("id:mobile-terminal-new", 5*time.Second)
+	app.Press("id:mobile-terminal-new")
 	app.WaitFor("id:mobile-surface", 5*time.Second)
 	app.Back()
 	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "Keep this draft" })
+}
+
+func TestUIMobileVisibleModelAndSettingsNavigation(t *testing.T) {
+	alpha, beta := newSettingsFixture(t, "Alpha"), newSettingsFixture(t, "Beta")
+	app, _ := startMobilePages(t, alpha, beta)
+	app.Press("id:settings")
+	app.WaitFor("id:mobile-settings-index", 5*time.Second)
+	if app.Exists("id:settings-nav-usage") {
+		t.Fatal("mobile Settings still duplicates the standalone Usage page")
+	}
+	app.Press("id:mobile-tab-threads")
+	app.Press("id:thread-" + beta.profile.ID + "/same-thread")
+	app.WaitFor("id:composer-model-name", 5*time.Second)
+	app.Type("label:Message", "Keep draft while choosing a model")
+	for _, width := range []core.Points{390, 320} {
+		app.Resize(width, 844)
+		app.SetEnvironment(core.Environment{OS: core.OSAndroid, Idiom: core.IdiomPhone, KeyboardHeight: 300,
+			SafeArea: core.Edges{Top: 24, Bottom: 16}})
+		picker := mobileScreenFrame(app.Find("id:composer-model"))
+		send := mobileScreenFrame(app.Find("id:composer-send"))
+		if picker.Size.Height < 44 || picker.Origin.X < 0 || picker.Origin.X+picker.Size.Width > width ||
+			send.Origin.Y+send.Size.Height > 844-300 {
+			t.Fatalf("picker or send button outside the phone/keyboard area: picker=%v send=%v", picker, send)
+		}
+	}
+	app.Press("id:composer-model")
+	app.WaitFor("id:composer-model-Beta-model", 5*time.Second)
+	app.Advance(300 * time.Millisecond)
+	if app.Exists("id:composer-model-Alpha-model") {
+		t.Fatal("models leaked from another environment")
+	}
+	app.Press("id:composer-model-Beta-model")
+	app.WaitUntil(5*time.Second, func() bool { return app.Find("id:composer-model-name").Text == "Beta model" })
+	if input := app.Find("label:Message"); input.Text != "Keep draft while choosing a model" || !app.Exists("id:composer") {
+		t.Fatal("model selection replaced the editor or lost its draft")
+	}
+	thread, err := beta.server.Store.Thread(context.Background(), "same-thread")
+	if err != nil || thread.Model != "Beta-model" {
+		t.Fatalf("model was not saved on Beta: %+v, %v", thread, err)
+	}
+	thread, err = alpha.server.Store.Thread(context.Background(), "same-thread")
+	if err != nil || thread.Model != "test" {
+		t.Fatal("choosing a model changed Alpha")
+	}
+	// Only two lines in the title block; connection mode is an icon on
+	// the environment line rather than a third line of text.
+	env := mobileScreenFrame(app.Find("id:current-environment-name"))
+	status := app.Find("id:connection-status")
+	statusFrame := mobileScreenFrame(status)
+	if status.Text != "" || status.Props.Label != "Direct" || statusFrame.Origin.Y >= env.Origin.Y+env.Size.Height ||
+		statusFrame.Origin.Y+statusFrame.Size.Height <= env.Origin.Y {
+		t.Fatalf("connection is not an icon on the environment line: %+v, %v", status, statusFrame)
+	}
+	app.Press("id:thread-actions")
+	app.Advance(300 * time.Millisecond)
+	app.Press("id:settings")
+	app.WaitFor("id:settings-dialog", 5*time.Second)
+	if app.Exists("id:settings-nav-usage") {
+		t.Fatal("conversation Settings still duplicates Usage")
+	}
 }

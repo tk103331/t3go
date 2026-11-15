@@ -194,19 +194,29 @@ type app struct {
 	prNote               *core.Signal[string]
 	showBranch           *core.Signal[bool]
 	showBranches         *core.Signal[bool]
-	branchName           *core.Signal[string]
-	promptName           *core.Signal[string]
-	promptArgValues      *core.Signal[promptArgsState]
-	showPromptArgs       *core.Signal[bool]
-	promptArgsDefs       []proto.AgentCommandArgument
-	gitMessage           *core.Signal[string]
-	gitBusy              *core.Signal[bool]
-	gitNote              *core.Signal[string]
-	gitPR                *core.Signal[string]
-	branches             *core.Signal[[]proto.Branch]
-	pendingDelete        *core.Signal[itemTarget]
-	pendingRename        *core.Signal[itemTarget]
-	renameName           *core.Signal[string]
+	// The conversation's menus keep their open state in the app, not in
+	// the view tree: a message arriving or a connection changing rebuilds
+	// the header, and a menu that lived in it would close under the
+	// reader's finger.
+	threadMenuOpen    *core.Signal[bool]
+	modelMenuOpen     *core.Signal[bool]
+	composerMenuOpen  *core.Signal[bool]
+	threadMenuGuard   menuGuard
+	modelMenuGuard    menuGuard
+	composerMenuGuard menuGuard
+	branchName        *core.Signal[string]
+	promptName        *core.Signal[string]
+	promptArgValues   *core.Signal[promptArgsState]
+	showPromptArgs    *core.Signal[bool]
+	promptArgsDefs    []proto.AgentCommandArgument
+	gitMessage        *core.Signal[string]
+	gitBusy           *core.Signal[bool]
+	gitNote           *core.Signal[string]
+	gitPR             *core.Signal[string]
+	branches          *core.Signal[[]proto.Branch]
+	pendingDelete     *core.Signal[itemTarget]
+	pendingRename     *core.Signal[itemTarget]
+	renameName        *core.Signal[string]
 
 	newProjectName   *core.Signal[string]
 	newProjectPath   *core.Signal[string]
@@ -431,16 +441,19 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		prView: core.NewSignalFunc(cx, proto.PullRequestDetail{}, func(a, b proto.PullRequestDetail) bool {
 			return a.PullRequest.Number == b.PullRequest.Number && a.PullRequest.State == b.PullRequest.State
 		}),
-		prViewNumber:    core.NewSignal(cx, 0),
-		prViewBusy:      core.NewSignal(cx, false),
-		prDeleteBranch:  core.NewSignal(cx, false),
-		prNote:          core.NewSignal(cx, ""),
-		showBranch:      core.NewSignal(cx, false),
-		showBranches:    core.NewSignal(cx, false),
-		branchName:      core.NewSignal(cx, ""),
-		promptName:      core.NewSignal(cx, ""),
-		promptArgValues: core.NewSignal(cx, promptArgsState{}),
-		showPromptArgs:  core.NewSignal(cx, false),
+		prViewNumber:     core.NewSignal(cx, 0),
+		prViewBusy:       core.NewSignal(cx, false),
+		prDeleteBranch:   core.NewSignal(cx, false),
+		prNote:           core.NewSignal(cx, ""),
+		showBranch:       core.NewSignal(cx, false),
+		showBranches:     core.NewSignal(cx, false),
+		threadMenuOpen:   core.NewSignal(cx, false),
+		modelMenuOpen:    core.NewSignal(cx, false),
+		composerMenuOpen: core.NewSignal(cx, false),
+		branchName:       core.NewSignal(cx, ""),
+		promptName:       core.NewSignal(cx, ""),
+		promptArgValues:  core.NewSignal(cx, promptArgsState{}),
+		showPromptArgs:   core.NewSignal(cx, false),
 
 		gitMessage: core.NewSignal(cx, ""),
 		gitBusy:    core.NewSignal(cx, false),
@@ -4286,6 +4299,9 @@ func (a *app) openSettings() {
 	a.settingsEnv.Set(a.profile.ID)
 	a.settingsVisited = map[*app]bool{a: true}
 	a.beginSettingsDraft()
+	if compactSettings(a.cx) && a.settingsSection.GetUntracked() == "usage" {
+		a.settingsSection.Set("general")
+	}
 	if compactSettings(a.cx) && a.selected.GetUntracked() == "" {
 		a.mobileSettingsDetail.Set("")
 		a.mobilePage.Set("settings")

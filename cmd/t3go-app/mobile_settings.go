@@ -72,8 +72,6 @@ func (a *app) mobileSettings(cx *core.Scope) core.Node {
 			section("Agents",
 				row("Providers", "CLI status, models and sign in by environment", "settings-nav-providers", lucide.Bot,
 					func() { a.openMobileSettingsSection("providers") }),
-				row("Usage history", "Tokens and cost by environment", "settings-nav-usage", lucide.ChartColumn,
-					func() { a.openMobileSettingsSection("usage") }),
 				row("Worktrees", "Checkouts used by your threads", "settings-nav-worktrees", lucide.GitBranch,
 					func() { a.openMobileSettingsSection("worktrees") })),
 			section("Code",

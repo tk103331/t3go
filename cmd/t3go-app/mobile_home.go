@@ -56,6 +56,9 @@ func (a *app) mobileThreads() []mobileThread {
 		}
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].pinned != rows[j].pinned {
+			return rows[i].pinned
+		}
 		return rows[i].thread.UpdatedAt.After(rows[j].thread.UpdatedAt)
 	})
 	return rows
@@ -87,6 +90,7 @@ func (a *app) mobileHome(cx *core.Scope) core.Node {
 				return core.Scroll{TestID: "mobile-thread-scroll", Style: ui.FillRest,
 					Children: []core.Node{core.Dynamic(a.mobileThreadList)}}
 			}),
+			core.Dynamic(a.mobileNewThreadAction),
 		}},
 		core.Dynamic(a.mobileNavigation),
 	}}
@@ -133,7 +137,8 @@ func (a *app) mobileHeader(cx *core.Scope) core.Node {
 	}
 	var filter core.Node
 	if page == "usage" {
-		filter = a.mobileEnvironmentMenu(cx, a.mobileUsageEnv, "usage-environment", func() { a.loadMobileUsage() }, true)
+		filter = ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh usage", Size: 44, IconSize: 24,
+			TestID: "usage-refresh", OnPress: a.loadMobileUsage}
 	} else if page == "prs" {
 		filter = ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh pull requests", Size: 44, IconSize: 24,
 			TestID: "mobile-pr-refresh", Disabled: a.mobilePRBusy.Get, OnPress: a.loadMobilePullRequests}
@@ -168,24 +173,30 @@ func (a *app) sidebarProjects(cx *core.Scope) core.Node {
 func (a *app) mobileThreadList(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	rows := a.mobileThreads()
-	var pinned, working, settled []core.Node
+	var completed, working, settled []core.Node
 	for _, row := range rows {
 		node := a.mobileThreadRow(cx, row)
 		switch {
-		case row.pinned:
-			pinned = append(pinned, node)
 		case row.thread.Status == proto.ThreadRunning:
 			working = append(working, node)
-		default:
+		case row.thread.Settled:
 			settled = append(settled, node)
+		default:
+			completed = append(completed, node)
 		}
 	}
 	var children []core.Node
 	for _, group := range []struct {
 		title string
 		rows  []core.Node
-	}{{"Pinned", pinned}, {"Working", working}, {"Settled", settled}} {
+	}{{"Completed", completed}, {"Working", working}, {"Settled", settled}} {
 		if len(group.rows) == 0 {
+			continue
+		}
+		// Completed conversations appear at the top without a heading.
+		// A completed turn never implies an explicit Settle.
+		if group.title == "Completed" {
+			children = append(children, core.View{TestID: "mobile-group-completed", Children: group.rows})
 			continue
 		}
 		var heading core.Node = core.View{TestID: "mobile-group-" + strings.ToLower(group.title),
@@ -228,7 +239,7 @@ func (a *app) mobileThreadList(cx *core.Scope) core.Node {
 				OnPress: func() { a.mobilePage.Set("projects") }},
 		}})
 	}
-	return core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 18}}, Children: children}
+	return core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 100}}, Children: children}
 }
 
 func (a *app) mobileThreadRow(cx *core.Scope, row mobileThread) core.Node {
@@ -262,7 +273,7 @@ func (a *app) mobileThreadRow(cx *core.Scope, row mobileThread) core.Node {
 		subtitle += " · Draft"
 	}
 	titleColor := colors.Text
-	if t.Archived {
+	if t.Archived || t.Settled {
 		titleColor = colors.Muted
 	}
 	content := base.Button{Label: title, TestID: "thread-" + id,
@@ -300,6 +311,7 @@ func (a *app) mobileThreadRow(cx *core.Scope, row mobileThread) core.Node {
 	}
 	return ui.ContextMenu{Trigger: content, Children: []core.Node{
 		ui.MenuItem{Text: pin, TestID: "pin-thread-" + id, OnSelect: func() { session.togglePin(t) }},
+		session.settleMenuItem(t, id),
 		ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread-" + id, OnSelect: session.inEnvironment(func() { session.askRenameThread(t) })},
 		ui.MenuItem{Text: archive, TestID: "archive-thread-" + id, OnSelect: func() { session.setArchived(t, !t.Archived) }},
 		ui.MenuItem{Text: "Delete thread", Variant: ui.MenuItemDanger, TestID: "delete-thread-" + id,
@@ -332,31 +344,48 @@ func (a *app) mobileNavigation(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	tab := func(icon func() *core.SVG, label, id string, selected func() bool, press func()) core.Node {
 		return base.Button{Label: label, TestID: id, Selected: selected, OnPress: func(core.PressEvent) { press() },
-			Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(44), Height: core.Pt(48),
-				CornerRadius: 24, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+			Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(44), Height: core.Pt(72),
+				AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 5},
 			StyleFunc: func() core.Style {
-				return core.Style{Selected: &core.Style{Background: ui.Alpha(colors.Text(), 0.1)}, Focus: ui.FocusRing(cx, -2)}
-			}, Children: []core.Node{ui.Icon(icon, 24, colors.Text)}}
+				return core.Style{Focus: ui.FocusRing(cx, -2)}
+			}, Children: []core.Node{
+				core.View{Style: core.Style{Width: core.Pt(56), Height: core.Pt(34), CornerRadius: 20,
+					AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+					StyleFunc: func() core.Style {
+						if selected() {
+							return core.Style{Background: ui.Alpha(colors.Text(), 0.13)}
+						}
+						return core.Style{}
+					}, Children: []core.Node{ui.Icon(icon, 26, colors.Text)}},
+				ui.Text(label, 12, ui.Medium, colors.Text),
+			}}
 	}
 	children := []core.Node{
-		core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, MinWidth: core.Pt(0), Padding: core.All(4),
-			CornerRadius: 30, BorderWidth: 1, BorderColor: colors.Border(), Background: colors.Surface()}, Children: []core.Node{
-			tab(lucide.MessageSquare, "Threads", "mobile-tab-threads", func() bool { return a.mobilePage.Get() == "threads" },
+		core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+			tab(lucide.MessageSquare, "Chats", "mobile-tab-threads", func() bool { return a.mobilePage.Get() == "threads" },
 				func() { a.mobilePage.Set("threads") }),
-			tab(lucide.GitPullRequest, "Pull requests", "mobile-tab-prs", func() bool { return a.mobilePage.Get() == "prs" },
+			tab(lucide.GitPullRequest, "Pulls", "mobile-tab-prs", func() bool { return a.mobilePage.Get() == "prs" },
 				func() { a.mobilePage.Set("prs"); a.loadMobilePullRequests() }),
 			tab(lucide.ChartColumn, "Usage", "mobile-tab-usage", func() bool { return a.mobilePage.Get() == "usage" },
 				func() { a.mobilePage.Set("usage"); a.loadMobileUsage() }),
 			tab(lucide.Settings, "Settings", "settings", func() bool { return a.mobilePage.Get() == "settings" }, a.openSettings),
 		}},
 	}
-	if a.mobilePage.Get() == "threads" {
-		children = append(children, base.Button{Label: "New thread", TestID: "new-thread", OnPress: func(core.PressEvent) { a.openNewThread() },
-			Style: core.Style{Width: core.Pt(56), Height: core.Pt(56), FlexShrink: 0, CornerRadius: 18,
-				AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-			StyleFunc: func() core.Style { return core.Style{Background: colors.Accent(), Focus: ui.FocusRing(cx, 2)} },
-			Children:  []core.Node{ui.Icon(lucide.SquarePen, 26, colors.OnAccent)}})
-	}
 	return core.View{TestID: "mobile-navigation", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
-		FlexShrink: 0, Gap: 10, Padding: core.Edges{Top: 4, Right: 14, Bottom: 10, Left: 14}}, Children: children}
+		FlexShrink: 0, Background: colors.Inset(), Padding: core.Symmetric(4, 0)}, Children: children}
+}
+
+func (a *app) mobileNewThreadAction(cx *core.Scope) core.Node {
+	if a.mobilePage.Get() != "threads" {
+		return core.Group{}
+	}
+	colors := ui.ColorsOf(cx)
+	return base.Button{Label: "New thread", TestID: "new-thread", OnPress: func(core.PressEvent) { a.openNewThread() },
+		Style: core.Style{Position: core.Absolute, Right: core.Pt(16), Bottom: core.Pt(16), ZIndex: 1,
+			Width: core.Pt(56), Height: core.Pt(56), CornerRadius: 18, AlignItems: core.AlignCenter,
+			JustifyContent: core.JustifyCenter},
+		StyleFunc: func() core.Style {
+			return core.Style{Background: colors.Accent(), Focus: ui.FocusRing(cx, 2),
+				Shadows: []core.BoxShadow{ui.Shadow(0, 3, 8, 0, ui.Black(0.18))}}
+		}, Children: []core.Node{ui.Icon(lucide.SquarePen, 26, colors.OnAccent)}}
 }

@@ -172,6 +172,28 @@ func TestProjectThreadAndDetail(t *testing.T) {
 	}
 }
 
+func TestThreadSettlementAPI(t *testing.T) {
+	e := newTestEnv(t)
+	project := e.project(t)
+	thread := e.thread(t, project.ID)
+	for _, settled := range []bool{true, false} {
+		var updated proto.Thread
+		if code := e.request(t, http.MethodPatch, "/api/v1/threads/"+thread.ID,
+			map[string]bool{"settled": settled}, "", nil); code != http.StatusUnauthorized {
+			t.Fatalf("unauthenticated settlement = %d", code)
+		}
+		if code := e.request(t, http.MethodPatch, "/api/v1/threads/"+thread.ID,
+			map[string]bool{"settled": settled}, e.token, &updated); code != http.StatusOK || updated.Settled != settled {
+			t.Fatalf("settlement patch = %d, %+v", code, updated)
+		}
+		var detail proto.ThreadDetail
+		if code := e.request(t, http.MethodGet, "/api/v1/threads/"+thread.ID, nil, e.token, &detail); code != http.StatusOK ||
+			detail.Thread.Settled != settled || detail.Thread.Status != proto.ThreadIdle || detail.Thread.Archived {
+			t.Fatalf("settlement was not durable or changed activity/archive: %+v", detail.Thread)
+		}
+	}
+}
+
 func TestSSEStreamsAndReplays(t *testing.T) {
 	e := newTestEnv(t)
 	p := e.project(t)

@@ -562,13 +562,14 @@ func (s *Server) handleUpdateThread(w http.ResponseWriter, r *http.Request) {
 		Permission *proto.PermissionMode `json:"permission"`
 		Plan       *bool                 `json:"plan"`
 		Archived   *bool                 `json:"archived"`
+		Settled    *bool                 `json:"settled"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		writeError(w, 400, "invalid", err.Error())
 		return
 	}
 	t, err := s.Service.UpdateThread(r.Context(), r.PathValue("id"), orchestrator.ThreadPatch{
-		Title: in.Title, Provider: in.Provider, Model: in.Model, Permission: in.Permission, Plan: in.Plan, Archived: in.Archived,
+		Title: in.Title, Provider: in.Provider, Model: in.Model, Permission: in.Permission, Plan: in.Plan, Archived: in.Archived, Settled: in.Settled,
 	})
 	if err != nil {
 		writeError(w, statusFor(err), "thread", err.Error())

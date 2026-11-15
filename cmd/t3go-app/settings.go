@@ -71,6 +71,9 @@ func (a *app) settingsBody(cx *core.Scope) core.Node {
 		var chips []core.Node
 		for _, item := range settingsNav {
 			item := item
+			if item.ID == "usage" {
+				continue
+			}
 			variant := ui.ButtonSecondary
 			if item.ID == section {
 				variant = ui.ButtonPrimary
@@ -209,6 +212,7 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 		TestID: "settings-refresh-providers", OnPress: a.refreshProviders, Disabled: a.providersBusy.Get}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: []core.Node{
 		settingsSectionTitle(cx, "Providers", "Agent CLIs T3Go can run. Install a CLI and keep it on PATH to use it."),
+		core.Dynamic(func(cx *core.Scope) core.Node { return owner.settingsProvidersByEnvironment(cx) }),
 		core.Show{When: a.providersBusy.Get, Then: func(*core.Scope) core.Node {
 			return ui.Spinner{Size: 14, Label: "Detecting providers on " + a.envName()}
 		}},

@@ -166,6 +166,7 @@ func (s *Service) start(ctx context.Context, threadID, prompt string, attachment
 		t.Title = titleFromPrompt(prompt)
 	}
 	t.Status = proto.ThreadRunning
+	t.Settled = false
 	t.LastError = ""
 	if recordUser {
 		t.Summary = prompt
@@ -311,7 +312,8 @@ func (s *runSink) sessionChanged(id string) {
 	s.mu.Unlock()
 	ctx, cancel := s.dbCtx()
 	defer cancel()
-	if err := s.svc.Store.UpdateThread(ctx, thread); err != nil {
+	thread, err := s.svc.Store.SetProviderSession(ctx, thread.ID, thread.Provider, id)
+	if err != nil {
 		s.svc.Log.Printf("t3go: save provider session: %v", err)
 		return
 	}
@@ -516,8 +518,10 @@ func (s *runSink) finish(runErr error) {
 		thread.Status = proto.ThreadIdle
 		thread.LastError = ""
 	}
-	if err := s.svc.Store.UpdateThread(ctx, thread); err != nil {
+	thread, err := s.svc.Store.FinishThread(ctx, thread.ID, thread.Status, thread.LastError)
+	if err != nil {
 		s.svc.Log.Printf("t3go: save thread: %v", err)
+		return
 	}
 	s.svc.publish(ctx, proto.Event{Type: proto.EventThreadUpdated, ThreadID: thread.ID, Data: thread})
 }

@@ -296,6 +296,15 @@ func TestUIArchiveThread(t *testing.T) {
 
 // TestUIRenameAndDelete renames a thread and a project, then removes
 // both, checking the server kept each change.
+// pressThreadMenuItem opens the conversation's overflow menu and presses
+// the item the selector names.
+func pressThreadMenuItem(app *nsgotest.App, item string) {
+	app.Press("id:thread-menu")
+	app.WaitFor(item, 5*time.Second)
+	app.Press(item)
+	app.Settle()
+}
+
 func TestUIRenameAndDelete(t *testing.T) {
 	srv, ts, cfg := startEnv(t)
 
@@ -317,10 +326,10 @@ func TestUIRenameAndDelete(t *testing.T) {
 	}))
 	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
 	app.Press("id:thread-" + thread.ID)
-	app.WaitFor("id:delete-thread", 15*time.Second)
+	app.WaitFor("id:delete-thread-"+thread.ID, 15*time.Second)
 
-	// Rename the thread from the header, then check the server kept it.
-	app.Press("id:rename-thread")
+	// Rename the thread from the list, then check the server kept it.
+	app.Press("id:rename-thread-" + thread.ID)
 	app.WaitFor("id:confirm-rename", 5*time.Second)
 	app.Clear("label:Thread title")
 	app.Type("label:Thread title", "Renamed thread")
@@ -345,7 +354,7 @@ func TestUIRenameAndDelete(t *testing.T) {
 		return err == nil && p.Name == "Renamed project"
 	})
 
-	app.Press("id:delete-thread")
+	app.Press("id:delete-thread-" + thread.ID)
 	app.WaitFor("id:confirm-delete", 5*time.Second)
 	app.Press("id:confirm-delete")
 	app.WaitForGone("id:thread-"+thread.ID, 10*time.Second)
@@ -466,15 +475,12 @@ func TestUIRunHistory(t *testing.T) {
 	}))
 	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
 	app.Press("id:thread-" + thread.ID)
-	app.WaitFor("id:history", 10*time.Second)
-
 	app.WaitUntil(10*time.Second, func() bool {
 		if app.Exists("text:Change the readme") {
 			return true
 		}
-		if app.Exists("id:history") {
-			app.Press("id:history")
-			app.Settle()
+		if app.Exists("id:thread-menu") {
+			pressThreadMenuItem(app, "id:history")
 		}
 		return app.Exists("text:Change the readme")
 	})
@@ -1009,14 +1015,12 @@ func TestUIGitDialog(t *testing.T) {
 	}))
 	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
 	app.Press("id:thread-" + thread.ID)
-	app.WaitFor("id:open-diff", 10*time.Second)
 	app.WaitUntil(15*time.Second, func() bool {
 		if app.Exists("id:diff-dialog") {
 			return true
 		}
-		if app.Exists("id:open-diff") {
-			app.Press("id:open-diff")
-			app.Settle()
+		if app.Exists("id:thread-menu") {
+			pressThreadMenuItem(app, "id:open-diff")
 		}
 		return app.Exists("id:diff-dialog")
 	})
@@ -2631,9 +2635,8 @@ func TestUIRestoreRun(t *testing.T) {
 		if app.Exists("id:run-restore-" + runID) {
 			return true
 		}
-		if app.Exists("id:history") {
-			app.Press("id:history")
-			app.Settle()
+		if app.Exists("id:thread-menu") {
+			pressThreadMenuItem(app, "id:history")
 		}
 		return app.Exists("id:run-restore-" + runID)
 	})
@@ -2745,9 +2748,8 @@ echo "$@" >> "$EDITOR_LOG"
 		if err == nil && strings.Contains(string(raw), repo) {
 			return true
 		}
-		if app.Exists("id:open-editor") {
-			app.Press("id:open-editor")
-			app.Settle()
+		if app.Exists("id:thread-menu") {
+			pressThreadMenuItem(app, "id:open-editor")
 		}
 		return false
 	})

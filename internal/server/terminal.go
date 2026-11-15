@@ -119,12 +119,22 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)
-		for chunk := range out {
-			if err := write(map[string]any{"type": "output", "data": string(chunk)}); err != nil {
+		defer cancel()
+		defer conn.CloseNow()
+		for {
+			select {
+			case <-ctx.Done():
 				return
+			case chunk, ok := <-out:
+				if !ok {
+					_ = write(map[string]any{"type": "exit", "code": session.ExitCode()})
+					return
+				}
+				if err := write(map[string]any{"type": "output", "data": string(chunk)}); err != nil {
+					return
+				}
 			}
 		}
-		_ = write(map[string]any{"type": "exit", "code": session.ExitCode()})
 	}()
 
 	for {

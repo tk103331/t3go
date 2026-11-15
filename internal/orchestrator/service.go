@@ -385,8 +385,7 @@ func (s *Service) CreateSideChat(ctx context.Context, parentID string) (proto.Th
 	})
 }
 
-// UpdateThread changes a thread's title, model, permission or archive
-// state.
+// UpdateThread changes a thread's preferences and inbox state.
 func (s *Service) UpdateThread(ctx context.Context, threadID string, patch ThreadPatch) (proto.Thread, error) {
 	t, err := s.Store.Thread(ctx, threadID)
 	if err != nil {
@@ -414,6 +413,9 @@ func (s *Service) UpdateThread(ctx context.Context, threadID string, patch Threa
 	if patch.Archived != nil {
 		t.Archived = *patch.Archived
 	}
+	if patch.Settled != nil {
+		t.Settled = *patch.Settled
+	}
 	t.UpdatedAt = time.Now()
 	if err := s.Store.UpdateThread(ctx, t); err != nil {
 		return t, err
@@ -430,6 +432,7 @@ type ThreadPatch struct {
 	Permission *proto.PermissionMode
 	Plan       *bool
 	Archived   *bool
+	Settled    *bool
 }
 
 // DeleteThread stops and removes a thread.

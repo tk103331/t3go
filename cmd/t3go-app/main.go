@@ -305,6 +305,7 @@ func (a *app) projectSections(cx *core.Scope, query string, showArchived bool) [
 				Content: a.threadRow(cx, t, colors),
 				Menu: []core.Node{
 					ui.MenuItem{Text: pinText, TestID: "pin-thread-" + rowID, OnSelect: func() { a.togglePin(t) }},
+					a.settleMenuItem(t, rowID),
 					ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread-" + rowID, OnSelect: a.inEnvironment(func() { a.askRenameThread(t) })},
 					ui.MenuItem{Text: archiveText, TestID: "archive-thread-" + rowID, OnSelect: func() { a.setArchived(t, !t.Archived) }},
 					ui.MenuItem{Text: "Delete thread", Variant: ui.MenuItemDanger,
@@ -391,6 +392,20 @@ func (a *app) threadRow(cx *core.Scope, t proto.Thread, colors ui.Colors) core.N
 		core.Text{Content: relativeTime(t.UpdatedAt), MaxLines: 1, Style: core.Style{FontSize: 10.5, FlexShrink: 0},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 	)
+	// The list carries the thread's own actions, so the header stays
+	// free of them. They show for the thread the list has open.
+	head = append(head, core.Show{When: func() bool { return a.selected.GetUntracked() == t.ID },
+		Then: func(*core.Scope) core.Node {
+			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2,
+				FlexShrink: 0}, Children: []core.Node{
+				ui.IconButton{Icon: lucide.Pencil, Label: "Rename thread", TestID: "rename-thread-" + a.sidebarID(t.ID),
+					Size: 22, IconSize: 13, Variant: ui.IconButtonGhost,
+					OnPress: func() { a.inEnvironment(func() { a.askRenameThread(t) })() }},
+				ui.IconButton{Icon: lucide.Trash, Label: "Delete thread", TestID: "delete-thread-" + a.sidebarID(t.ID),
+					Size: 22, IconSize: 13, Variant: ui.IconButtonGhost,
+					OnPress: func() { a.inEnvironment(func() { a.askDeleteThread(t) })() }},
+			}}
+		}})
 	rows := []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, MinWidth: core.Pt(0)}, Children: head}}
 	draft := a.draftFor(t.ID)
 	preview := oneLine(t.Summary, 80)
@@ -477,16 +492,12 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 			core.Dynamic(a.environmentStatus), ui.Spacer{}, a.rightToggle(),
 		}}
 	}
-	meta := d.Thread.Provider
-	if d.Thread.Model != "" {
-		meta += " · " + d.Thread.Model
-	}
-	meta += " · " + string(d.Thread.Permission)
+	// Two lines only: the thread's title, then the environment it runs on
+	// and how it is reached. The agent, model and permission mode are in
+	// the composer already.
 	title := core.View{Style: core.Style{Direction: core.Column, MinWidth: core.Pt(0), FlexGrow: 1, Gap: 1}, Children: []core.Node{
-		core.Text{Content: d.Thread.Title, MaxLines: 1, Style: core.Style{FontSize: 13, FontWeight: ui.Semibold},
+		core.Text{Content: d.Thread.Title, MaxLines: 1, Style: core.Style{FontSize: 13.5, FontWeight: ui.Semibold},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-		core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 11},
-			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 		core.Dynamic(a.environmentStatus),
 	}}
 	if compactSettings(cx) {
@@ -495,8 +506,12 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 			title,
 			ui.IconButton{Icon: lucide.GitBranch, Label: "Branches", TestID: "branch-menu",
 				OnPress: func() { a.showBranches.Set(true) }},
-			ui.Menu{TestID: "thread-actions", Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost,
-				Size: controlSize(cx), Label: "Thread actions", TestID: "thread-actions"},
+			ui.Menu{TestID: "thread-actions", Open: a.threadMenuOpen.Get,
+				OnOpenChange: func(open bool, _ base.Reason) {
+					a.threadMenuGuard.change(open, a.threadMenuOpen.Set)
+				},
+				Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost,
+					Size: controlSize(cx), Label: "Thread actions", TestID: "thread-actions"},
 				Children: []core.Node{
 					ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread", OnSelect: func() { a.askRenameThread(d.Thread) }},
 					ui.MenuItem{Text: "Run history", TestID: "history", OnSelect: a.openRuns},
@@ -510,13 +525,17 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, MinWidth: core.Pt(0)}, Children: []core.Node{
 		title,
 		a.branchMenu(cx, d),
-		ui.IconButton{Icon: lucide.Pencil, Label: "Rename thread", TestID: "rename-thread",
-			OnPress: func() { a.askRenameThread(d.Thread) }},
-		ui.IconButton{Icon: lucide.Trash, Label: "Delete thread", TestID: "delete-thread",
-			OnPress: func() { a.askDeleteThread(d.Thread) }},
-		ui.IconButton{Icon: lucide.Clock3, Label: "Run history", TestID: "history", OnPress: a.openRuns},
-		ui.IconButton{Icon: lucide.CodeXml, Label: "Open in editor", TestID: "open-editor", OnPress: a.openInEditor},
-		ui.IconButton{Icon: lucide.GitCompare, Label: "Changes in this thread", TestID: "open-diff", OnPress: a.openDiff},
+		ui.Menu{TestID: "thread-menu", Open: a.threadMenuOpen.Get,
+			OnOpenChange: func(open bool, _ base.Reason) {
+				a.threadMenuGuard.change(open, a.threadMenuOpen.Set)
+			},
+			Trigger: ui.Button{Icon: lucide.Ellipsis, Label: "Thread actions",
+				Side: 34, IconSize: 18, Variant: ui.ButtonGhost},
+			Children: []core.Node{
+				ui.MenuItem{Text: "Run history", TestID: "history", OnSelect: a.openRuns},
+				ui.MenuItem{Text: "Open in editor", TestID: "open-editor", OnSelect: a.openInEditor},
+				ui.MenuItem{Text: "Changes in this thread", TestID: "open-diff", OnSelect: a.openDiff},
+			}},
 		a.rightToggle(),
 	}}
 }
@@ -1379,6 +1398,8 @@ func (a *app) diffBody(cx *core.Scope) core.Node {
 			TestID: "git-commit", Disabled: a.gitBusy.Get, OnPress: func() { a.runGitAction(proto.GitCommit) }},
 		ui.Button{Text: "Push", Icon: lucide.ArrowUp, Variant: ui.ButtonSecondary, Size: controlSize(cx),
 			TestID: "git-push", Disabled: a.gitBusy.Get, OnPress: func() { a.runGitAction(proto.GitPush) }},
+		ui.Button{Text: "Commit & push", Icon: lucide.ArrowUp, Variant: ui.ButtonSecondary, Size: controlSize(cx),
+			TestID: "git-commit-push", Disabled: a.gitBusy.Get, OnPress: func() { a.runGitAction(proto.GitCommitPush) }},
 		ui.Button{Text: "Create PR", Icon: lucide.GitPullRequest, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 			TestID: "git-pr", Disabled: a.gitBusy.Get, OnPress: func() { a.runGitAction(proto.GitCommitPR) }},
 		core.Show{When: a.gitBusy.Get, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 14, Label: "Running git action"} }},

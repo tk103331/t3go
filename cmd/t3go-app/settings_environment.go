@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/oneo-me/nsgo/core"
+	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/tk/t3go/internal/client"
 	"github.com/tk/t3go/internal/proto"
@@ -88,6 +90,69 @@ func (a *app) settingsEnvironmentSelector(cx *core.Scope) core.Node {
 			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: choices},
 		}},
 	}}
+}
+
+// settingsProvidersByEnvironment shows what each environment detected, so
+// the providers of one machine are never mixed with another's.
+func (a *app) settingsProvidersByEnvironment(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	if a.manager == nil {
+		return core.View{}
+	}
+	_ = a.manager.revision.Get()
+	names := a.manager.environmentNames()
+	selected := a.settingsEnv.Get()
+	var rows []core.Node
+	for _, profile := range a.manager.profiles.Get() {
+		profile := profile
+		session := a.manager.sessions[profile.ID]
+		if session == nil {
+			continue
+		}
+		name := names[profile.ID]
+		if name == "" {
+			name = profile.Alias
+		}
+		state := session.connectionLabel()
+		detail := "Not connected"
+		switch {
+		case session.connected.Get() && len(session.providers.Get()) == 0 && !session.providersBusy.Get():
+			detail = "No providers detected yet"
+		case session.connected.Get():
+			detail = fmt.Sprintf("%d providers · %d models", len(session.providers.Get()), len(session.allModels()))
+		case session.transportBlocked.Get():
+			detail = "Authorization required"
+		}
+		variant := ui.ButtonSecondary
+		if profile.ID == selected {
+			variant = ui.ButtonPrimary
+		}
+		rows = append(rows, core.View{TestID: "settings-providers-environment-" + profile.ID,
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(6, 8),
+				Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{
+				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
+					core.Text{Content: name, MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold},
+						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+					core.Text{Content: detail + " · " + state, MaxLines: 1, Style: core.Style{FontSize: 10.5},
+						StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+				}},
+				ui.Button{Text: "Show", Variant: variant, Size: controlSize(cx),
+					TestID:  "settings-providers-show-" + profile.ID,
+					OnPress: func() { a.selectSettingsEnvironment(profile.ID) }},
+				ui.Button{Text: "Detect", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: controlSize(cx),
+					TestID: "settings-providers-detect-" + profile.ID, Disabled: session.providersBusy.Get,
+					OnPress: func() { session.refreshProviders() }},
+			}})
+	}
+	if len(rows) == 0 {
+		return core.View{}
+	}
+	return core.View{TestID: "settings-providers-environments", Style: core.Style{Direction: core.Column, Gap: 4},
+		Children: []core.Node{
+			core.Text{Content: "By environment", Style: core.Style{FontSize: 11.5, FontWeight: ui.Semibold},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+			core.View{Style: core.Style{Direction: core.Column, Gap: 4}, Children: rows},
+		}}
 }
 
 // The settings window owns navigation, while every environment owns its data,

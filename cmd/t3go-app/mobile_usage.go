@@ -7,6 +7,7 @@ import (
 
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
+	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/tk/t3go/internal/proto"
 )
@@ -19,8 +20,9 @@ func (a *app) loadMobileUsage() {
 
 func (a *app) mobileUsage(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	return core.Scroll{TestID: "mobile-usage-page", Style: ui.FillRest, Children: []core.Node{
-		core.View{Style: core.Style{Padding: core.All(18), Gap: 18}, Children: []core.Node{
+	return core.View{TestID: "mobile-usage-page", Style: ui.FillRest, Children: []core.Node{
+		core.View{TestID: "mobile-usage-filters", Style: core.Style{Padding: core.Edges{Top: 4, Right: 16, Bottom: 12, Left: 16}, Gap: 10,
+			FlexShrink: 0}, Children: []core.Node{
 			mobileSegments(cx, a.mobileUsageMetric.Get, a.mobileUsageMetric.Set, "usage-metric",
 				[]string{"cost", "tokens", "limits"}, []string{"Cost", "Tokens", "Limits"}),
 			core.Dynamic(func(cx *core.Scope) core.Node {
@@ -33,28 +35,67 @@ func (a *app) mobileUsage(cx *core.Scope) core.Node {
 					options = append(options, mobileSegment(cx, option.label, fmt.Sprintf("settings-usage-%d", option.days),
 						a.mobileUsageDays.Get() == option.days, func() { a.mobileUsageDays.Set(option.days); a.loadMobileUsage() }))
 				}
-				return core.View{Style: core.Style{Direction: core.Row, CornerRadius: 24, Background: colors.Inset(),
-					Padding: core.All(3)}, Children: options}
+				return core.View{Style: core.Style{Direction: core.Row, CornerRadius: 14, Background: colors.Inset(),
+					BorderWidth: 1, BorderColor: colors.Border(), Padding: core.All(3)}, Children: options}
 			}),
-			a.mobileEnvironmentMenu(cx, a.mobileUsageEnv, "mobile-usage-environment", a.loadMobileUsage, false),
-			core.Dynamic(a.mobileUsageReport),
+			core.Func(a.mobileUsageEnvironment),
+		}},
+		core.Scroll{TestID: "mobile-usage-report-scroll", Style: ui.FillRest, Children: []core.Node{
+			core.View{Style: core.Style{Padding: core.Edges{Top: 4, Right: 16, Bottom: 24, Left: 16}},
+				Children: []core.Node{core.Dynamic(a.mobileUsageReport)}},
 		}},
 	}}
+}
+
+func (a *app) mobileUsageEnvironment(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		name := "All environments"
+		choices := []core.Node{ui.MenuItem{Text: name, TestID: "mobile-usage-environment-all",
+			Checked:  func() bool { return a.mobileUsageEnv.Get() == "" },
+			OnSelect: func() { a.mobileUsageEnv.Set(""); a.loadMobileUsage() }}}
+		for _, session := range a.mobileSessions("") {
+			id := session.profile.ID
+			if a.mobileUsageEnv.Get() == id {
+				name = session.envName()
+			}
+			choices = append(choices, ui.MenuItem{Text: session.envName(), TestID: "mobile-usage-environment-" + id,
+				Checked:  func() bool { return a.mobileUsageEnv.Get() == id },
+				OnSelect: func() { a.mobileUsageEnv.Set(id); a.loadMobileUsage() }})
+		}
+		return ui.Menu{TestID: "mobile-usage-environment", Label: "Usage environment", MaxHeight: 360,
+			Trigger: ui.Button{Text: name, Label: "Usage environment", Flex: 1},
+			Face: core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
+				MinHeight: core.Pt(44), Gap: 10, Padding: core.Symmetric(8, 12),
+				BorderWidth: 1, BorderColor: colors.Border(), CornerRadius: 12}, Children: []core.Node{
+				ui.Icon(lucide.Monitor, 18, colors.Muted),
+				core.Text{Content: name, MaxLines: 1, TestID: "mobile-usage-environment-name",
+					Style:     core.Style{FontSize: 13, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+				ui.Icon(lucide.ChevronDown, 16, colors.Muted),
+			}}, Children: choices}
+	})
 }
 
 func mobileSegment(cx *core.Scope, label, id string, selected bool, action func()) core.Node {
 	colors := ui.ColorsOf(cx)
 	return base.Button{Label: label, TestID: id, Selected: func() bool { return selected },
 		OnPress: func(core.PressEvent) { action() },
-		Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Height: core.Pt(40),
-			CornerRadius: 22, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+		Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Height: core.Pt(44),
+			CornerRadius: 11, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
 		StyleFunc: func() core.Style {
 			s := core.Style{Focus: ui.FocusRing(cx, -2)}
 			if selected {
-				s.Background = colors.Surface()
+				s.Background = colors.AccentFill()
 			}
 			return s
-		}, Children: []core.Node{ui.Text(label, 14, ui.Medium, colors.Text)}}
+		}, Children: []core.Node{core.Text{Content: label, MaxLines: 1,
+			Style: core.Style{FontSize: 14, FontWeight: ui.Medium}, StyleFunc: func() core.Style {
+				if selected {
+					return core.Style{Color: colors.OnAccent()}
+				}
+				return core.Style{Color: colors.Muted()}
+			}}}}
 }
 
 func mobileSegments(cx *core.Scope, value func() string, changed func(string), id string, values, labels []string) core.Node {
@@ -64,8 +105,8 @@ func mobileSegments(cx *core.Scope, value func() string, changed func(string), i
 			option := option
 			nodes = append(nodes, mobileSegment(cx, labels[i], id+"-"+option, value() == option, func() { changed(option) }))
 		}
-		return core.View{Style: core.Style{Direction: core.Row, CornerRadius: 24, Padding: core.All(3),
-			Background: ui.ColorsOf(cx).Inset()}, Children: nodes}
+		return core.View{Style: core.Style{Direction: core.Row, CornerRadius: 14, Padding: core.All(3),
+			BorderWidth: 1, BorderColor: ui.ColorsOf(cx).Border(), Background: ui.ColorsOf(cx).Inset()}, Children: nodes}
 	})
 }
 
@@ -76,18 +117,21 @@ func (a *app) mobileUsageReport(cx *core.Scope) core.Node {
 	metric := a.mobileUsageMetric.Get()
 	var children []core.Node
 	if metric == "limits" {
-		return core.View{Style: core.Style{Padding: core.All(20), Gap: 12}, Children: []core.Node{
-			ui.Text("Provider limits", 20, ui.Semibold, colors.Text),
+		return core.View{TestID: "mobile-usage-limits", Style: core.Style{Padding: core.All(20), Gap: 12,
+			CornerRadius: 18, BorderWidth: 1, BorderColor: colors.Border(), Background: colors.Inset()}, Children: []core.Node{
+			ui.Icon(lucide.Gauge, 28, colors.Muted),
+			ui.Text("Provider limits", 18, ui.Semibold, colors.Text),
 			ui.Text("The connected servers do not report account quotas or reset times. Cost and Tokens show usage recorded by T3Go runs.", 14, ui.Regular, colors.Muted),
 		}}
 	}
 	report := proto.UsageReport{}
 	byDay := map[string]proto.UsageDay{}
 	byProvider := map[string]proto.UsageProvider{}
-	busy := false
+	busy, available, unavailable := false, 0, 0
 	for _, session := range a.mobileSessions(a.mobileUsageEnv.Get()) {
 		name := session.envName()
 		if !session.settingsConnectionReady() {
+			unavailable++
 			children = append(children, ui.Text(name+" · "+session.connectionLabel(), 12, ui.Regular, colors.Danger))
 			continue
 		}
@@ -96,6 +140,7 @@ func (a *app) mobileUsageReport(cx *core.Scope) core.Node {
 			continue
 		}
 		if err := session.usageErr.Get(); err != "" {
+			unavailable++
 			children = append(children, ui.Text(name+": "+err, 12, ui.Regular, colors.Danger))
 			continue
 		}
@@ -103,6 +148,7 @@ func (a *app) mobileUsageReport(cx *core.Scope) core.Node {
 			continue
 		}
 		current := session.usageReport.Get()
+		available++
 		report.Totals.Runs += current.Totals.Runs
 		report.Totals.Tokens += current.Totals.Tokens
 		report.Totals.Cost += current.Totals.Cost
@@ -121,8 +167,20 @@ func (a *app) mobileUsageReport(cx *core.Scope) core.Node {
 		}
 	}
 	if busy {
-		children = append(children, ui.Spinner{Size: 20, Label: "Loading usage"})
+		children = append(children, core.View{TestID: "mobile-usage-loading", Style: core.Style{Padding: core.All(24),
+			Gap: 12, AlignItems: core.AlignCenter}, Children: []core.Node{
+			ui.Spinner{Size: 24, Label: "Loading usage"}, ui.Text("Loading usage…", 14, ui.Regular, colors.Muted),
+		}})
 		// Avoid presenting partial totals as the full amount.
+		return core.View{Style: core.Style{Gap: 12}, Children: children}
+	}
+	if unavailable > 0 {
+		children = append(children, ui.Text(fmt.Sprintf("Showing %d available environments · %d unavailable", available, unavailable),
+			12, ui.Medium, colors.Muted))
+	}
+	if available == 0 {
+		children = append(children, ui.Text("Usage is unavailable. Reconnect an environment or try again.", 14, ui.Regular, colors.Muted),
+			ui.Button{Text: "Try again", Icon: lucide.RefreshCw, TestID: "mobile-usage-refresh", OnPress: a.loadMobileUsage})
 		return core.View{Style: core.Style{Gap: 12}, Children: children}
 	}
 	title, total, note := "Recorded cost", fmt.Sprintf("$%.2f", report.Totals.Cost), "Cost reported by runs in the selected environments."
@@ -155,20 +213,39 @@ func (a *app) mobileUsageReport(cx *core.Scope) core.Node {
 			Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(1), Height: core.Pt(core.Points(height)),
 				CornerRadius: 3, Background: colors.Accent()}})
 	}
+	rangeLabel := fmt.Sprintf("Last %d days", a.mobileUsageDays.Get())
+	if a.mobileUsageDays.Get() == 1 {
+		rangeLabel = "Today"
+	}
+	var chart core.Node = core.View{TestID: "usage-chart", Style: core.Style{Direction: core.Row, AlignItems: core.AlignEnd,
+		Gap: 3, Height: core.Pt(174)}, Children: bars}
+	if peak == 0 {
+		chart = core.View{TestID: "usage-chart-empty", Style: core.Style{Padding: core.Symmetric(18, 0), Gap: 8}, Children: []core.Node{
+			ui.Icon(lucide.ChartColumn, 24, colors.Faint),
+			ui.Text("No "+metric+" reported in this range.", 13, ui.Regular, colors.Muted),
+		}}
+	}
 	children = append(children, core.View{TestID: "mobile-usage-summary",
-		Style: core.Style{Padding: core.All(18), CornerRadius: 24, Background: colors.Inset(), Gap: 8}, Children: []core.Node{
-			ui.Text(title, 13, ui.Regular, colors.Muted),
+		Style: core.Style{Padding: core.All(18), CornerRadius: 18, BorderWidth: 1, BorderColor: colors.Border(),
+			Background: colors.Inset(), Gap: 10}, Children: []core.Node{
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+				ui.Text(title, 13, ui.Medium, colors.Muted), ui.Spacer{}, ui.Text(rangeLabel, 12, ui.Regular, colors.Muted),
+			}},
 			core.Text{Content: total, TestID: "mobile-usage-total", Style: core.Style{FontSize: 36, FontWeight: ui.Bold},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+			ui.Text(fmt.Sprintf("%d runs · %s tokens", report.Totals.Runs, humanTokens(report.Totals.Tokens)), 12, ui.Regular, colors.Muted),
+			chart,
+			core.View{Style: core.Style{Direction: core.Row}, Children: []core.Node{
+				ui.Text(report.Since, 11, ui.Regular, colors.Faint), ui.Spacer{}, ui.Text("Today", 11, ui.Regular, colors.Faint),
+			}},
 			ui.Text(note, 12, ui.Regular, colors.Muted),
-			core.View{TestID: "usage-chart", Style: core.Style{Direction: core.Row, AlignItems: core.AlignEnd,
-				Gap: 2, Height: core.Pt(190)}, Children: bars},
-			ui.Text(report.Since+" — Today", 12, ui.Regular, colors.Muted),
 		}})
 	if report.Totals.Runs == 0 {
 		children = append(children, ui.Text("No usage recorded in this range.", 14, ui.Regular, colors.Muted))
 	}
-	children = append(children, ui.Text("Providers", 14, ui.Medium, colors.Muted))
+	if len(byProvider) > 0 {
+		children = append(children, ui.Text("Providers", 14, ui.Medium, colors.Muted))
+	}
 	var providers []proto.UsageProvider
 	for _, provider := range byProvider {
 		providers = append(providers, provider)
@@ -207,8 +284,12 @@ func (a *app) mobileUsageReport(cx *core.Scope) core.Node {
 				ui.Text(fmt.Sprintf("%.1f%% · %s tokens · %d runs", share*100, humanTokens(provider.Tokens), provider.Runs), 12, ui.Regular, colors.Muted),
 			}})
 	}
-	children = append(children, core.View{Style: core.Style{CornerRadius: 24, Background: colors.Inset()}, Children: rows},
-		ui.Button{Text: "Refresh", Variant: ui.ButtonGhost, TestID: "mobile-usage-refresh", OnPress: a.loadMobileUsage})
+	if len(rows) > 0 {
+		children = append(children, core.View{Style: core.Style{CornerRadius: 18, Background: colors.Inset(),
+			BorderWidth: 1, BorderColor: colors.Border()}, Children: rows})
+	}
+	children = append(children, ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost,
+		TestID: "mobile-usage-refresh", OnPress: a.loadMobileUsage})
 	return core.View{Style: core.Style{Gap: 16}, Children: children}
 }
 

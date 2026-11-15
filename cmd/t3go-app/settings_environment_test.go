@@ -46,6 +46,24 @@ func newSettingsFixture(t *testing.T, name string) *settingsFixture {
 	handler := srv.Handler()
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/api/v1/state":
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, r)
+			if rec.Code != http.StatusOK {
+				w.WriteHeader(rec.Code)
+				_, _ = w.Write(rec.Body.Bytes())
+				return
+			}
+			var state proto.State
+			if err := json.Unmarshal(rec.Body.Bytes(), &state); err != nil {
+				t.Error(err)
+				return
+			}
+			state.Providers = []proto.Provider{{ID: "claude", Name: name + " CLI", Installed: true,
+				CanAuthenticate: true, AuthStatus: "unauthenticated", LoginCommand: "test-login-" + name}}
+			state.Models = []proto.Model{{ID: name + "-model", Name: name + " model", Provider: "claude"}}
+			_ = json.NewEncoder(w).Encode(state)
+			return
 		case r.URL.Path == "/api/v1/providers":
 			f.probes.Add(1)
 			if f.hold.Load() {
@@ -79,6 +97,9 @@ func newSettingsFixture(t *testing.T, name string) *settingsFixture {
 			}
 		case r.URL.Path == "/api/v1/threads/same-thread/terminal":
 			_ = json.NewEncoder(w).Encode(map[string]string{"id": "fake-terminal"})
+			return
+		case r.URL.Path == "/api/v1/threads/same-thread/terminals" && r.Method == http.MethodPost:
+			_ = json.NewEncoder(w).Encode(proto.TerminalSession{ID: "fake-terminal", ThreadID: "same-thread", Title: "Terminal 1"})
 			return
 		case r.URL.Path == "/api/v1/terminals/fake-terminal/input":
 			f.inputs.Add(1)
@@ -154,7 +175,12 @@ func TestUISettingsEnvironmentIsolation(t *testing.T) {
 	app.Press("id:settings")
 	app.Press("id:settings-nav-providers")
 	app.WaitFor("text:\"Alpha CLI\"", 5*time.Second)
-	app.Press("id:settings-environment-" + beta.profile.ID)
+	app.WaitFor("id:settings-providers-environment-"+alpha.profile.ID, 5*time.Second)
+	app.WaitFor("id:settings-providers-environment-"+beta.profile.ID, 5*time.Second)
+	if !app.Exists("id:settings-providers-show-" + beta.profile.ID) {
+		t.Fatal("providers page has no per-environment switch")
+	}
+	app.Press("id:settings-providers-show-" + beta.profile.ID)
 	app.WaitFor("text:\"Beta CLI\"", 5*time.Second)
 	if app.Exists("text:Alpha CLI") || app.Exists("text:Alpha model") {
 		t.Fatal("provider details leaked from Alpha")

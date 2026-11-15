@@ -324,7 +324,9 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 		}
 		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(10)}, Children: []core.Node{
 			head,
-			a.scrollWithBar(cx, a.filesScroll, "files-scrollbar", core.Scroll{Style: ui.FillRest, Children: []core.Node{body}}),
+			a.scrollWithBar(cx, a.filesScroll, "files-scrollbar", core.Scroll{TestID: "file-content-scroll",
+				Style: ui.FillRest, Children: []core.Node{core.View{Style: core.Style{FlexShrink: 0,
+					Padding: core.Edges{Right: 12, Bottom: 12}}, Children: []core.Node{body}}}}),
 		}}
 	}
 	path := a.filesPath.Get()
@@ -1031,7 +1033,7 @@ func (a *app) rightTerminal(cx *core.Scope) core.Node {
 		body = append(body, core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0),
 			Padding: core.Edges{Top: 6, Right: 8, Bottom: 8, Left: 8}}, Children: []core.Node{
 			core.WebView{TestID: "terminal-view", Style: ui.FillRest,
-				SourceFunc: func() core.WebSource { return core.WebHTML(a.terminalHTML(session.ID), "") },
+				SourceFunc: func() core.WebSource { return a.terminalSource(session.ID) },
 				OnMessage: func(data string) {
 					if data == "exit" {
 						a.loadTerminalSessions()

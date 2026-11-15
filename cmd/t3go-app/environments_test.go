@@ -232,7 +232,7 @@ func TestUIAuthorizationRecoveryKeepsDraftAndValidatesToken(t *testing.T) {
 	app.WaitFor("label:Message", 5*time.Second)
 	app.WaitUntil(5*time.Second, func() bool {
 		return app.Find("id:current-environment-name").Text == "Desktop" &&
-			app.Find("id:connection-status").Text == "Authorization required"
+			app.Find("id:connection-status").Props.Label == "Authorization required"
 	})
 	if app.Exists("id:offline") || app.Exists("label:Reconnecting") {
 		t.Fatal("authorization rejection still shows reconnecting")
@@ -265,7 +265,7 @@ func TestUIAuthorizationRecoveryKeepsDraftAndValidatesToken(t *testing.T) {
 		app.Advance(250 * time.Millisecond)
 		return !app.Exists("id:credentials-dialog")
 	})
-	app.WaitUntil(5*time.Second, func() bool { return app.Find("id:connection-status").Text == "Direct" })
+	app.WaitUntil(5*time.Second, func() bool { return app.Find("id:connection-status").Props.Label == "Direct" })
 	app.WaitForGone("id:authorization-required", 5*time.Second)
 	app.WaitFor("text:Check delivery", 5*time.Second)
 	if app.Find("label:Message").Text != "Keep my draft" {
@@ -277,6 +277,9 @@ func TestUIAuthorizationRecoveryKeepsDraftAndValidatesToken(t *testing.T) {
 	}
 	// Settings remains reachable from the phone's conversation actions.
 	app.Press("id:thread-actions")
+	app.Advance(300 * time.Millisecond)
+	app.Press("id:thread-actions")
+	app.WaitFor("id:settings", 5*time.Second)
 	app.Press("id:settings")
 	app.WaitFor("id:settings-nav-environments", 5*time.Second)
 	app.Press("id:settings-nav-environments")
