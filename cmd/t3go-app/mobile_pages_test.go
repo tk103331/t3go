@@ -397,9 +397,11 @@ func TestUIMobileVisibleModelAndSettingsNavigation(t *testing.T) {
 		picker := mobileScreenFrame(app.Find("id:composer-model"))
 		options := mobileScreenFrame(app.Find("id:composer-more"))
 		send := mobileScreenFrame(app.Find("id:composer-send"))
+		middle := func(b core.Bounds) core.Points { return b.Origin.Y + b.Size.Height/2 }
 		if picker.Size.Height < 44 || picker.Origin.X < 0 || picker.Origin.X+picker.Size.Width > width ||
 			options.Size.Width < 44 || options.Size.Height < 44 ||
-			options.Origin.Y != send.Origin.Y ||
+			middle(options) != middle(send) ||
+			send.Size.Width > 40 || send.Size.Height > 40 ||
 			send.Origin.Y+send.Size.Height > 844-300 {
 			t.Fatalf("composer controls outside the phone/keyboard area: model=%v options=%v send=%v", picker, options, send)
 		}

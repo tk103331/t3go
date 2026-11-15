@@ -2957,8 +2957,8 @@ func TestUIMobileDialogsFit(t *testing.T) {
 	app.WaitFor("id:new-thread-page", 5*time.Second)
 	app.Type("label:New thread message", "Draft above the keyboard")
 	send := mobileScreenFrame(app.Find("id:composer-send"))
-	if send.Origin.Y+send.Size.Height > 844-300 || send.Size.Height < 44 {
-		t.Fatalf("new thread send is covered by the keyboard or too small: %v", send)
+	if send.Origin.Y+send.Size.Height > 844-300 || send.Size.Height < 36 || send.Size.Height > 40 {
+		t.Fatalf("new thread send is covered by the keyboard or the wrong size: %v", send)
 	}
 	app.Press("id:new-thread-options")
 	app.WaitFor("id:new-thread-dialog", 5*time.Second)

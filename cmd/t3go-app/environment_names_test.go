@@ -151,7 +151,14 @@ func TestUIDefaultEnvironmentNamesStayConsistent(t *testing.T) {
 			app.Type("label:Environment alias", "My desktop")
 			app.Press("label:Save alias")
 			app.WaitFor("id:environment-"+pb.ID+" >> text:My desktop", 5*time.Second)
-			app.Press("id:settings-close")
+			if width < 760 {
+				// The phone settings are a page with a back arrow; the
+				// desktop keeps its settings dialog.
+				app.Press("id:mobile-settings-back")
+				app.Press("id:mobile-tab-threads")
+			} else {
+				app.Press("id:settings-close")
+			}
 			waitSheetGone(app, "id:settings-dialog")
 			if width < 760 {
 				openMobileProjects(app)

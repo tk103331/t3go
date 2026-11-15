@@ -23,12 +23,12 @@ func (a *app) mobileSettings(cx *core.Scope) core.Node {
 				core.View{Style: core.Style{Padding: core.All(18)}, Children: []core.Node{core.Dynamic(a.settingsPage)}},
 			}},
 			core.Dynamic(func(cx *core.Scope) core.Node {
-				nodes := []core.Node{ui.Button{Text: "Close", Variant: ui.ButtonGhost, Size: controlSize(cx),
-					TestID: "settings-close", OnPress: a.closeSettings}}
-				if target := a.settingsTarget(); a.settingsSection.Get() == "general" && target != nil && target.settingsConnectionReady() {
-					nodes = settingsFooter(cx, a, target)
+				target := a.settingsTarget()
+				if a.settingsSection.Get() != "general" || target == nil || !target.settingsConnectionReady() {
+					return core.View{}
 				}
-				return core.View{Style: core.Style{Direction: core.Row, FlexShrink: 0, Gap: 8, Padding: core.Symmetric(8, 18)}, Children: nodes}
+				return core.View{Style: core.Style{Direction: core.Row, FlexShrink: 0, Gap: 8, Padding: core.Symmetric(8, 18)},
+					Children: settingsFooter(cx, a, target)}
 			}),
 		}}
 	}
@@ -66,9 +66,7 @@ func (a *app) mobileSettings(cx *core.Scope) core.Node {
 					func() { a.openMobileSettingsSection("environments") })),
 			section("Preferences",
 				row("General & appearance", "Defaults, theme, accent and editor", "settings-nav-general", lucide.Settings,
-					func() { a.openMobileSettingsSection("general") }),
-				row("Keyboard", "Shortcuts", "settings-nav-shortcuts", lucide.Keyboard,
-					func() { a.openMobileSettingsSection("shortcuts") })),
+					func() { a.openMobileSettingsSection("general") })),
 			section("Agents",
 				row("Providers", "CLI status, models and sign in by environment", "settings-nav-providers", lucide.Bot,
 					func() { a.openMobileSettingsSection("providers") }),

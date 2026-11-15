@@ -128,18 +128,21 @@ func (a *app) settingsProvidersByEnvironment(cx *core.Scope) core.Node {
 			variant = ui.ButtonPrimary
 		}
 		rows = append(rows, core.View{TestID: "settings-providers-environment-" + profile.ID,
-			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(6, 8),
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(8, 10),
 				Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{
 				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2}, Children: []core.Node{
 					core.Text{Content: name, MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold},
 						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-					core.Text{Content: detail + " · " + state, MaxLines: 1, Style: core.Style{FontSize: 10.5},
+					core.Text{Content: detail, MaxLines: 2, Style: core.Style{FontSize: 10.5},
 						StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+					core.Text{Content: state, MaxLines: 1, Style: core.Style{FontSize: 10.5},
+						StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 				}},
 				ui.Button{Text: "Show", Variant: variant, Size: controlSize(cx),
 					TestID:  "settings-providers-show-" + profile.ID,
 					OnPress: func() { a.selectSettingsEnvironment(profile.ID) }},
-				ui.Button{Text: "Detect", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: controlSize(cx),
+				ui.Button{Icon: lucide.RefreshCw, Label: "Detect providers on " + name, Variant: ui.ButtonGhost,
+					Side: 44, IconSize: 20, Size: 44,
 					TestID: "settings-providers-detect-" + profile.ID, Disabled: session.providersBusy.Get,
 					OnPress: func() { session.refreshProviders() }},
 			}})

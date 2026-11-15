@@ -99,7 +99,7 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 			}
 			return "Send"
 		},
-		Variant: ui.IconButtonPrimary, Size: 44, IconSize: 22, TestID: "composer-send", Disabled: m.Disabled,
+		Variant: ui.IconButtonPrimary, Size: 38, IconSize: 19, TestID: "composer-send", Disabled: m.Disabled,
 		OnPress: func() {
 			if m.Running != nil && m.Running() && strings.TrimSpace(draft()) == "" {
 				if m.OnStop != nil {

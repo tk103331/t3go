@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
@@ -153,25 +154,32 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 			labels = append(labels, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
 				Gap: 2, Padding: core.Symmetric(2, 7), Background: colors.Inset(), CornerRadius: 5}, Children: children})
 		}
-		meta := provider.Name + " · " + provider.ID
-		if provider.Version != "" {
-			meta += " · " + provider.Version
-		}
+		meta := provider.Version
 		var body []core.Node
 		body = append(body,
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 				ui.Text(provider.Name, 12.5, ui.Semibold, colors.Text),
 				ui.Text(provider.ID, 10.5, ui.Regular, colors.Faint),
 				ui.Spacer{},
-				ui.Text(status, 10.5, ui.Semibold, color),
+				core.View{TestID: "settings-provider-status-" + provider.ID,
+					StyleFunc: func() core.Style {
+						return core.Style{Padding: core.Symmetric(2, 7), CornerRadius: 5, Background: ui.Alpha(color(), 0.12)}
+					},
+					Children: []core.Node{
+						core.Text{Content: status, MaxLines: 1, Style: core.Style{FontSize: 10, FontWeight: ui.Semibold},
+							StyleFunc: func() core.Style { return core.Style{Color: color()} }},
+					}},
 			}},
-			core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 10.5}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 		)
-		if provider.Path != "" {
-			body = append(body, core.Text{Content: provider.Path, MaxLines: 1, Style: core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
+		if meta != "" {
+			body = append(body, core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 10.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 		}
-		if provider.Error != "" {
+		if provider.Path != "" {
+			body = append(body, core.Text{Content: provider.Path, MaxLines: 2, Style: core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
+		}
+		if provider.Error != "" && !strings.EqualFold(provider.Error, "not installed") {
 			body = append(body, core.Text{Content: provider.Error, MaxLines: 2, Style: core.Style{FontSize: 10.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }})
 		}
@@ -182,14 +190,14 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 		}
 		if provider.AuthStatus == "unauthenticated" || provider.AuthStatus == "unknown" {
 			if provider.LoginCommand != "" {
-				body = append(body, core.Text{Content: provider.LoginCommand, MaxLines: 1,
+				body = append(body, core.Text{Content: provider.LoginCommand, MaxLines: 2,
 					Style:     core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 			}
 		}
 		var actions []core.Node
 		if !provider.Installed && provider.CanInstall && provider.InstallCommand != "" {
-			body = append(body, core.Text{Content: provider.InstallCommand, MaxLines: 1,
+			body = append(body, core.Text{Content: provider.InstallCommand, MaxLines: 2,
 				Style:     core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 			actions = append(actions, ui.Button{Text: "Install", Icon: lucide.Download, Variant: ui.ButtonSecondary,
@@ -219,7 +227,9 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 		core.Text{Content: a.providersErr.Get(), TestID: "settings-providers-error", MaxLines: 3,
 			Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter}, Children: []core.Node{
-			ui.Text(fmt.Sprintf("%d providers · %d models", len(providers), len(models)), 11.5, ui.Regular, colors.Faint),
+			core.Text{Content: fmt.Sprintf("%d providers · %d models · %s", len(providers), len(models), a.envName()),
+				MaxLines: 1, Style: core.Style{FontSize: 11.5},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 			ui.Spacer{}, refresh,
 		}},
 		core.View{Style: core.Style{Direction: core.Column, Gap: 6}, Children: cards},

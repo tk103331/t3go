@@ -22,6 +22,10 @@ func main() {
 
 // Root keeps every saved environment connected while rendering one conversation.
 func Root(cx *core.Scope) core.Node {
+	// NSGo's theme carries the role colors the ui reads (accent fills,
+	// insets, faint text). Set it before the environments answer, so the
+	// first frame is not painted without them.
+	cx.SetTheme(ui.DefaultTheme())
 	manager := newEnvironmentManager(cx)
 	manager.start()
 	return manager.view(cx)

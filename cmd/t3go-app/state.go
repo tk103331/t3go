@@ -53,6 +53,7 @@ type app struct {
 	credentialError      *core.Signal[string]
 	connectionRecovered  *core.Signal[bool]
 	recoveryNoticeCancel func() bool
+	appliedAccent        string
 
 	// connection
 	serverURL  *core.Signal[string]
@@ -4447,14 +4448,41 @@ func (a *app) applyAppearance(s proto.Settings) {
 	default:
 		cx.SetAppearance(core.AppearanceSystem)
 	}
-	if accent := accentTheme(s.Accent); accent != nil {
-		cx.SetTheme(accent)
+	a.applyAccent(s.Accent)
+}
+
+// applyAccent gives the tree its accent color. Setting a theme rebuilds
+// the tree, so an accent that has not changed is left alone: a rebuild
+// would take the focus away from whatever the user is typing in.
+func (a *app) applyAccent(accent string) {
+	accent = strings.TrimSpace(accent)
+	cx := a.cx
+	if a.manager != nil {
+		if a.manager.app != a {
+			return
+		}
+		cx = a.manager.cx
+		if a.manager.appliedAccent == accent {
+			return
+		}
+		a.manager.appliedAccent = accent
 	} else {
-		cx.SetTheme(nil)
+		if a.appliedAccent == accent {
+			return
+		}
+		a.appliedAccent = accent
+	}
+	if theme := accentTheme(accent); theme != nil {
+		cx.SetTheme(theme)
+	} else {
+		cx.SetTheme(ui.DefaultTheme())
 	}
 }
 
-// accentTheme returns the default theme with another accent, or nil.
+// accentTheme returns the default theme with another accent, or nil. It
+// starts from NSGo's theme so the ui's role colors (accent fills, insets,
+// faint text) stay in the palette; without them a selected control paints
+// a transparent fill under its own text.
 func accentTheme(hex string) *core.Theme {
 	hex = strings.TrimSpace(strings.TrimPrefix(hex, "#"))
 	if len(hex) != 6 {
@@ -4465,8 +4493,9 @@ func accentTheme(hex string) *core.Theme {
 		return nil
 	}
 	accent := core.RGB(uint32(value))
-	theme := core.DefaultTheme().Clone()
+	theme := ui.DefaultTheme().Clone()
 	theme.Light.Accent = accent
+	theme.Light.Colors["accentFill"] = accent
 	theme.Light.AccentHover = shadeColor(accent, 0.9)
 	theme.Light.AccentPressed = shadeColor(accent, 0.8)
 	theme.Light.AccentText = core.RGB(0xffffff)
@@ -4474,6 +4503,7 @@ func accentTheme(hex string) *core.Theme {
 	theme.Light.Focus = core.RGBA(uint32(value), 0.55)
 	bright := shadeColor(accent, 1.15)
 	theme.Dark.Accent = bright
+	theme.Dark.Colors["accentFill"] = bright
 	theme.Dark.AccentHover = shadeColor(accent, 1.28)
 	theme.Dark.AccentPressed = shadeColor(accent, 1.05)
 	theme.Dark.AccentText = core.RGB(0xffffff)

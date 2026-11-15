@@ -175,7 +175,11 @@ func (a *app) mobileUsageReport(cx *core.Scope) core.Node {
 		return core.View{Style: core.Style{Gap: 12}, Children: children}
 	}
 	if unavailable > 0 {
-		children = append(children, ui.Text(fmt.Sprintf("Showing %d available environments · %d unavailable", available, unavailable),
+		label := "environments"
+		if available == 1 {
+			label = "environment"
+		}
+		children = append(children, ui.Text(fmt.Sprintf("Showing %d available %s · %d unavailable", available, label, unavailable),
 			12, ui.Medium, colors.Muted))
 	}
 	if available == 0 {

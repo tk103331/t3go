@@ -127,6 +127,7 @@ type environmentManager struct {
 	pending       *core.Signal[*app]
 	sidebarKeys   *core.Signal[bool]
 	sidebarOffset core.Points
+	appliedAccent string
 }
 
 func newEnvironmentManager(cx *core.Scope) *environmentManager {
