@@ -49,34 +49,26 @@ func (a *app) mobileSettings(cx *core.Scope) core.Node {
 				ui.Icon(lucide.ChevronRight, 18, colors.Faint),
 			}}
 	}
-	section := func(title string, rows ...core.Node) core.Node {
-		return core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
-			core.View{Style: core.Style{Padding: core.Edges{Left: 14}}, Children: []core.Node{ui.Text(title, 13, ui.Medium, colors.Muted)}},
-			core.View{Style: core.Style{CornerRadius: 24, Background: colors.Inset(), Overflow: core.Hidden}, Children: rows},
-		}}
-	}
 	count := 1
 	if a.manager != nil {
 		count = len(a.manager.profiles.Get())
 	}
 	return core.Scroll{TestID: "mobile-settings-index", Style: ui.FillRest, Children: []core.Node{
 		core.View{Style: core.Style{Padding: core.All(18), Gap: 22}, Children: []core.Node{
-			section("Connections",
+			core.View{Style: core.Style{CornerRadius: 24, Background: colors.Inset(), Overflow: core.Hidden}, Children: []core.Node{
 				row("Environments", fmt.Sprintf("%d saved · manage connections and names", count), "settings-nav-environments", lucide.Monitor,
-					func() { a.openMobileSettingsSection("environments") })),
-			section("Preferences",
+					func() { a.openMobileSettingsSection("environments") }),
 				row("General & appearance", "Defaults, theme, accent and editor", "settings-nav-general", lucide.Settings,
-					func() { a.openMobileSettingsSection("general") })),
-			section("Agents",
+					func() { a.openMobileSettingsSection("general") }),
 				row("Providers", "CLI status, models and sign in by environment", "settings-nav-providers", lucide.Bot,
 					func() { a.openMobileSettingsSection("providers") }),
 				row("Worktrees", "Checkouts used by your threads", "settings-nav-worktrees", lucide.GitBranch,
-					func() { a.openMobileSettingsSection("worktrees") })),
-			section("Code",
+					func() { a.openMobileSettingsSection("worktrees") }),
 				row("Projects", "Folders and conversations across environments", "mobile-tab-projects", lucide.Folder,
 					func() { a.mobilePage.Set("projects") }),
 				row("About", "Server and protocol information", "settings-nav-about", lucide.Info,
-					func() { a.openMobileSettingsSection("about") })),
+					func() { a.openMobileSettingsSection("about") }),
+			}},
 		}},
 	}}
 }

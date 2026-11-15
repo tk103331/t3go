@@ -239,10 +239,10 @@ func TestUISettingsEnvironmentIsolation(t *testing.T) {
 	app.WaitFor("text:\"Alpha CLI\"", 5*time.Second)
 	app.WaitFor("id:settings-providers-environment-"+alpha.profile.ID, 5*time.Second)
 	app.WaitFor("id:settings-providers-environment-"+beta.profile.ID, 5*time.Second)
-	if !app.Exists("id:settings-providers-show-" + beta.profile.ID) {
-		t.Fatal("providers page has no per-environment switch")
+	if app.Exists("id:settings-providers-show-" + beta.profile.ID) {
+		t.Fatal("providers page repeats the environment switch")
 	}
-	app.Press("id:settings-providers-show-" + beta.profile.ID)
+	app.Press("id:settings-environment-" + beta.profile.ID)
 	app.WaitFor("text:\"Beta CLI\"", 5*time.Second)
 	if app.Exists("text:Alpha CLI") || app.Exists("text:Alpha model") {
 		t.Fatal("provider details leaked from Alpha")
