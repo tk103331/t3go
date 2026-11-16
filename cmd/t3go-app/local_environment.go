@@ -15,6 +15,10 @@ import (
 // the list, so this machine does not come back on the next start.
 const localEnvironmentRemoved = "localEnvironmentRemoved"
 
+// localEnvironmentID names the environment server bundled with this client.
+// Persist it so Forget can keep working even before the server answers again.
+const localEnvironmentID = "localEnvironmentID"
+
 // backgroundServerKey remembers whether this machine's environment server
 // keeps running after the client exits.
 const backgroundServerKey = "backgroundServer"
@@ -121,6 +125,7 @@ func (m *environmentManager) useLocalEnvironment(srv *localServer) {
 	}
 	m.localErr.Set("")
 	localID := desc.ID
+	m.rememberLocalEnvironment(localID)
 	if removed, _ := m.store.GetItem(localEnvironmentRemoved); removed == localID {
 		return // the user removed this machine from the list
 	}
@@ -146,8 +151,10 @@ func (m *environmentManager) useLocalEnvironment(srv *localServer) {
 		break
 	}
 	profile.Routes = applyLANRoute(profile.Routes, srv)
-	m.localID = localID
-	m.store.RemoveItem(localEnvironmentRemoved)
+	profile.Preference = "direct-only"
+	if removed, _ := m.store.GetItem(localEnvironmentRemoved); removed != "" {
+		m.store.RemoveItem(localEnvironmentRemoved)
+	}
 	session := m.sessions[localID]
 	if session == nil {
 		session = m.newSession(profile)
@@ -188,6 +195,61 @@ func (m *environmentManager) useLocalEnvironment(srv *localServer) {
 	m.profiles.Set(next)
 	_ = m.save()
 	session.refreshAccess()
+}
+
+// rememberLocalEnvironment records this machine's stable identity. The
+// server can still be starting when the saved profile is already visible,
+// so Forget cannot rely only on the in-memory localID.
+func (m *environmentManager) rememberLocalEnvironment(id string) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return
+	}
+	m.localID = id
+	_ = m.store.SetItem(localEnvironmentID, id)
+}
+
+// isLocalEnvironment recognizes the bundled environment before its startup
+// callback has populated localID. New clients use the persisted identity;
+// older clients fall back to the running server's direct address.
+func (m *environmentManager) isLocalEnvironment(id string) bool {
+	if id == "" {
+		return false
+	}
+	if id == m.localID {
+		return true
+	}
+	if saved, _ := m.store.GetItem(localEnvironmentID); saved == id {
+		return true
+	}
+	profile := m.find(id)
+	if profile.ID == "" {
+		return false
+	}
+	if m.local != nil {
+		for _, route := range profile.Routes {
+			if route.Kind == "direct" &&
+				strings.TrimRight(route.URL, "/") == strings.TrimRight(m.local.baseURL, "/") {
+				return true
+			}
+		}
+	}
+	return looksLikeBundledLocalEnvironment(profile)
+}
+
+// looksLikeBundledLocalEnvironment migrates clients written before the
+// local identity was persisted. Legacy clients paired directly to the
+// bundled server have a single loopback-only profile.
+func looksLikeBundledLocalEnvironment(profile client.EnvironmentProfile) bool {
+	if profile.ID == "" || !profile.Legacy || profile.AccountServer != "" || len(profile.Routes) == 0 {
+		return false
+	}
+	for _, route := range profile.Routes {
+		if route.Kind != "direct" || !isLoopbackURL(route.URL) {
+			return false
+		}
+	}
+	return true
 }
 
 // mergeLocalRoutes keeps the routes to this machine and replaces its

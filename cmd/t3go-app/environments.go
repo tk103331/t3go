@@ -208,6 +208,42 @@ func newEnvironmentManager(cx *core.Scope) *environmentManager {
 			m.current = p.ID
 		}
 	}
+	localID, _ := m.store.GetItem(localEnvironmentID)
+	localID = strings.TrimSpace(localID)
+	if localID == "" {
+		profiles := m.profiles.GetUntracked()
+		for _, profile := range profiles {
+			if profile.ID == m.current && looksLikeBundledLocalEnvironment(profile) {
+				localID = profile.ID
+				break
+			}
+		}
+		if localID == "" {
+			for _, profile := range profiles {
+				if looksLikeBundledLocalEnvironment(profile) {
+					localID = profile.ID
+					break
+				}
+			}
+		}
+	}
+	if localID != "" {
+		m.localID = localID
+		_ = m.store.SetItem(localEnvironmentID, localID)
+		profiles := m.profiles.GetUntracked()
+		next := append([]client.EnvironmentProfile(nil), profiles...)
+		changed := false
+		for i := range next {
+			if next[i].ID == m.localID && next[i].Preference != "direct-only" {
+				next[i].Preference = "direct-only"
+				changed = true
+			}
+		}
+		if changed {
+			m.profiles.Set(next)
+			_ = m.save()
+		}
+	}
 	return m
 }
 
@@ -527,21 +563,25 @@ func (a *app) environmentList(cx *core.Scope) core.Node {
 		for _, r := range p.Routes {
 			addresses = append(addresses, r.Kind+": "+r.URL)
 		}
-		var modes []core.Node
-		for _, mode := range []struct{ value, label string }{{"auto", "Auto"}, {"direct-only", "Direct"}, {"relay-only", "Relay"}} {
-			mode := mode
-			variant := ui.ButtonGhost
-			if p.Preference == mode.value || (p.Preference == "" && mode.value == "auto") {
-				variant = ui.ButtonSecondary
+		var modeControls core.Node = core.Group{}
+		if !a.manager.isLocalEnvironment(p.ID) {
+			var modes []core.Node
+			for _, mode := range []struct{ value, label string }{{"auto", "Auto"}, {"direct-only", "Direct"}, {"relay-only", "Relay"}} {
+				mode := mode
+				variant := ui.ButtonGhost
+				if p.Preference == mode.value || (p.Preference == "" && mode.value == "auto") {
+					variant = ui.ButtonSecondary
+				}
+				modes = append(modes, ui.Button{Text: mode.label, Variant: variant, Size: controlSize(cx),
+					TestID: "environment-mode-" + p.ID + "-" + mode.value, OnPress: func() {
+						p.Preference = mode.value
+						a.manager.update(p)
+						if session := a.manager.sessions[p.ID]; session != nil {
+							session.connectProfile(p)
+						}
+					}})
 			}
-			modes = append(modes, ui.Button{Text: mode.label, Variant: variant, Size: controlSize(cx),
-				TestID: "environment-mode-" + p.ID + "-" + mode.value, OnPress: func() {
-					p.Preference = mode.value
-					a.manager.update(p)
-					if session := a.manager.sessions[p.ID]; session != nil {
-						session.connectProfile(p)
-					}
-				}})
+			modeControls = core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: modes}
 		}
 		status := "Not connected"
 		var sessionError string
@@ -590,7 +630,7 @@ func (a *app) environmentList(cx *core.Scope) core.Node {
 					ui.Button{Text: "Configure", Icon: lucide.Settings, Variant: ui.ButtonGhost, Size: controlSize(cx),
 						TestID: "environment-configure-" + p.ID, OnPress: func() { a.openEnvironmentSettings(p.ID) }},
 				}},
-				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: modes},
+				modeControls,
 			}})
 	}
 	if len(rows) == 0 {
@@ -654,8 +694,9 @@ func (m *environmentManager) forget(id string) {
 	if session != nil {
 		session.persistView()
 	}
-	if id == m.localID {
+	if m.isLocalEnvironment(id) {
 		// This machine stays out of the list until the user adds it back.
+		m.rememberLocalEnvironment(id)
 		_ = m.store.SetItem(localEnvironmentRemoved, id)
 	}
 	var next []client.EnvironmentProfile
@@ -693,6 +734,9 @@ func (m *environmentManager) forget(id string) {
 }
 
 func (m *environmentManager) update(profile client.EnvironmentProfile) {
+	if m.isLocalEnvironment(profile.ID) {
+		profile.Preference = "direct-only"
+	}
 	next := append([]client.EnvironmentProfile(nil), m.profiles.GetUntracked()...)
 	for i, p := range next {
 		if p.ID == profile.ID {
