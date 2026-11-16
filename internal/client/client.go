@@ -165,6 +165,16 @@ func (c *Client) Projects(ctx context.Context) ([]proto.Project, error) {
 	return out.Projects, err
 }
 
+// ProjectBranches lists local branches in a registered Git project.
+func (c *Client) ProjectBranches(ctx context.Context, projectID string) ([]proto.Branch, error) {
+	var out struct {
+		Branches []proto.Branch `json:"branches"`
+	}
+	path := "/api/v1/projects/" + url.PathEscape(projectID) + "/branches"
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out.Branches, err
+}
+
 // Dirs lists the folders in one directory of the environment's machine.
 // An empty path starts at that machine's home folder.
 func (c *Client) Dirs(ctx context.Context, path string) (proto.HostDirs, error) {

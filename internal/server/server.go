@@ -257,6 +257,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/dirs", s.auth(s.handleCreateHostDir))
 	mux.HandleFunc("GET /api/v1/projects", s.auth(s.handleProjects))
 	mux.HandleFunc("POST /api/v1/projects", s.auth(s.handleCreateProject))
+	mux.HandleFunc("GET /api/v1/projects/{id}/branches", s.auth(s.handleProjectBranches))
 	mux.HandleFunc("PATCH /api/v1/projects/{id}", s.auth(s.handleUpdateProject))
 	mux.HandleFunc("DELETE /api/v1/projects/{id}", s.auth(s.handleDeleteProject))
 	mux.HandleFunc("GET /api/v1/threads", s.auth(s.handleThreads))
@@ -509,6 +510,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "store", err.Error())
 		return
 	}
+	fillProjectGitState(ctx, projects)
 	threads, err := s.Store.Threads(ctx, "", false)
 	if err != nil {
 		writeError(w, 500, "store", err.Error())
@@ -544,7 +546,32 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "store", err.Error())
 		return
 	}
+	fillProjectGitState(r.Context(), projects)
 	writeJSON(w, 200, map[string]any{"projects": nonNil(projects)})
+}
+
+func fillProjectGitState(ctx context.Context, projects []proto.Project) {
+	for i := range projects {
+		projects[i].IsGit = git.IsRepo(ctx, projects[i].Path)
+	}
+}
+
+func (s *Server) handleProjectBranches(w http.ResponseWriter, r *http.Request) {
+	project, err := s.Store.Project(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), "project", err.Error())
+		return
+	}
+	refs, err := git.ListRefs(r.Context(), project.Path, false)
+	if errors.Is(err, git.ErrNotRepo) {
+		writeError(w, 400, "branches", "project is not a Git repository")
+		return
+	}
+	if err != nil {
+		writeError(w, statusFor(err), "branches", err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"branches": nonNil(refs)})
 }
 
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {

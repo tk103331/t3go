@@ -196,6 +196,7 @@ func TestUINewProjectUsesSelectedEnvironment(t *testing.T) {
 				app.Press("label:Back to threads")
 				app.Press("id:mobile-tab-threads")
 				app.Press("id:new-thread")
+				app.Press("id:new-thread-project-menu")
 				app.WaitFor("id:new-thread-new-project", 5*time.Second)
 				app.Press("id:new-thread-new-project")
 			} else {

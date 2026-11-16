@@ -165,6 +165,7 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
 | `GET /api/v1/state` | 项目、线程、provider、模型、设置的快照 |
 | `GET /api/v1/dirs?path=` | 列出连接主机上的目录（移动端新建项目用） |
 | `GET/POST /api/v1/projects` | 列出/注册项目 |
+| `GET /api/v1/projects/{id}/branches` | 列出 Git 项目的本地分支（新建 worktree 的起点） |
 | `PATCH/DELETE /api/v1/projects/{id}` | 更新/删除项目 |
 | `GET/POST /api/v1/threads` | 列出/创建线程 |
 | `GET/PATCH/DELETE /api/v1/threads/{id}` | 线程详情/更新/删除 |

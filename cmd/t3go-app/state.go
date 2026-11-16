@@ -269,16 +269,19 @@ type app struct {
 	newDirErr  *core.Signal[string]
 	newDirSeq  int
 
-	newThreadTitle  *core.Signal[string]
-	newThreadProv   *core.Signal[string]
-	newThreadModel  *core.Signal[string]
-	newThreadPerm   *core.Signal[proto.PermissionMode]
-	newThreadWT     *core.Signal[bool]
-	newThreadBase   *core.Signal[string]
-	threadBusy      *core.Signal[bool]
-	newThreadProj   *core.Signal[string]
-	newThreadBranch *core.Signal[string]
-	newThreadFiles  *core.Signal[[]proto.Attachment]
+	newThreadTitle        *core.Signal[string]
+	newThreadProv         *core.Signal[string]
+	newThreadModel        *core.Signal[string]
+	newThreadPerm         *core.Signal[proto.PermissionMode]
+	newThreadWT           *core.Signal[bool]
+	newThreadBase         *core.Signal[string]
+	threadBusy            *core.Signal[bool]
+	newThreadProj         *core.Signal[string]
+	newThreadFiles        *core.Signal[[]proto.Attachment]
+	newThreadBranches     *core.Signal[[]proto.Branch]
+	newThreadBranchesBusy *core.Signal[bool]
+	newThreadBranchesErr  *core.Signal[string]
+	newThreadBranchesSeq  int
 
 	sidebarOpen      *core.Signal[bool]
 	sidebarWidth     *core.Signal[core.Points]
@@ -544,16 +547,18 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		newDirBusy: core.NewSignal(cx, false),
 		newDirErr:  core.NewSignal(cx, ""),
 
-		newThreadTitle:  core.NewSignal(cx, ""),
-		newThreadProv:   core.NewSignal(cx, ""),
-		newThreadModel:  core.NewSignal(cx, ""),
-		newThreadPerm:   core.NewSignal(cx, proto.PermissionFullAccess),
-		newThreadWT:     core.NewSignal(cx, false),
-		newThreadBase:   core.NewSignal(cx, ""),
-		threadBusy:      core.NewSignal(cx, false),
-		newThreadProj:   core.NewSignal(cx, ""),
-		newThreadBranch: core.NewSignal(cx, ""),
-		newThreadFiles:  sliceSignal[proto.Attachment](cx),
+		newThreadTitle:        core.NewSignal(cx, ""),
+		newThreadProv:         core.NewSignal(cx, ""),
+		newThreadModel:        core.NewSignal(cx, ""),
+		newThreadPerm:         core.NewSignal(cx, proto.PermissionFullAccess),
+		newThreadWT:           core.NewSignal(cx, false),
+		newThreadBase:         core.NewSignal(cx, ""),
+		threadBusy:            core.NewSignal(cx, false),
+		newThreadProj:         core.NewSignal(cx, ""),
+		newThreadFiles:        sliceSignal[proto.Attachment](cx),
+		newThreadBranches:     sliceSignal[proto.Branch](cx),
+		newThreadBranchesBusy: core.NewSignal(cx, false),
+		newThreadBranchesErr:  core.NewSignal(cx, ""),
 
 		sidebarOpen:         core.NewSignal(cx, true),
 		sidebarWidth:        core.NewSignal(cx, core.Points(260)),
@@ -4375,7 +4380,6 @@ func (a *app) createThreadThen(after func(proto.Thread)) {
 		Provider:   a.newThreadProv.GetUntracked(),
 		Model:      a.newThreadModel.GetUntracked(),
 		Permission: a.newThreadPerm.GetUntracked(),
-		Branch:     strings.TrimSpace(a.newThreadBranch.GetUntracked()),
 		Worktree:   a.newThreadWT.GetUntracked(),
 		BaseRef:    strings.TrimSpace(a.newThreadBase.GetUntracked()),
 	}
@@ -4393,7 +4397,6 @@ func (a *app) createThreadThen(after func(proto.Thread)) {
 		}
 		a.showNewThread.Set(false)
 		a.newThreadTitle.Set("")
-		a.newThreadBranch.Set("")
 		a.selectNewThreadProject(projectID)
 		a.reload()
 		if created.ID != "" {
@@ -4439,8 +4442,79 @@ func (a *app) selectNewThreadProject(id string) {
 	if id == "" {
 		return
 	}
+	changed := a.newThreadProj.GetUntracked() != id
+	if changed {
+		a.newThreadBase.Set("")
+		a.newThreadWT.Set(false)
+	}
 	a.newThreadProj.Set(id)
 	_ = a.store.SetItem("lastThreadProject", id)
+	a.loadNewThreadBranches(id)
+}
+
+func (a *app) loadNewThreadBranches(projectID string) {
+	a.newThreadBranchesSeq++
+	seq := a.newThreadBranchesSeq
+	a.newThreadBranches.Set(nil)
+	a.newThreadBranchesErr.Set("")
+	var project proto.Project
+	found := false
+	for _, candidate := range a.projects.GetUntracked() {
+		if candidate.ID == projectID {
+			project = candidate
+			found = true
+			break
+		}
+	}
+	if !found || !project.IsGit {
+		a.newThreadBranchesBusy.Set(false)
+		return
+	}
+	a.newThreadBranchesBusy.Set(true)
+	var branches []proto.Branch
+	a.call(func(ctx context.Context, c *client.Client) error {
+		var err error
+		branches, err = c.ProjectBranches(ctx, project.ID)
+		return err
+	}, func(err error) {
+		if seq != a.newThreadBranchesSeq || a.newThreadProj.GetUntracked() != projectID {
+			return
+		}
+		a.newThreadBranchesBusy.Set(false)
+		if err != nil {
+			a.newThreadBranchesErr.Set(friendlyError(err))
+			return
+		}
+		a.newThreadBranches.Set(branches)
+		selected := a.newThreadBase.GetUntracked()
+		available := false
+		for _, branch := range branches {
+			if branch.Name == selected {
+				available = true
+				break
+			}
+		}
+		if available {
+			return
+		}
+		for _, branch := range branches {
+			if branch.Current {
+				a.newThreadBase.Set(branch.Name)
+				return
+			}
+		}
+		for _, branch := range branches {
+			if branch.Default {
+				a.newThreadBase.Set(branch.Name)
+				return
+			}
+		}
+		if len(branches) > 0 {
+			a.newThreadBase.Set(branches[0].Name)
+			return
+		}
+		a.newThreadBase.Set("")
+	})
 }
 
 func (a *app) openNewProject() {
@@ -4503,10 +4577,9 @@ func (a *app) openNewThread() {
 func (a *app) prepareNewThread() {
 	a.connErr.Set("")
 	a.newThreadTitle.Set("")
-	a.newThreadBranch.Set("")
 	a.newThreadBase.Set("")
 	a.newThreadWT.Set(false)
-	a.newThreadProj.Set(a.preferredNewThreadProject())
+	a.selectNewThreadProject(a.preferredNewThreadProject())
 	settings := a.settings.GetUntracked()
 	provider := settings.DefaultProvider
 	model := settings.DefaultModel

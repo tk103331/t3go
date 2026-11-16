@@ -116,12 +116,12 @@ func TestUIMobileIOSNewThreadParity(t *testing.T) {
 	width, height := window.Size.Width, window.Origin.Y+window.Size.Height+env.SafeArea.Bottom
 
 	app.Press("id:new-thread")
-	app.WaitFor("id:new-thread-new-project", 5*time.Second)
 	if app.Exists("id:new-project") {
 		t.Fatal("iOS thread inbox still exposes project creation above the list")
 	}
 	app.Press("id:new-thread-project-menu")
 	app.WaitFor("id:new-thread-project-choice-"+project.ID, 5*time.Second)
+	app.WaitFor("id:new-thread-new-project", 5*time.Second)
 	app.Press("id:new-thread-project-choice-" + project.ID)
 	app.WaitFor("id:new-thread-project-menu >> text:Secondary", 5*time.Second)
 
@@ -247,9 +247,9 @@ func TestUIMobileNewThreadRemembersProject(t *testing.T) {
 		t.Fatal("thread inbox still exposes new project creation")
 	}
 	app.Press("id:new-thread")
-	app.WaitFor("id:new-thread-new-project", 5*time.Second)
 	app.Press("id:new-thread-project-menu")
 	app.WaitFor("id:new-thread-project-choice-"+project.ID, 5*time.Second)
+	app.WaitFor("id:new-thread-new-project", 5*time.Second)
 	app.Press("id:new-thread-project-choice-" + project.ID)
 	app.WaitFor("id:new-thread-project-menu >> text:Secondary", 5*time.Second)
 	app.Post(func() {

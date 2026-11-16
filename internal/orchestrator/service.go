@@ -227,7 +227,8 @@ func (s *Service) CreateProject(ctx context.Context, name, path string) (proto.P
 		name = filepath.Base(path)
 	}
 	now := time.Now()
-	p := proto.Project{ID: id.New("prj"), Name: strings.TrimSpace(name), Path: path, CreatedAt: now, UpdatedAt: now}
+	p := proto.Project{ID: id.New("prj"), Name: strings.TrimSpace(name), Path: path,
+		IsGit: git.IsRepo(ctx, path), CreatedAt: now, UpdatedAt: now}
 	if err := s.Store.CreateProject(ctx, p); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return proto.Project{}, errors.New("this directory is already a project")
@@ -255,6 +256,7 @@ func (s *Service) UpdateProject(ctx context.Context, projectID, name, path strin
 		}
 		p.Path = path
 	}
+	p.IsGit = git.IsRepo(ctx, p.Path)
 	p.UpdatedAt = time.Now()
 	if err := s.Store.UpdateProject(ctx, p); err != nil {
 		return p, err

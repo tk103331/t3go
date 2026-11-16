@@ -7,6 +7,7 @@ import (
 
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/nsgotest"
+	"github.com/tk/t3go/internal/proto"
 )
 
 func checkMobileControlWidths(t *testing.T, rendered *nsgotest.App, width core.Points) {
@@ -42,8 +43,19 @@ func TestUIMobileLayoutMatrix(t *testing.T) {
 		{"new-thread", func() {
 			owner.openNewThread()
 			if target := owner.newThreadTarget(); target != nil {
-				target.newThreadBranch.Set("feature/a-very-long-development-branch-name")
 				target.newThreadModel.Set("provider/a-very-long-model-name-with-a-version")
+				projects := target.projects.GetUntracked()
+				for i := range projects {
+					if projects[i].ID == target.newThreadProj.GetUntracked() {
+						projects[i].IsGit = true
+					}
+				}
+				target.projects.Set(projects)
+				target.newThreadWT.Set(true)
+				target.newThreadBranches.Set([]proto.Branch{{
+					Name: "feature/a-very-long-development-branch-name", Current: true,
+				}})
+				target.newThreadBase.Set("feature/a-very-long-development-branch-name")
 			}
 		}},
 		{"conversation", func() { owner.selectThread("same-thread") }},
@@ -136,7 +148,6 @@ func TestUIMobileLayoutMatrix(t *testing.T) {
 							rendered.Find("id:mobile-thread-search-open")
 						}
 						if screen.name == "new-thread" {
-							rendered.Find("id:new-thread-new-project")
 							rendered.Find("id:new-thread-project-menu")
 						}
 					})

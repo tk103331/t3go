@@ -208,13 +208,19 @@ func gitRepo(t *testing.T) string {
 	return dir
 }
 
-// TestUICreateThreadInWorktree asks for an own worktree with a branch
-// name and checks the environment made the checkout.
+// TestUICreateThreadInWorktree asks for an own worktree from a selected
+// branch and checks the environment made the checkout.
 func TestUICreateThreadInWorktree(t *testing.T) {
 	srv, ts, cfg := startEnv(t)
 
 	ctx := context.Background()
-	project, err := srv.Service.CreateProject(ctx, "Repo", gitRepo(t))
+	repo := gitRepo(t)
+	cmd := exec.Command("git", "branch", "feature/ui")
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git branch: %v\n%s", err, out)
+	}
+	project, err := srv.Service.CreateProject(ctx, "Repo", repo)
 	if err != nil {
 		t.Fatalf("project: %v", err)
 	}
@@ -226,21 +232,18 @@ func TestUICreateThreadInWorktree(t *testing.T) {
 	app.WaitFor("id:project-"+project.ID, 15*time.Second)
 	app.Press("id:new-thread")
 	app.WaitFor("id:create-thread", 5*time.Second)
-	app.Press("id:toggle-worktree") // Own worktree: on
+	app.Press("id:toggle-worktree")
+	app.WaitFor("id:new-thread-worktree-new", 5*time.Second)
+	app.Press("id:new-thread-worktree-new")
+	app.WaitFor("id:toggle-worktree >> text:New worktree", 5*time.Second)
 	app.WaitUntil(8*time.Second, func() bool {
-		if app.Exists("id:new-thread-branch") && app.Enabled("id:new-thread-branch") {
-			return true
-		}
-		// A press can land while the dialog settles. While it still reads
-		// Off, press again; once On, wait for the body to follow.
-		if app.Exists(`text:"Off"`) {
-			app.Press("id:toggle-worktree")
-			app.Settle()
-		}
-		return false
+		return app.Exists("id:new-thread-branch") && app.Enabled("id:new-thread-branch")
 	})
+	app.Press("id:new-thread-branch")
+	app.WaitFor("id:new-thread-branch-1", 5*time.Second)
+	app.Press("id:new-thread-branch-1")
+	app.WaitFor("id:new-thread-branch >> text:feature/ui", 5*time.Second)
 	app.Type("label:New thread message", "Worktree thread")
-	app.Type("label:Branch", "t3go/ui-test")
 	app.Press("id:create-thread")
 	app.WaitFor("id:content-header >> text:Worktree thread", 10*time.Second)
 
@@ -253,7 +256,7 @@ func TestUICreateThreadInWorktree(t *testing.T) {
 		created = threads[0]
 		return true
 	})
-	if created.Branch != "t3go/ui-test" {
+	if created.Branch != "t3go/worktree-thread" {
 		t.Fatalf("branch = %q", created.Branch)
 	}
 	if created.WorktreePath == "" {
@@ -2613,28 +2616,20 @@ func TestUINewThreadOptions(t *testing.T) {
 	app.Press("id:new-thread-agent-menu")
 	app.WaitFor("id:new-thread-provider-side-fake", 5*time.Second)
 	app.Press("id:new-thread-provider-side-fake")
+	app.WaitFor("id:new-thread-agent >> text:Side Fake", 5*time.Second)
+	app.Press("id:new-thread-model")
+	app.WaitFor("id:new-thread-model-side-fake-2", 5*time.Second)
+	app.Press("id:new-thread-model-side-fake-2")
+	app.WaitFor("id:new-thread-model-trigger >> text:Side Two", 5*time.Second)
 	app.Press("id:new-thread-mode-menu")
 	app.WaitFor("id:new-thread-perm-auto", 5*time.Second)
 	app.Press("id:new-thread-perm-auto")
-	app.WaitUntil(10*time.Second, func() bool {
-		if app.Exists("id:new-thread-branch") && app.Enabled("id:new-thread-branch") {
-			return true
-		}
-		if app.Exists("id:toggle-worktree") {
-			app.Press("id:toggle-worktree")
-			app.Settle()
-		}
-		return app.Exists("id:new-thread-branch") && app.Enabled("id:new-thread-branch")
-	})
-	app.WaitUntil(10*time.Second, func() bool {
-		if app.Find("id:new-thread-branch").Text == "t3go/test" {
-			return true
-		}
-		app.Clear("id:new-thread-branch")
-		app.Type("id:new-thread-branch", "t3go/test")
-		app.Settle()
-		return app.Find("id:new-thread-branch").Text == "t3go/test"
-	})
+	app.WaitFor("id:new-thread-mode >> text:auto", 5*time.Second)
+	app.Press("id:toggle-worktree")
+	app.WaitFor("id:new-thread-worktree-new", 5*time.Second)
+	app.Press("id:new-thread-worktree-new")
+	app.WaitFor("id:toggle-worktree >> text:New worktree", 5*time.Second)
+	app.WaitFor("id:new-thread-branch >> text:main", 5*time.Second)
 	app.Press("id:create-thread")
 	app.WaitUntil(15*time.Second, func() bool {
 		threads, err := srv.Store.Threads(ctx, project.ID, false)
@@ -2642,9 +2637,31 @@ func TestUINewThreadOptions(t *testing.T) {
 			return false
 		}
 		created := threads[0]
-		return created.Branch == "t3go/test" && created.WorktreePath != "" &&
-			created.Provider == "side-fake" && created.Permission == proto.PermissionAuto
+		return created.Branch == "t3go/new-thread" && created.WorktreePath != "" &&
+			created.Provider == "side-fake" && created.Model == "side-fake-2" &&
+			created.Permission == proto.PermissionAuto
 	})
+}
+
+func TestUINewThreadHidesGitControlsForPlainProject(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	project, err := srv.Service.CreateProject(context.Background(), "Plain", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:project-"+project.ID, 15*time.Second)
+	app.Press("id:new-thread")
+	app.WaitFor("id:new-thread-project-menu", 5*time.Second)
+	if app.Exists("id:toggle-worktree") {
+		t.Fatal("plain project shows Worktree controls")
+	}
+	if app.Exists("id:new-thread-branch") {
+		t.Fatal("plain project shows branch selection")
+	}
 }
 
 // TestUIPreviewServers lists a local server and opens it in the browser.
@@ -3174,14 +3191,10 @@ func TestUIMobileDialogsFit(t *testing.T) {
 		t.Fatalf("new thread project context overflows: %v", context)
 	}
 
-	app.WaitUntil(10*time.Second, func() bool {
-		if app.Exists("id:new-project-dialog") {
-			return true
-		}
-		app.Press("id:new-thread-new-project")
-		app.Settle()
-		return app.Exists("id:new-project-dialog")
-	})
+	app.Press("id:new-thread-project-menu")
+	app.WaitFor("id:new-thread-new-project", 5*time.Second)
+	app.Press("id:new-thread-new-project")
+	app.WaitFor("id:new-project-dialog", 5*time.Second)
 	projectDialog := app.Find("id:new-project-dialog").Frame
 	if projectDialog.Origin.X < 0 || projectDialog.Origin.X+projectDialog.Size.Width > 390 {
 		t.Fatalf("new project dialog overflows: %v", projectDialog)
@@ -3292,15 +3305,11 @@ func TestUIMobileBrowseHostDirs(t *testing.T) {
 		}))
 	app.WaitFor("id:new-thread", 15*time.Second)
 	app.Press("id:new-thread")
+	app.WaitFor("id:new-thread-project-menu", 5*time.Second)
+	app.Press("id:new-thread-project-menu")
 	app.WaitFor("id:new-thread-new-project", 5*time.Second)
-	app.WaitUntil(10*time.Second, func() bool {
-		if app.Exists("id:new-project-dialog") {
-			return true
-		}
-		app.Press("id:new-thread-new-project")
-		app.Settle()
-		return app.Exists("id:new-project-dialog")
-	})
+	app.Press("id:new-thread-new-project")
+	app.WaitFor("id:new-project-dialog", 5*time.Second)
 	app.Clear("label:Project path")
 	app.Type("label:Project path", root)
 	app.WaitUntil(10*time.Second, func() bool {

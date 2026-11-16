@@ -1150,9 +1150,9 @@ func (a *app) desktopNewThreadComposerControls(cx *core.Scope) core.Node {
 	compact := ui.Touch(cx) && cx.Env().Window().Width < 620
 	return core.View{Style: core.Style{Direction: core.Row, Width: core.Pct(100), MinWidth: core.Pt(0),
 		AlignItems: core.AlignCenter, Gap: 2}, Children: []core.Node{
-		a.newThreadAgentMenu(cx, compact),
-		a.newThreadModelMenu(cx, compact),
-		a.newThreadModeMenu(cx, compact),
+		core.Dynamic(func(cx *core.Scope) core.Node { return a.newThreadAgentMenu(cx, compact) }),
+		core.Dynamic(func(cx *core.Scope) core.Node { return a.newThreadModelMenu(cx, compact) }),
+		core.Dynamic(func(cx *core.Scope) core.Node { return a.newThreadModeMenu(cx, compact) }),
 	}}
 }
 
@@ -1174,17 +1174,27 @@ func (a *app) newThreadAgentMenu(cx *core.Scope, compact bool) core.Node {
 			Disabled: func() bool { return !candidate.Installed },
 			OnSelect: func() {
 				a.newThreadProv.Set(candidate.ID)
+				modelID := ""
 				for _, model := range a.allModels() {
 					if model.Provider == candidate.ID {
-						a.newThreadModel.Set(model.ID)
+						modelID = model.ID
 						break
 					}
 				}
+				a.newThreadModel.Set(modelID)
 			}})
 	}
 	return ui.Menu{TestID: "new-thread-agent-menu", MaxHeight: 320,
-		Trigger:  newThreadControlTrigger(cx, compact, lucide.Bot, label, "Agent: "+label, "new-thread-agent"),
-		Children: items}
+		Trigger: newThreadControlTrigger(cx, compact, lucide.Bot, label, "Agent: "+label, "new-thread-agent"),
+		Face: newThreadControlFace(compact, lucide.Bot, func() string {
+			provider := a.newThreadProv.Get()
+			for _, candidate := range a.providers.Get() {
+				if candidate.ID == provider {
+					return candidate.Name
+				}
+			}
+			return "Agent"
+		}, "Agent", "new-thread-agent"), Children: items}
 }
 
 func (a *app) newThreadModelMenu(cx *core.Scope, compact bool) core.Node {
@@ -1208,8 +1218,17 @@ func (a *app) newThreadModelMenu(cx *core.Scope, compact bool) core.Node {
 		return ui.Text("No models for this provider", 12, ui.Regular, colors.Faint)
 	}
 	return ui.Menu{TestID: "new-thread-model", MaxHeight: 320,
-		Trigger:  newThreadControlTrigger(cx, compact, lucide.Sparkles, modelLabel, "Model: "+modelLabel, "new-thread-model-trigger"),
-		Children: items}
+		Trigger: newThreadControlTrigger(cx, compact, lucide.Sparkles, modelLabel, "Model: "+modelLabel, "new-thread-model-trigger"),
+		Face: newThreadControlFace(compact, lucide.Sparkles, func() string {
+			provider := a.newThreadProv.Get()
+			modelID := a.newThreadModel.Get()
+			for _, model := range a.allModels() {
+				if model.Provider == provider && model.ID == modelID {
+					return model.Name
+				}
+			}
+			return "Model"
+		}, "Model", "new-thread-model-trigger"), Children: items}
 }
 
 func (a *app) newThreadModeMenu(cx *core.Scope, compact bool) core.Node {
@@ -1224,8 +1243,18 @@ func (a *app) newThreadModeMenu(cx *core.Scope, compact bool) core.Node {
 	}
 	label := string(permission)
 	return ui.Menu{TestID: "new-thread-mode-menu", MaxHeight: 280,
-		Trigger:  newThreadControlTrigger(cx, compact, lucide.ShieldCheck, label, "Mode: "+label, "new-thread-mode"),
-		Children: items}
+		Trigger: newThreadControlTrigger(cx, compact, lucide.ShieldCheck, label, "Mode: "+label, "new-thread-mode"),
+		Face: newThreadControlFace(compact, lucide.ShieldCheck, func() string {
+			return string(a.newThreadPerm.Get())
+		}, "Mode", "new-thread-mode"), Children: items}
+}
+
+func newThreadControlFace(compact bool, icon func() *core.SVG, value func() string,
+	labelPrefix, testID string) core.Dynamic {
+	return func(cx *core.Scope) core.Node {
+		text := value()
+		return newThreadControlTrigger(cx, compact, icon, text, labelPrefix+": "+text, testID)
+	}
 }
 
 func newThreadControlTrigger(cx *core.Scope, compact bool, icon func() *core.SVG,
@@ -1242,11 +1271,13 @@ func (a *app) desktopNewThreadContext(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	projectID := a.newThreadProj.Get()
 	projectLabel := "Choose project"
+	gitProject := false
 	var projectItems []core.Node
 	for _, project := range a.projects.Get() {
 		project := project
 		if project.ID == projectID {
 			projectLabel = project.Name
+			gitProject = project.IsGit
 		}
 		projectItems = append(projectItems, ui.MenuItem{Text: project.Name,
 			TestID:  "new-thread-project-choice-" + project.ID,
@@ -1255,36 +1286,73 @@ func (a *app) desktopNewThreadContext(cx *core.Scope) core.Node {
 				a.selectNewThreadProject(project.ID)
 			}})
 	}
-	worktree := "Off"
-	worktreeVariant := ui.ButtonGhost
-	if a.newThreadWT.Get() {
-		worktree, worktreeVariant = "On", ui.ButtonSecondary
-	}
-	return core.View{TestID: "new-thread-context", Style: core.Style{Direction: core.Row, Wrap: core.Wrap,
-		AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+	projectItems = append(projectItems, ui.MenuSeparator{},
+		ui.MenuItem{Text: "New project", Icon: lucide.FolderPlus,
+			TestID: "new-thread-new-project", OnSelect: a.openNewProjectForThread})
+	children := []core.Node{
 		ui.Menu{TestID: "new-thread-project-menu", MaxHeight: 320,
 			Trigger: ui.Button{Text: projectLabel, Icon: lucide.Folder, Variant: ui.ButtonGhost,
 				Size: controlSize(cx), Label: "Project: " + projectLabel},
 			Children: projectItems},
-		ui.IconButton{Icon: lucide.FolderPlus, Label: "New project", TestID: "new-thread-new-project",
-			Size: iconButtonSize(cx), OnPress: a.openNewProjectForThread},
-		ui.Button{Text: "Worktree " + worktree, Icon: lucide.GitFork, Variant: worktreeVariant,
-			Size: controlSize(cx), TestID: "toggle-worktree",
-			OnPress: func() { a.newThreadWT.Set(!a.newThreadWT.GetUntracked()) }},
-		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(220)}, Children: []core.Node{
-			mobileInput{Scope: cx, Input: base.Input{
-				Value: a.newThreadBranch.Get, OnChange: a.newThreadBranch.Set,
-				Placeholder: "Branch, e.g. t3go/new-thread", Label: "Branch",
-				TestID:   "new-thread-branch",
-				Disabled: func() bool { return !a.newThreadWT.Get() },
-				Style:    core.Style{FlexGrow: 1, MinWidth: core.Pt(0)},
+	}
+	if !gitProject {
+		return core.View{TestID: "new-thread-context", Style: core.Style{Direction: core.Row,
+			Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 8}, Children: children}
+	}
+
+	worktreeLabel := "Current checkout"
+	worktreeVariant := ui.ButtonGhost
+	if a.newThreadWT.Get() {
+		worktreeLabel, worktreeVariant = "New worktree", ui.ButtonSecondary
+	}
+	branches := a.newThreadBranches.Get()
+	options := make([]ui.Option[string], 0, len(branches))
+	for _, branch := range branches {
+		options = append(options, ui.Option[string]{Value: branch.Name, Label: branch.Name})
+	}
+	children = append(children,
+		ui.Menu{TestID: "toggle-worktree", MaxHeight: 240,
+			Trigger: ui.Button{Text: worktreeLabel, Icon: lucide.GitFork, Variant: worktreeVariant,
+				Size: controlSize(cx), Label: "Worktree: " + worktreeLabel},
+			Children: []core.Node{
+				ui.MenuItem{Text: "Current checkout", TestID: "new-thread-worktree-current",
+					Checked:  func() bool { return !a.newThreadWT.Get() },
+					OnSelect: func() { a.newThreadWT.Set(false) }},
+				ui.MenuItem{Text: "New worktree", TestID: "new-thread-worktree-new",
+					Checked:  func() bool { return a.newThreadWT.Get() },
+					OnSelect: func() { a.newThreadWT.Set(true) }},
 			}},
+		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(220)}, Children: []core.Node{
+			ui.Select[string]{TestID: "new-thread-branch", Options: options,
+				Value: a.newThreadBase.Get, OnChange: a.newThreadBase.Set,
+				Placeholder: "Choose a branch", Searchable: true,
+				SearchPlaceholder: "Search branches", Empty: "No branches found",
+				Label: "Branch", Disabled: func() bool {
+					return !a.newThreadWT.Get() || a.newThreadBranchesBusy.Get()
+				}, Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}},
 		}},
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
-			ui.Icon(lucide.GitBranch, 14, colors.Faint),
-			ui.Text("Branch is used when Worktree is On", 10.5, ui.Regular, colors.Faint),
-		}},
-	}}
+	)
+	status := ""
+	statusColor := colors.Faint
+	switch {
+	case a.newThreadBranchesBusy.Get():
+		status = "Loading branches…"
+	case a.newThreadBranchesErr.Get() != "":
+		status, statusColor = a.newThreadBranchesErr.Get(), colors.Danger
+	case len(options) == 0:
+		status = "This project has no local branches."
+	case !a.newThreadWT.Get():
+		status = "Choose New worktree to use a branch as its starting point."
+	default:
+		status = "The new worktree branch is named from the thread title."
+	}
+	children = append(children, core.View{Style: core.Style{Direction: core.Row, FlexBasis: core.Pct(100),
+		AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
+		ui.Icon(lucide.GitBranch, 14, statusColor),
+		ui.Text(status, 10.5, ui.Regular, statusColor),
+	}})
+	return core.View{TestID: "new-thread-context", Style: core.Style{Direction: core.Row, Wrap: core.Wrap,
+		AlignItems: core.AlignCenter, Gap: 8}, Children: children}
 }
 
 func (a *app) desktopNewThreadError(cx *core.Scope) core.Node {

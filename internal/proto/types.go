@@ -11,6 +11,7 @@ type Project struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	Path      string    `json:"path"`
+	IsGit     bool      `json:"isGit,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
