@@ -76,11 +76,12 @@ go build -o bin/t3go-app ./cmd/t3go-app
 ./bin/t3go serve
 ```
 
-构建网页版并让服务同时提供它：
+构建项目首页和网页版，并让服务同时提供它们：
 
 ```sh
-./scripts/build-web.sh        # 生成 web/app.wasm、web/wasm_exec.js
-./bin/t3go serve --web web    # 浏览器打开 http://127.0.0.1:4870/
+./scripts/build-web.sh        # 生成首页和 web/app/ 下的 WASM 客户端
+./bin/t3go serve --web web    # 首页 http://127.0.0.1:4870/
+                              # 客户端 http://127.0.0.1:4870/app/
 ```
 
 启动时会打印 token 文件和一条配对链接：

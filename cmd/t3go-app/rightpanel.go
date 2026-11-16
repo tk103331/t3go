@@ -323,9 +323,11 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 			}
 		}
 		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(10)}, Children: []core.Node{
-			a.scrollWithBar(cx, a.filesScroll, "files-scrollbar", core.Scroll{TestID: "file-content-scroll",
-				Style: core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), MinHeight: core.Pt(0)}, Children: []core.Node{core.View{Style: core.Style{FlexShrink: 0,
-					Padding: core.Edges{Right: 12, Bottom: 12}}, Children: []core.Node{head, body}}}}),
+			head,
+			a.scrollWithBar(cx, a.filesContentScroll, "files-scrollbar", core.Scroll{TestID: "file-content-scroll",
+				Style: core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), MinHeight: core.Pt(0)},
+				Children: []core.Node{core.View{Style: core.Style{FlexShrink: 0, Padding: core.Edges{Bottom: 12}},
+					Children: []core.Node{body}}}}),
 		}}
 	}
 	path := a.filesPath.Get()
@@ -386,7 +388,7 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 			return ui.Spinner{Size: 14, Label: "Loading files"}
 		}},
 		a.rightError(cx),
-		a.scrollWithBar(cx, a.filesScroll, "files-list-scrollbar",
+		a.scrollWithBar(cx, a.filesListScroll, "files-list-scrollbar",
 			core.Scroll{Style: ui.FillRest, Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: rows}}}),
 	}}
 }

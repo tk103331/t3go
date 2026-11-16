@@ -22,6 +22,9 @@ dist/
 # built web client
 /web/app.wasm
 /web/wasm_exec.js
+/web/app/app.wasm
+/web/app/wasm_exec.js
+/web/app/t3go-mark.svg
 /web/t3go-android-arm64.apk
 
 # the environment server the client ships

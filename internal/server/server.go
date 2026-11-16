@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -2485,28 +2486,42 @@ func (s *Server) handleResolveApproval(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, decision)
 }
 
-// handleWeb serves the built web client: only files, never a listing.
+// handleWeb serves the project landing page and built web client. Directory
+// requests resolve to index.html and never produce a listing.
 func (s *Server) handleWeb(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	path := strings.TrimPrefix(filepath.Clean(r.URL.Path), "/")
-	if path == "" || path == "." {
-		path = "index.html"
+	rel := strings.TrimPrefix(pathpkg.Clean("/"+r.URL.Path), "/")
+	if rel == "" || rel == "." {
+		rel = "index.html"
 	}
-	if path == ".." || strings.HasPrefix(path, "../") {
+	full := filepath.Join(s.Config.WebDir, filepath.FromSlash(rel))
+	st, err := os.Stat(full)
+	if err != nil {
 		http.NotFound(w, r)
 		return
+	}
+	if st.IsDir() {
+		if !strings.HasSuffix(r.URL.Path, "/") {
+			target := r.URL.Path + "/"
+			if r.URL.RawQuery != "" {
+				target += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, target, http.StatusPermanentRedirect)
+			return
+		}
+		rel = pathpkg.Join(rel, "index.html")
+		full = filepath.Join(s.Config.WebDir, filepath.FromSlash(rel))
+		st, err = os.Stat(full)
+		if err != nil || st.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
 	}
 	w.Header().Set("Cache-Control", "no-cache")
-	full := filepath.Join(s.Config.WebDir, filepath.FromSlash(path))
-	st, err := os.Stat(full)
-	if err != nil || st.IsDir() {
-		http.NotFound(w, r)
-		return
-	}
 	http.ServeFile(w, r, full)
 }
 

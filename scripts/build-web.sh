@@ -1,14 +1,18 @@
 #!/bin/sh
-# Builds the web client into DIR (web by default): app.wasm,
-# wasm_exec.js and the page. Serve it with `t3go serve --web DIR`.
+# Builds the landing page into DIR (web by default) and the WASM client
+# into DIR/app. Serve it with `t3go serve --web DIR`.
 set -eu
 cd "$(dirname "$0")/.."
 out=${1:-web}
-mkdir -p "$out"
-GOOS=js GOARCH=wasm go build -o "$out/app.wasm" ./cmd/t3go-app
-cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" "$out/wasm_exec.js"
+mkdir -p "$out/app"
+GOOS=js GOARCH=wasm go build -o "$out/app/app.wasm" ./cmd/t3go-app
+cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" "$out/app/wasm_exec.js"
 cp cmd/t3go-app/t3go-mark.svg "$out/t3go-mark.svg"
-if [ "$out" != "web" ]; then
+cp cmd/t3go-app/t3go-mark.svg "$out/app/t3go-mark.svg"
+out_abs=$(cd "$out" && pwd -P)
+source_abs=$(cd web && pwd -P)
+if [ "$out_abs" != "$source_abs" ]; then
   cp web/index.html "$out/index.html"
+  cp web/app/index.html "$out/app/index.html"
 fi
 echo "built $out"

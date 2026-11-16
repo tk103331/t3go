@@ -1693,6 +1693,13 @@ func TestUIRightPanel(t *testing.T) {
 	pressUntil("id:file-src/app.go", "text:package main")
 	app.WaitFor("id:file-code", 5*time.Second)
 	app.WaitFor("id:files-scrollbar", 5*time.Second)
+	contentFrame := app.Find("id:file-content-scroll").Frame
+	barFrame := app.Find("id:files-scrollbar").Frame
+	if barFrame.Origin.X < contentFrame.Origin.X || barFrame.Origin.Y < contentFrame.Origin.Y ||
+		barFrame.Origin.X+barFrame.Size.Width > contentFrame.Origin.X+contentFrame.Size.Width+1 ||
+		barFrame.Origin.Y+barFrame.Size.Height > contentFrame.Origin.Y+contentFrame.Size.Height+1 {
+		t.Fatalf("file scrollbar is outside the code viewport: bar %v, content %v", barFrame, contentFrame)
+	}
 	pressUntil("id:file-back", "id:file-src/app.go")
 	pressUntil("id:files-up", "id:file-README.md")
 	pressUntil("id:file-README.md", "text:Preview title")

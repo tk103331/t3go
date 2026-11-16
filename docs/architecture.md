@@ -114,10 +114,11 @@ supervised 的 Claude 运行时，适配器写一份临时 MCP 配置并传
 
 ## Web 客户端
 
-`scripts/build-web.sh` 用 `GOOS=js GOARCH=wasm` 构建 `cmd/t3go-app`，生成
-`app.wasm`、`wasm_exec.js` 和 `index.html`。`t3go serve --web DIR` 在 `/` 下
-只提供该目录里的文件（不列目录、不需要鉴权）；页面与 API 同源，Go 的 js
-`net/http` 走浏览器 fetch，SSE 因此也能流式读取。地址和 token 保存在
+`scripts/build-web.sh` 用 `GOOS=js GOARCH=wasm` 构建 `cmd/t3go-app`，在
+`app/` 下生成 `app.wasm`、`wasm_exec.js` 和客户端页面；根目录的 `index.html`
+是项目介绍与下载页。`t3go serve --web DIR` 在 `/` 提供首页，在 `/app/` 提供
+客户端，不列目录、不需要鉴权；目录请求解析到其中的 `index.html`。页面与 API
+同源，Go 的 js `net/http` 走浏览器 fetch，SSE 因此也能流式读取。地址和 token 保存在
 `localStorage`（键前缀 `nsgo:default:`），所以刷新后会自动重连。
 
 ## 附件

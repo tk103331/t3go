@@ -425,15 +425,27 @@ func TestUploadRoundTrip(t *testing.T) {
 	}
 }
 
-// TestWebClientServed serves a built web client at the root without auth,
-// and never lists the directory or serves outside it.
+// TestWebClientServed serves the landing page and web client without auth,
+// resolves directory indexes, and never lists a directory or serves outside it.
 func TestWebClientServed(t *testing.T) {
 	cfg, err := config.Load(t.TempDir(), "127.0.0.1:0", false)
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
 	webDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<html>t3go web</html>"), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(webDir, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(webDir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<html>t3go home</html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(webDir, "app", "index.html"), []byte("<html>t3go web</html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(webDir, "app", "app.js"), []byte("console.log('t3go')"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg.WebDir = webDir
@@ -454,11 +466,35 @@ func TestWebClientServed(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK || !strings.Contains(string(raw), "t3go web") {
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(raw), "t3go home") {
 		t.Fatalf("get / = %d %q", resp.StatusCode, raw)
+	}
+	resp, err = http.Get(ts.URL + "/app/")
+	if err != nil {
+		t.Fatalf("get /app/: %v", err)
+	}
+	raw, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(raw), "t3go web") {
+		t.Fatalf("get /app/ = %d %q", resp.StatusCode, raw)
+	}
+	resp, err = http.Get(ts.URL + "/app")
+	if err != nil {
+		t.Fatalf("get /app: %v", err)
+	}
+	raw, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(raw), "t3go web") {
+		t.Fatalf("get /app after redirect = %d %q", resp.StatusCode, raw)
+	}
+	if code := status(t, http.MethodGet, ts.URL+"/app/app.js"); code != http.StatusOK {
+		t.Fatalf("web asset = %d", code)
 	}
 	if code := status(t, http.MethodGet, ts.URL+"/missing.js"); code != http.StatusNotFound {
 		t.Fatalf("missing = %d", code)
+	}
+	if code := status(t, http.MethodGet, ts.URL+"/assets/"); code != http.StatusNotFound {
+		t.Fatalf("directory without index = %d", code)
 	}
 	if code := status(t, http.MethodGet, ts.URL+"/../token"); code != http.StatusNotFound {
 		t.Fatalf("traversal = %d", code)

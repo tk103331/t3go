@@ -50,7 +50,7 @@ if [ "$with_app" = "1" ]; then
   echo "pair    t3go://pair?url=http://$listen&token=$token"
   echo "token   $token"
   if [ "$with_web" = "1" ]; then
-    echo "web     http://$listen/"
+    echo "web     http://$listen/app/"
   fi
   echo "app     connecting automatically"
 
@@ -62,6 +62,6 @@ echo "server  http://$listen"
 echo "home    $home"
 echo "token   $home/token"
 if [ "$with_web" = "1" ]; then
-  echo "web     http://$listen/"
+  echo "web     http://$listen/app/"
 fi
 exec ./bin/t3go serve $server_args
