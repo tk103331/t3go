@@ -169,7 +169,7 @@ Windows 则放在可执行文件旁边；macOS 上先给这个可执行文件单
 用户在本机环境上执行「忘记」时，客户端记住该环境 ID，不再自动加回。
 
 `t3go serve` 带 `--parent-pid` 时每秒确认启动它的进程还在，app 被强杀也会在
-一秒左右退出，不会留下孤儿服务。设置 → About 的「Keep running in the background」
+一秒左右退出，不会留下孤儿服务。设置 → Access 的「Keep running in the background」
 控制这个开关：开启时 server 不带 `--parent-pid`，关掉窗口后继续跑正在执行的
 agent run，下次启动复用同一个进程；关闭时随窗口退出。切换开关会重启由客户端
 启动的 server，因为父进程监视只存在于启动命令里。桌面端只负责拉起和连接；

@@ -483,6 +483,7 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 		}},
 	}
 	if !enabled() {
+		body = append(body, a.backgroundServerCard(cx))
 		return core.View{Style: core.Style{Direction: core.Column, Gap: 10}, Children: body}
 	}
 	directRoute, hasDirect := firstAccessRoute(a.profile, "direct")
@@ -531,7 +532,7 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 	}
 	link := a.accessLink.Get()
 	if a.accessErr.Get() != "" {
-		body = append(body, ui.Text(a.accessErr.Get(), 11.5, ui.Regular, colors.Danger))
+		body = append(body, ui.Text(a.accessErr.Get(), 11.5, ui.Regular, colors.Danger), a.backgroundServerCard(cx))
 		return core.View{Style: core.Style{Direction: core.Column, Gap: 10}, Children: body}
 	}
 	if warning := accessRouteWarning(link); warning != "" {
@@ -561,5 +562,29 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 				Style: core.Style{Width: core.Pt(220), Height: core.Pt(220), CornerRadius: 8}}}},
 		)
 	}
+	body = append(body, a.backgroundServerCard(cx))
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 10}, Children: body}
+}
+
+// backgroundServerCard decides whether paired devices keep reaching this
+// machine once the window closes. Only a package that ships the
+// environment server has one to keep running.
+func (a *app) backgroundServerCard(cx *core.Scope) core.Node {
+	if a.manager == nil || bundledServerPath() == "" {
+		return core.Group{}
+	}
+	colors := ui.ColorsOf(cx)
+	return core.View{TestID: "settings-access-background", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
+		Gap: 12, Padding: core.Symmetric(10, 12), Background: colors.Inset(), CornerRadius: 9}, Children: []core.Node{
+		core.View{Style: core.Style{Direction: core.Column, Gap: 2, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+			Children: []core.Node{
+				core.Text{Content: "Keep running in the background", Style: core.Style{FontSize: 13, FontWeight: ui.Semibold},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+				core.Text{Content: "Paired devices and agent runs reach this machine through its server. Closing T3Go stops that server unless it is kept running here.",
+					MaxLines: 4, Style: core.Style{FontSize: 11, LineHeight: 16},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+			}},
+		settingsSwitch(cx, "Keep the local environment server running in the background",
+			"settings-background-server", func() bool { return a.manager.background.Get() }, a.manager.setBackgroundServer),
+	}}
 }

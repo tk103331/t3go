@@ -10,8 +10,9 @@ import (
 	"github.com/tk/t3go/internal/client"
 )
 
-// TestUISettingsKeepTheLocalServerInTheBackground shows the switch only for
-// a package that ships an environment server, and saves the choice.
+// TestUISettingsKeepTheLocalServerInTheBackground shows the switch in
+// Access, only for a package that ships an environment server, and saves
+// the choice.
 func TestUISettingsKeepTheLocalServerInTheBackground(t *testing.T) {
 	srv, ts, cfg := startEnv(t)
 	profile := client.EnvironmentProfile{
@@ -19,20 +20,20 @@ func TestUISettingsKeepTheLocalServerInTheBackground(t *testing.T) {
 		Routes: []client.Route{{URL: ts.URL, Kind: "direct"}},
 	}
 	storage := map[string]string{"environments:v1": workspaceRegistry(profile)}
-	openAbout := func() *nsgotest.App {
+	openAccess := func() *nsgotest.App {
 		t.Helper()
 		app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(storage))
 		app.WaitFor("id:settings", 15*time.Second)
 		app.Press("id:settings")
 		app.WaitFor("id:settings-dialog", 5*time.Second)
-		app.Press("id:settings-nav-about")
-		app.WaitFor("id:settings-about-server", 5*time.Second)
+		app.Press("id:settings-nav-access")
+		app.WaitFor("id:settings-access-title", 5*time.Second)
 		return app
 	}
 
 	// The test binary ships no server, so there is nothing to keep running.
 	t.Setenv("T3GO_SERVER_BIN", "")
-	if app := openAbout(); app.Exists("id:settings-background-server") {
+	if app := openAccess(); app.Exists("id:settings-background-server") {
 		t.Fatal("a client without a packaged server offers the background switch")
 	}
 
@@ -44,7 +45,7 @@ func TestUISettingsKeepTheLocalServerInTheBackground(t *testing.T) {
 	}
 	t.Setenv("T3GO_SERVER_BIN", bin)
 	t.Setenv("T3GO_SERVER", ts.URL)
-	app := openAbout()
+	app := openAccess()
 	if !app.Exists("id:settings-background-server") {
 		t.Fatal("a packaged client does not offer the background switch")
 	}
