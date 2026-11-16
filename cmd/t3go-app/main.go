@@ -134,8 +134,7 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 			Header:  []core.Node{core.Dynamic(a.contentHeader)},
 			Content: []core.Node{core.Dynamic(a.content)},
 			Open:    a.sidebarOpen.Get, OnOpenChange: a.setSidebarOpen,
-			ToggleLabel: "Toggle sidebar",
-			Width:       a.sidebarWidth.Get, OnWidthChange: a.setSidebarWidth,
+			Width: a.sidebarWidth.Get, OnWidthChange: a.setSidebarWidth,
 			DefaultWidth: 260, MinWidth: 220, MaxWidth: 380,
 			ResizeLabel: "Resize sidebar",
 		}
@@ -492,8 +491,9 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	d := a.detail.Get()
 	if d.Thread.ID == "" {
-		return core.View{Style: core.Style{Height: core.Pt(32), Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-			core.Dynamic(a.environmentStatus), ui.Spacer{}, a.rightToggle(),
+		return core.View{Style: core.Style{Height: core.Pt(32), Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+			FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+			a.sidebarToggle(), core.Dynamic(a.environmentStatus), ui.Spacer{}, a.rightToggle(),
 		}}
 	}
 	// Two lines only: the thread's title, then the environment it runs on
@@ -526,7 +526,9 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 				}},
 		}}
 	}
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, MinWidth: core.Pt(0)}, Children: []core.Node{
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10,
+		FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+		a.sidebarToggle(),
 		title,
 		a.branchMenu(cx, d),
 		ui.Menu{TestID: "thread-menu", Open: a.threadMenuOpen.Get,
@@ -542,6 +544,16 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 			}},
 		a.rightToggle(),
 	}}
+}
+
+// sidebarToggle sits at the leading edge of the conversation header, so
+// both panel controls stay in the workspace rather than the window chrome.
+func (a *app) sidebarToggle() core.Node {
+	if a.cx.Env().Window().Width < 760 {
+		return core.View{}
+	}
+	return ui.IconButton{Icon: lucide.PanelLeft, Label: "Toggle sidebar", TestID: "toggle-sidebar",
+		Selected: a.sidebarOpen.Get, OnPress: func() { a.setSidebarOpen(!a.sidebarOpen.GetUntracked()) }}
 }
 
 // rightToggle shows or hides the surfaces panel.

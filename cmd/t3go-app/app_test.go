@@ -448,6 +448,45 @@ func TestUISidebarRemembers(t *testing.T) {
 	})
 }
 
+func TestUIDesktopPanelTogglesAtConversationHeaderEdges(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Layout", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Panel layout", Provider: "claude", Model: "test-model",
+		Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL, "token": cfg.Token, "selectedThread": thread.ID,
+	}))
+	app.WaitFor("id:content-header >> id:toggle-sidebar", 15*time.Second)
+	app.WaitFor("id:content-header >> id:toggle-right-panel", 5*time.Second)
+
+	header := app.Find("id:content-header").Frame
+	left := app.Find("id:toggle-sidebar").Frame
+	right := app.Find("id:toggle-right-panel").Frame
+	if gap := left.Origin.X - header.Origin.X; gap < 0 || gap > 24 {
+		t.Fatalf("left toggle is not against the conversation edge: gap %v, header %v, toggle %v", gap, header, left)
+	}
+	if gap := header.Origin.X + header.Size.Width - right.Origin.X - right.Size.Width; gap < 0 || gap > 24 {
+		t.Fatalf("right toggle is not against the conversation edge: gap %v, header %v, toggle %v", gap, header, right)
+	}
+
+	app.Press("id:toggle-sidebar")
+	app.WaitUntil(5*time.Second, func() bool {
+		value, ok := app.Storage().GetItem("sidebarOpen")
+		return ok && value == "false"
+	})
+	app.WaitFor("id:toggle-sidebar", 5*time.Second)
+}
+
 // TestUIRunHistory lists a thread's runs and opens the diff of one from
 // its checkpoint.
 func TestUIRunHistory(t *testing.T) {
