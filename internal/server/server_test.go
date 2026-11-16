@@ -2,6 +2,8 @@ package server
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"io"
@@ -448,6 +450,21 @@ func TestWebClientServed(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(webDir, "app", "app.js"), []byte("console.log('t3go')"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	wasm := bytes.Repeat([]byte("wasm payload "), 256)
+	if err := os.WriteFile(filepath.Join(webDir, "app", "app.wasm"), wasm, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var compressed bytes.Buffer
+	zw := gzip.NewWriter(&compressed)
+	if _, err := zw.Write(wasm); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(webDir, "app", "app.wasm.gz"), compressed.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	cfg.WebDir = webDir
 	srv, err := New(cfg, log.New(io.Discard, "", 0))
 	if err != nil {
@@ -489,6 +506,39 @@ func TestWebClientServed(t *testing.T) {
 	}
 	if code := status(t, http.MethodGet, ts.URL+"/app/app.js"); code != http.StatusOK {
 		t.Fatalf("web asset = %d", code)
+	}
+	gzipRequest, _ := http.NewRequest(http.MethodGet, ts.URL+"/app/app.wasm", nil)
+	gzipRequest.Header.Set("Accept-Encoding", "gzip")
+	gzipResponse, err := http.DefaultClient.Do(gzipRequest)
+	if err != nil {
+		t.Fatalf("get compressed wasm: %v", err)
+	}
+	compressedBody, _ := io.ReadAll(gzipResponse.Body)
+	gzipResponse.Body.Close()
+	if gzipResponse.Header.Get("Content-Encoding") != "gzip" || gzipResponse.Header.Get("Vary") != "Accept-Encoding" {
+		t.Fatalf("compressed wasm headers = %v", gzipResponse.Header)
+	}
+	if contentType := gzipResponse.Header.Get("Content-Type"); contentType != "application/wasm" {
+		t.Fatalf("compressed wasm content type = %q", contentType)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(compressedBody))
+	if err != nil {
+		t.Fatalf("read compressed wasm: %v", err)
+	}
+	uncompressed, _ := io.ReadAll(zr)
+	zr.Close()
+	if !bytes.Equal(uncompressed, wasm) {
+		t.Fatal("compressed wasm body did not round trip")
+	}
+	identityRequest, _ := http.NewRequest(http.MethodGet, ts.URL+"/app/app.wasm", nil)
+	identityRequest.Header.Set("Accept-Encoding", "gzip;q=0")
+	identityResponse, err := http.DefaultClient.Do(identityRequest)
+	if err != nil {
+		t.Fatalf("get identity wasm: %v", err)
+	}
+	identityResponse.Body.Close()
+	if encoding := identityResponse.Header.Get("Content-Encoding"); encoding != "" {
+		t.Fatalf("gzip;q=0 was compressed as %q", encoding)
 	}
 	if code := status(t, http.MethodGet, ts.URL+"/missing.js"); code != http.StatusNotFound {
 		t.Fatalf("missing = %d", code)

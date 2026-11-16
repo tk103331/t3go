@@ -2521,8 +2521,65 @@ func (s *Server) handleWeb(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	w.Header().Set("Vary", "Accept-Encoding")
+	if acceptsGzip(r.Header.Get("Accept-Encoding")) && compressibleWebFile(rel) {
+		gzipFull := full + ".gz"
+		if gzipStat, gzipErr := os.Stat(gzipFull); gzipErr == nil && !gzipStat.IsDir() {
+			w.Header().Set("Content-Encoding", "gzip")
+			w.Header().Set("Content-Type", webContentType(rel))
+			full = gzipFull
+		}
+	}
 	w.Header().Set("Cache-Control", "no-cache")
 	http.ServeFile(w, r, full)
+}
+
+// acceptsGzip reports whether an Accept-Encoding value allows gzip. A gzip
+// entry with q=0 explicitly disables it.
+func acceptsGzip(header string) bool {
+	for _, entry := range strings.Split(header, ",") {
+		name, params, _ := strings.Cut(strings.TrimSpace(entry), ";")
+		if !strings.EqualFold(strings.TrimSpace(name), "gzip") {
+			continue
+		}
+		for _, param := range strings.Split(params, ";") {
+			key, value, ok := strings.Cut(strings.TrimSpace(param), "=")
+			if !ok || !strings.EqualFold(strings.TrimSpace(key), "q") {
+				continue
+			}
+			quality, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+			return err != nil || quality > 0
+		}
+		return true
+	}
+	return false
+}
+
+// compressibleWebFile limits precompressed responses to static text formats.
+func compressibleWebFile(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".css", ".html", ".js", ".json", ".map", ".mjs", ".svg", ".txt", ".wasm":
+		return true
+	default:
+		return false
+	}
+}
+
+// webContentType keeps the original file's type when serving its .gz bytes.
+func webContentType(name string) string {
+	ext := strings.ToLower(filepath.Ext(name))
+	switch ext {
+	case ".wasm":
+		return "application/wasm"
+	case ".js", ".mjs":
+		return "text/javascript; charset=utf-8"
+	case ".svg":
+		return "image/svg+xml"
+	}
+	if contentType := mime.TypeByExtension(ext); contentType != "" {
+		return contentType
+	}
+	return "application/octet-stream"
 }
 
 // maxUploadSize is a prompt attachment's limit.

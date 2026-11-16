@@ -15,4 +15,14 @@ if [ "$out_abs" != "$source_abs" ]; then
   cp web/index.html "$out/index.html"
   cp web/app/index.html "$out/app/index.html"
 fi
+for file in \
+  "$out/index.html" \
+  "$out/t3go-mark.svg" \
+  "$out/app/index.html" \
+  "$out/app/wasm_exec.js" \
+  "$out/app/t3go-mark.svg" \
+  "$out/app/app.wasm"
+do
+  gzip -9 -n -c "$file" > "$file.gz"
+done
 echo "built $out"
