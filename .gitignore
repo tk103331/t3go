@@ -23,3 +23,7 @@ dist/
 /web/app.wasm
 /web/wasm_exec.js
 /web/t3go-android-arm64.apk
+
+# the environment server the client ships
+cmd/t3go-app/resources/t3go
+cmd/t3go-app/resources/t3go.exe

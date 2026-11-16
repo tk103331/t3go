@@ -92,6 +92,12 @@ func (a *app) connectView(cx *core.Scope) core.Node {
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 			core.Text{Content: "Enter the server address and access token to open your projects and threads.", Style: core.Style{FontSize: 12.5, LineHeight: 18},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+			core.Show{When: func() bool { return a.manager != nil && a.manager.localStarting.Get() }, Then: func(*core.Scope) core.Node {
+				return ui.Text("Starting the local environment…", 12, ui.Regular, colors.Muted)
+			}},
+			core.Show{When: func() bool { return a.manager != nil && a.manager.localErr.Get() != "" }, Then: func(*core.Scope) core.Node {
+				return ui.Text(a.manager.localErr.Get(), 12, ui.Regular, colors.Danger)
+			}},
 			mobileInput{Scope: cx, Input: base.Input{Value: a.serverURL.Get, OnChange: a.serverURL.Set, Placeholder: "Server, e.g. http://127.0.0.1:4870",
 				Label: "Server address", SubmitBehavior: core.SubmitBehaviorSubmit, OnSubmit: func(string) { a.connect(a.serverURL.Get(), a.token.Get()) }}},
 			mobileInput{Scope: cx, Input: base.Input{Value: a.token.Get, OnChange: a.token.Set, Placeholder: "Token, or paste a t3go:// pair link",

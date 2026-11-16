@@ -64,7 +64,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `t3go %s - a Go T3 Code environment
 
 Usage:
-  t3go serve    [--home DIR] [--listen HOST:PORT] [--no-auth] [--web DIR] [--relay] [--connect-relay] [--no-agent]
+  t3go serve    [--home DIR] [--listen HOST:PORT] [--no-auth] [--web DIR] [--relay] [--connect-relay] [--no-agent] [--parent-pid PID]
   t3go pair     [--home DIR] [--listen HOST:PORT] [--relay]
   t3go relay    --server URL --user-token-file FILE [--direct-url URL] [--home DIR]
   t3go doctor   [--home DIR]
@@ -86,6 +86,7 @@ func cmdServe(args []string) int {
 	relayHub := fs.Bool("relay", false, "enable authenticated environment relay on this server")
 	connectRelay := fs.Bool("connect-relay", false, "connect this environment to its registered relay")
 	noAgent := fs.Bool("no-agent", false, "serve threads, files and the relay without running agent tasks")
+	parent := fs.Int("parent-pid", 0, "exit when this process exits (the desktop app passes its own)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -128,6 +129,11 @@ func cmdServe(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if *parent > 0 {
+		// The environment the desktop app ships belongs to that app: it
+		// stops when the app does, even if the app is killed outright.
+		watchParent(ctx, stop, *parent)
+	}
 
 	ln, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {

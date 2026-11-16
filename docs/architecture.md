@@ -9,6 +9,7 @@ T3Go 由三部分组成：
    通过 SSE 接收更新。
 
 CLI（`cmd/t3go`）只是环境的启动器；它和客户端可以在同一台机器，也可以分离部署。
+桌面安装包自带这个启动器和环境服务，见下文「桌面安装包」。
 
 环境身份保存在 SQLite 中，独立于每次启动的 `Server.ID`。客户端以环境 ID
 隔离会话，验证候选路线后优先直连；`internal/relay` 用 WebSocket + yamux
@@ -147,3 +148,26 @@ NSGo UI（`cmd/t3go-app`）把信号和事件分开：
   按消息/线程 ID 保持行身份。
 - transcript 按 `runId` 分组，组内消息间距小，组间使用聊天气泡的节奏。
 - 宽度 ≥ 760pt 时使用 `ui.SidebarShell`；窄屏在“列表 ↔ 线程”两个页面间切换。
+
+## 桌面安装包
+
+桌面版不需要用户另外安装服务端：`scripts/build-app.sh` 先为同一个平台编译
+`cmd/t3go`，放进 `cmd/t3go-app/resources/`，再由 `go tool nsgo build` 打包。
+NSGo 把 `resources/` 拷进 macOS 的 `T3Go.app/Contents/Resources/`，Linux 与
+Windows 则放在可执行文件旁边；macOS 上先给这个可执行文件单独做 ad-hoc 签名，
+再让安装包整体签名。手机包用 `nsgo.yaml` 的 `mobile.exclude_resources` 排除它。
+
+启动时 `cmd/t3go-app/local_server_exec.go` 找到这个二进制，用
+`t3go serve --home <T3GO_HOME 或 ~/.t3go> --listen 127.0.0.1:<port> --quiet`
+拉起，并从 `<home>/token` 读 Token 连上去；4870 被占用时依次尝试最多 20 个端口。
+如果端口上已经有一个同 home 的 T3Go（Token 能通过 `/api/auth/session`），
+就直接复用它，不重复起进程。
+
+环境服务的身份来自 home 目录里的 SQLite，所以重复启动得到同一个
+`environmentId`，环境列表里只更新地址和 Token，不会多出一条。客户端只在没有
+选中任何环境时（首次安装）自动切到本机环境，之后仍停留在用户上次用的环境。
+用户在本机环境上执行「忘记」时，客户端记住该环境 ID，不再自动加回。
+
+`t3go serve` 带 `--parent-pid` 时每秒确认启动它的进程还在，app 被强杀也会在
+一秒左右退出，不会留下孤儿服务。桌面端只负责拉起和连接；orchestrator 仍然只有
+环境服务里的那一份，agent CLI（claude/codex/opencode 等）需要装在运行环境的机器上。

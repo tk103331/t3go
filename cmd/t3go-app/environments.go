@@ -130,6 +130,11 @@ type environmentManager struct {
 	appliedAccent  string
 	appearance     *core.Signal[clientAppearance]
 	inboxCollapsed *core.Signal[map[string]bool]
+	// localStarting is set while the packaged environment server starts,
+	// and localID names this machine's own environment once it answers.
+	localStarting *core.Signal[bool]
+	localErr      *core.Signal[string]
+	localID       string
 }
 
 func newEnvironmentManager(cx *core.Scope) *environmentManager {
@@ -137,8 +142,10 @@ func newEnvironmentManager(cx *core.Scope) *environmentManager {
 		appearance: core.NewSignal(cx, loadClientAppearance(cx.Storage())),
 		inboxCollapsed: core.NewSignalFunc(cx, storedValue(cx.Storage(), "inboxCollapsed", map[string]bool{}),
 			func(map[string]bool, map[string]bool) bool { return false }),
-		sidebarKeys: core.NewSignal(cx, false),
-		active:      core.NewSignal[*app](cx, nil), pending: core.NewSignal[*app](cx, nil), profiles: core.NewSignalFunc(cx,
+		sidebarKeys:   core.NewSignal(cx, false),
+		localStarting: core.NewSignal(cx, false),
+		localErr:      core.NewSignal(cx, ""),
+		active:        core.NewSignal[*app](cx, nil), pending: core.NewSignal[*app](cx, nil), profiles: core.NewSignalFunc(cx,
 			[]client.EnvironmentProfile{}, func([]client.EnvironmentProfile, []client.EnvironmentProfile) bool { return false }),
 		revision: core.NewSignal(cx, 0)}
 	var saved savedEnvironments
@@ -238,6 +245,9 @@ func (m *environmentManager) start() {
 	}
 	m.active.Set(m.app)
 	m.app.applyAppearance()
+	// The desktop package ships an environment server: start it so the
+	// client works on a fresh install without one installed separately.
+	m.startLocalEnvironment()
 }
 
 func (m *environmentManager) addEnvironment() {
@@ -606,6 +616,10 @@ func (m *environmentManager) forget(id string) {
 	session := m.sessions[id]
 	if session != nil {
 		session.persistView()
+	}
+	if id == m.localID {
+		// This machine stays out of the list until the user adds it back.
+		_ = m.store.SetItem(localEnvironmentRemoved, id)
 	}
 	var next []client.EnvironmentProfile
 	for _, p := range m.profiles.GetUntracked() {
