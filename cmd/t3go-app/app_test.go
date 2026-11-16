@@ -267,6 +267,91 @@ func TestUICreateThreadInWorktree(t *testing.T) {
 	}
 }
 
+func TestUICreateThreadInCurrentCheckoutSelectsBranch(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	cmd := exec.Command("git", "branch", "feature/current")
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git branch: %v\n%s", err, out)
+	}
+	project, err := srv.Service.CreateProject(ctx, "Repo", repo)
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:project-"+project.ID, 15*time.Second)
+	app.Press("id:new-thread")
+	app.WaitUntil(8*time.Second, func() bool {
+		return app.Exists("id:new-thread-branch") && app.Enabled("id:new-thread-branch")
+	})
+	app.Press("id:new-thread-branch")
+	app.WaitFor("id:new-thread-branch-1", 5*time.Second)
+	app.Press("id:new-thread-branch-1")
+	app.WaitFor("id:new-thread-branch >> text:feature/current", 5*time.Second)
+	app.Type("label:New thread message", "Current checkout thread")
+	app.Press("id:create-thread")
+	app.WaitFor("id:content-header >> text:Current checkout thread", 10*time.Second)
+
+	threads, err := srv.Store.Threads(ctx, project.ID, false)
+	if err != nil || len(threads) != 1 {
+		t.Fatalf("threads = %#v, %v", threads, err)
+	}
+	if threads[0].Branch != "feature/current" || threads[0].WorktreePath != "" {
+		t.Fatalf("thread checkout = %#v", threads[0])
+	}
+	if branch := git.Status(ctx, repo).Branch; branch != "feature/current" {
+		t.Fatalf("current checkout branch = %q", branch)
+	}
+}
+
+func TestUICreateThreadReusesExistingWorktree(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	worktreePath := filepath.Join(t.TempDir(), "existing-worktree")
+	if err := git.CreateWorktree(ctx, repo, worktreePath, "t3go/existing", ""); err != nil {
+		t.Fatalf("create worktree: %v", err)
+	}
+	project, err := srv.Service.CreateProject(ctx, "Repo", repo)
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:project-"+project.ID, 15*time.Second)
+	app.Press("id:new-thread")
+	app.WaitFor("id:toggle-worktree", 8*time.Second)
+	app.WaitFor("id:new-thread-branch >> text:main", 8*time.Second)
+	app.Press("id:toggle-worktree")
+	app.WaitFor("id:new-thread-worktree-existing-0", 5*time.Second)
+	app.Press("id:new-thread-worktree-existing-0")
+	app.WaitFor("id:toggle-worktree >> text:Previous worktree", 5*time.Second)
+	app.WaitFor("id:new-thread-branch >> text:t3go/existing", 5*time.Second)
+	app.Type("label:New thread message", "Reuse worktree")
+	app.Press("id:create-thread")
+	app.WaitFor("id:content-header >> text:Reuse worktree", 10*time.Second)
+
+	threads, err := srv.Store.Threads(ctx, project.ID, false)
+	if err != nil || len(threads) != 1 {
+		t.Fatalf("threads = %#v, %v", threads, err)
+	}
+	wantPath, _ := filepath.EvalSymlinks(worktreePath)
+	gotPath, _ := filepath.EvalSymlinks(threads[0].WorktreePath)
+	if threads[0].Branch != "t3go/existing" || gotPath != wantPath {
+		t.Fatalf("thread checkout = %#v", threads[0])
+	}
+	if _, err := os.Stat(filepath.Join(worktreePath, "README.md")); err != nil {
+		t.Fatalf("existing worktree was removed: %v", err)
+	}
+}
+
 // TestUIArchiveThread hides a finished thread from the sidebar, shows it
 // again with the archived filter, and unarchives it from its menu.
 func TestUIArchiveThread(t *testing.T) {

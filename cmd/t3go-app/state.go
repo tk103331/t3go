@@ -274,6 +274,7 @@ type app struct {
 	newThreadModel        *core.Signal[string]
 	newThreadPerm         *core.Signal[proto.PermissionMode]
 	newThreadWT           *core.Signal[bool]
+	newThreadExistingWT   *core.Signal[string]
 	newThreadBase         *core.Signal[string]
 	threadBusy            *core.Signal[bool]
 	newThreadProj         *core.Signal[string]
@@ -552,6 +553,7 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		newThreadModel:        core.NewSignal(cx, ""),
 		newThreadPerm:         core.NewSignal(cx, proto.PermissionFullAccess),
 		newThreadWT:           core.NewSignal(cx, false),
+		newThreadExistingWT:   core.NewSignal(cx, ""),
 		newThreadBase:         core.NewSignal(cx, ""),
 		threadBusy:            core.NewSignal(cx, false),
 		newThreadProj:         core.NewSignal(cx, ""),
@@ -4374,14 +4376,22 @@ func (a *app) createThreadThen(after func(proto.Thread)) {
 		a.connErr.Set("Install " + provider + " before creating a thread with it.")
 		return
 	}
+	worktree := a.newThreadWT.GetUntracked()
+	existingWorktree := strings.TrimSpace(a.newThreadExistingWT.GetUntracked())
+	branch := ""
+	if !worktree {
+		branch = strings.TrimSpace(a.newThreadBase.GetUntracked())
+	}
 	in := client.CreateThreadInput{
-		ProjectID:  projectID,
-		Title:      strings.TrimSpace(a.newThreadTitle.GetUntracked()),
-		Provider:   a.newThreadProv.GetUntracked(),
-		Model:      a.newThreadModel.GetUntracked(),
-		Permission: a.newThreadPerm.GetUntracked(),
-		Worktree:   a.newThreadWT.GetUntracked(),
-		BaseRef:    strings.TrimSpace(a.newThreadBase.GetUntracked()),
+		ProjectID:        projectID,
+		Title:            strings.TrimSpace(a.newThreadTitle.GetUntracked()),
+		Provider:         a.newThreadProv.GetUntracked(),
+		Model:            a.newThreadModel.GetUntracked(),
+		Permission:       a.newThreadPerm.GetUntracked(),
+		Branch:           branch,
+		Worktree:         worktree,
+		BaseRef:          strings.TrimSpace(a.newThreadBase.GetUntracked()),
+		ExistingWorktree: existingWorktree,
 	}
 	var created proto.Thread
 	a.threadBusy.Set(true)
@@ -4446,6 +4456,7 @@ func (a *app) selectNewThreadProject(id string) {
 	if changed {
 		a.newThreadBase.Set("")
 		a.newThreadWT.Set(false)
+		a.newThreadExistingWT.Set("")
 	}
 	a.newThreadProj.Set(id)
 	_ = a.store.SetItem("lastThreadProject", id)
@@ -4579,6 +4590,7 @@ func (a *app) prepareNewThread() {
 	a.newThreadTitle.Set("")
 	a.newThreadBase.Set("")
 	a.newThreadWT.Set(false)
+	a.newThreadExistingWT.Set("")
 	a.selectNewThreadProject(a.preferredNewThreadProject())
 	settings := a.settings.GetUntracked()
 	provider := settings.DefaultProvider

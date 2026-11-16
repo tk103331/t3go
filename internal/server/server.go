@@ -627,14 +627,15 @@ func (s *Server) handleThreads(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		ProjectID  string               `json:"projectId"`
-		Title      string               `json:"title"`
-		Provider   string               `json:"provider"`
-		Model      string               `json:"model"`
-		Permission proto.PermissionMode `json:"permission"`
-		Branch     string               `json:"branch"`
-		Worktree   bool                 `json:"worktree"`
-		BaseRef    string               `json:"baseRef"`
+		ProjectID        string               `json:"projectId"`
+		Title            string               `json:"title"`
+		Provider         string               `json:"provider"`
+		Model            string               `json:"model"`
+		Permission       proto.PermissionMode `json:"permission"`
+		Branch           string               `json:"branch"`
+		Worktree         bool                 `json:"worktree"`
+		BaseRef          string               `json:"baseRef"`
+		ExistingWorktree string               `json:"existingWorktree"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		writeError(w, 400, "invalid", err.Error())
@@ -643,6 +644,7 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 	t, err := s.Service.CreateThread(r.Context(), orchestrator.CreateThreadInput{
 		ProjectID: in.ProjectID, Title: in.Title, Provider: in.Provider, Model: in.Model,
 		Permission: in.Permission, Branch: in.Branch, Worktree: in.Worktree, BaseRef: in.BaseRef,
+		ExistingWorktree: in.ExistingWorktree,
 	})
 	if err != nil {
 		writeError(w, statusFor(err), "thread", err.Error())

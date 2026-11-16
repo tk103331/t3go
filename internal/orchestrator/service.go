@@ -340,8 +340,30 @@ func (s *Service) CreateThread(ctx context.Context, in CreateThreadInput) (proto
 	if thread.Title == "" {
 		thread.Title = "New thread"
 	}
+	createdWorktree := false
+	previousBranch := ""
 	if in.ExistingWorktree != "" {
-		thread.WorktreePath = in.ExistingWorktree
+		if !git.IsRepo(ctx, project.Path) {
+			return proto.Thread{}, errors.New("existing worktrees need a Git project")
+		}
+		refs, err := git.ListRefs(ctx, project.Path, false)
+		if err != nil {
+			return proto.Thread{}, fmt.Errorf("read worktrees: %w", err)
+		}
+		target := filepath.Clean(in.ExistingWorktree)
+		found := false
+		for _, ref := range refs {
+			if ref.Current || ref.WorktreePath == "" || filepath.Clean(ref.WorktreePath) != target {
+				continue
+			}
+			thread.Branch = ref.Name
+			thread.WorktreePath = ref.WorktreePath
+			found = true
+			break
+		}
+		if !found {
+			return proto.Thread{}, errors.New("the selected worktree no longer exists")
+		}
 	} else if in.Worktree {
 		if !git.IsRepo(ctx, project.Path) {
 			return proto.Thread{}, errors.New("worktrees need a Git project")
@@ -357,12 +379,29 @@ func (s *Service) CreateThread(ctx context.Context, in CreateThreadInput) (proto
 		if err := git.CreateWorktree(ctx, project.Path, thread.WorktreePath, thread.Branch, in.BaseRef); err != nil {
 			return proto.Thread{}, fmt.Errorf("create worktree: %w", err)
 		}
-	} else if thread.Branch == "" {
-		thread.Branch = git.Status(ctx, project.Path).Branch
+		createdWorktree = true
+	} else {
+		current := git.Status(ctx, project.Path).Branch
+		if thread.Branch != "" && thread.Branch != current {
+			if !git.IsRepo(ctx, project.Path) {
+				return proto.Thread{}, errors.New("branch selection needs a Git project")
+			}
+			if strings.HasPrefix(thread.Branch, "-") || strings.ContainsAny(thread.Branch, "..\x00\r\n") {
+				return proto.Thread{}, errors.New("invalid branch name")
+			}
+			if err := git.SwitchRef(ctx, project.Path, thread.Branch); err != nil {
+				return proto.Thread{}, fmt.Errorf("switch branch: %w", err)
+			}
+			previousBranch = current
+		} else if thread.Branch == "" {
+			thread.Branch = current
+		}
 	}
 	if err := s.Store.CreateThread(ctx, thread); err != nil {
-		if thread.WorktreePath != "" {
+		if createdWorktree {
 			_ = git.RemoveWorktree(ctx, project.Path, thread.WorktreePath)
+		} else if previousBranch != "" {
+			_ = git.SwitchRef(ctx, project.Path, previousBranch)
 		}
 		return proto.Thread{}, err
 	}

@@ -1300,35 +1300,69 @@ func (a *app) desktopNewThreadContext(cx *core.Scope) core.Node {
 			Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 8}, Children: children}
 	}
 
+	existingWorktree := a.newThreadExistingWT.Get()
 	worktreeLabel := "Current checkout"
 	worktreeVariant := ui.ButtonGhost
 	if a.newThreadWT.Get() {
 		worktreeLabel, worktreeVariant = "New worktree", ui.ButtonSecondary
+	} else if existingWorktree != "" {
+		worktreeLabel, worktreeVariant = "Previous worktree", ui.ButtonSecondary
 	}
 	branches := a.newThreadBranches.Get()
 	options := make([]ui.Option[string], 0, len(branches))
 	for _, branch := range branches {
 		options = append(options, ui.Option[string]{Value: branch.Name, Label: branch.Name})
 	}
+	worktreeItems := []core.Node{
+		ui.MenuItem{Text: "Current checkout", TestID: "new-thread-worktree-current",
+			Checked: func() bool {
+				return !a.newThreadWT.Get() && a.newThreadExistingWT.Get() == ""
+			},
+			OnSelect: func() {
+				a.newThreadWT.Set(false)
+				a.newThreadExistingWT.Set("")
+			}},
+		ui.MenuItem{Text: "New worktree", TestID: "new-thread-worktree-new",
+			Checked: func() bool { return a.newThreadWT.Get() },
+			OnSelect: func() {
+				a.newThreadWT.Set(true)
+				a.newThreadExistingWT.Set("")
+			}},
+	}
+	existingIndex := 0
+	for _, branch := range branches {
+		if branch.Current || strings.TrimSpace(branch.WorktreePath) == "" {
+			continue
+		}
+		branch := branch
+		if existingIndex == 0 {
+			worktreeItems = append(worktreeItems, ui.MenuSeparator{})
+		}
+		worktreeItems = append(worktreeItems, ui.MenuItem{
+			Text: "Previous worktree · " + branch.Name, Icon: lucide.Clock,
+			TestID: fmt.Sprintf("new-thread-worktree-existing-%d", existingIndex),
+			Checked: func() bool {
+				return a.newThreadExistingWT.Get() == branch.WorktreePath
+			},
+			OnSelect: func() {
+				a.newThreadWT.Set(false)
+				a.newThreadExistingWT.Set(branch.WorktreePath)
+				a.newThreadBase.Set(branch.Name)
+			}})
+		existingIndex++
+	}
 	children = append(children,
-		ui.Menu{TestID: "toggle-worktree", MaxHeight: 240,
+		ui.Menu{TestID: "toggle-worktree", MaxHeight: 320,
 			Trigger: ui.Button{Text: worktreeLabel, Icon: lucide.GitFork, Variant: worktreeVariant,
 				Size: controlSize(cx), Label: "Worktree: " + worktreeLabel},
-			Children: []core.Node{
-				ui.MenuItem{Text: "Current checkout", TestID: "new-thread-worktree-current",
-					Checked:  func() bool { return !a.newThreadWT.Get() },
-					OnSelect: func() { a.newThreadWT.Set(false) }},
-				ui.MenuItem{Text: "New worktree", TestID: "new-thread-worktree-new",
-					Checked:  func() bool { return a.newThreadWT.Get() },
-					OnSelect: func() { a.newThreadWT.Set(true) }},
-			}},
+			Children: worktreeItems},
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(220)}, Children: []core.Node{
 			ui.Select[string]{TestID: "new-thread-branch", Options: options,
 				Value: a.newThreadBase.Get, OnChange: a.newThreadBase.Set,
 				Placeholder: "Choose a branch", Searchable: true,
 				SearchPlaceholder: "Search branches", Empty: "No branches found",
 				Label: "Branch", Disabled: func() bool {
-					return !a.newThreadWT.Get() || a.newThreadBranchesBusy.Get()
+					return a.newThreadExistingWT.Get() != "" || a.newThreadBranchesBusy.Get()
 				}, Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}},
 		}},
 	)
@@ -1341,8 +1375,10 @@ func (a *app) desktopNewThreadContext(cx *core.Scope) core.Node {
 		status, statusColor = a.newThreadBranchesErr.Get(), colors.Danger
 	case len(options) == 0:
 		status = "This project has no local branches."
+	case a.newThreadExistingWT.Get() != "":
+		status = "This thread will reuse the selected worktree."
 	case !a.newThreadWT.Get():
-		status = "Choose New worktree to use a branch as its starting point."
+		status = "The selected branch will be checked out in the project."
 	default:
 		status = "The new worktree branch is named from the thread title."
 	}

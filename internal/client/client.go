@@ -254,6 +254,8 @@ type CreateThreadInput struct {
 	Branch     string               `json:"branch,omitempty"`
 	Worktree   bool                 `json:"worktree,omitempty"`
 	BaseRef    string               `json:"baseRef,omitempty"`
+	// ExistingWorktree reuses a checkout already registered with the project.
+	ExistingWorktree string `json:"existingWorktree,omitempty"`
 }
 
 // ThreadDetail returns a thread with its transcript and checkout state.

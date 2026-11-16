@@ -412,7 +412,12 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 	enabled := func() bool { return a.settingsDraft.Get().AccessEnabled }
 	body := []core.Node{
 		settingsSectionTitle(cx, "Access", "Local desktop use needs no account. Devices on the same Wi-Fi pair directly; Relay is only for access across networks."),
-		a.lanAccessCard(cx),
+	}
+	hasLANCard := a.hasLANAccessCard()
+	if hasLANCard {
+		body = append(body, a.lanAccessCard(cx))
+	}
+	body = append(body,
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12,
 			Padding: core.Symmetric(10, 12), Background: colors.Inset(), CornerRadius: 9}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Column, Gap: 2, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
@@ -432,7 +437,7 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 				a.refreshAccess()
 			}),
 		}},
-	}
+	)
 	if !enabled() {
 		body = append(body, a.backgroundServerCard(cx))
 		return core.View{Style: core.Style{Direction: core.Column, Gap: 10}, Children: body}
@@ -466,18 +471,19 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 			relayDetail += " · " + state
 		}
 	}
+	routeRows := []core.Node{ui.Text("Pairing routes", 12, ui.Semibold, colors.Muted)}
+	if !hasLANCard {
+		routeRows = append(routeRows, accessRouteRow(cx, "LAN direct", directDetail, "settings-access-direct", hasDirect,
+			func() bool { return modeDirect && hasDirect },
+			func() bool { return modeDirect && hasDirect && (!modeRelay || !hasRelay) },
+			func(on bool) { toggleRoute(true, on) }))
+	}
+	routeRows = append(routeRows, accessRouteRow(cx, "Relay", relayDetail, "settings-access-relay", hasRelay,
+		func() bool { return modeRelay && hasRelay },
+		func() bool { return modeRelay && hasRelay && (!modeDirect || !hasDirect) },
+		func(on bool) { toggleRoute(false, on) }))
 	body = append(body, core.View{TestID: "settings-access-routes",
-		Style: core.Style{Direction: core.Column, Gap: 7}, Children: []core.Node{
-			ui.Text("Pairing routes", 12, ui.Semibold, colors.Muted),
-			accessRouteRow(cx, "Direct / LAN", directDetail, "settings-access-direct", hasDirect,
-				func() bool { return modeDirect && hasDirect },
-				func() bool { return modeDirect && hasDirect && (!modeRelay || !hasRelay) },
-				func(on bool) { toggleRoute(true, on) }),
-			accessRouteRow(cx, "Relay", relayDetail, "settings-access-relay", hasRelay,
-				func() bool { return modeRelay && hasRelay },
-				func() bool { return modeRelay && hasRelay && (!modeDirect || !hasDirect) },
-				func(on bool) { toggleRoute(false, on) }),
-		}})
+		Style: core.Style{Direction: core.Column, Gap: 7}, Children: routeRows})
 	if !hasRelay {
 		body = append(body, ui.Text("Remote access (optional)", 12, ui.Semibold, colors.Muted))
 		body = append(body, a.relayConfigurationCard(cx))
@@ -521,13 +527,15 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 // lanAccessCard exposes the built-in server on the local network. This is
 // the no-account path used by a phone on the same Wi-Fi.
 func (a *app) lanAccessCard(cx *core.Scope) core.Node {
-	if a.manager == nil || bundledServerPath() == "" || strings.TrimSpace(os.Getenv("T3GO_SERVER")) != "" {
+	if !a.hasLANAccessCard() {
 		return core.Group{}
 	}
 	colors := ui.ColorsOf(cx)
 	address := a.localLANURL()
+	direct, _ := accessRouteMode(a.settingsDraft.Get())
+	on := a.manager.lan.Get() && direct
 	detail := "Turn this on to pair a phone over the same Wi-Fi. The pairing link still requires this environment's token."
-	if a.manager.lan.Get() {
+	if on {
 		if address == "" {
 			detail = "LAN access is on, but no private network address was detected. Reconnect this machine to Wi-Fi."
 		} else {
@@ -546,8 +554,23 @@ func (a *app) lanAccessCard(cx *core.Scope) core.Node {
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 			}},
 		settingsSwitch(cx, "Allow direct access from devices on this LAN", "settings-access-lan-toggle",
-			func() bool { return a.manager.lan.Get() }, a.manager.setLANAccess),
+			func() bool {
+				direct, _ := accessRouteMode(a.settingsDraft.Get())
+				return a.manager.lan.Get() && direct
+			}, func(on bool) {
+				a.settingsDraft.Update(func(settings proto.Settings) proto.Settings {
+					_, relay := accessRouteMode(settings)
+					setAccessRouteMode(&settings, on, relay)
+					return settings
+				})
+				a.manager.setLANAccess(on)
+				a.refreshAccess()
+			}),
 	}}
+}
+
+func (a *app) hasLANAccessCard() bool {
+	return a.manager != nil && bundledServerPath() != "" && strings.TrimSpace(os.Getenv("T3GO_SERVER")) == ""
 }
 
 // backgroundServerCard decides whether paired devices keep reaching this
