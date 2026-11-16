@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,8 +75,9 @@ func readLocalToken(home string) string {
 // startLocalServer starts the packaged environment server and returns its
 // address and token. A server already serving the same data directory is
 // reused instead of a second one. A background server keeps running after
-// the client exits, so agent runs it owns finish.
-func startLocalServer(ctx context.Context, background bool) (*localServer, error) {
+// the client exits, so agent runs it owns finish; a LAN server also listens
+// where phones on this network can reach it.
+func startLocalServer(ctx context.Context, background, lan bool) (*localServer, error) {
 	bin := bundledServerPath()
 	if bin == "" {
 		return nil, errNoBundledServer
@@ -97,12 +99,30 @@ func startLocalServer(ctx context.Context, background bool) (*localServer, error
 				// connecting to one that is about to close.
 				time.Sleep(1200 * time.Millisecond)
 				if serverAcceptsToken(base, token) {
-					return &localServer{baseURL: base, token: token, home: home, background: background}, nil
+					health, healthErr := fetchLocalServerHealth(base)
+					actualLAN, lanKnown := serverExposesLAN(base)
+					actualBackground, backgroundKnown := background, false
+					if healthErr == nil && health.Background != nil {
+						actualBackground, backgroundKnown = *health.Background, true
+					}
+					if !lanKnown || !backgroundKnown || actualLAN != lan || actualBackground != background {
+						if err := stopLocalServer(base, token); err != nil {
+							return nil, fmt.Errorf("restart the local environment server: %w", err)
+						}
+						srv, err := launchLocalServer(ctx, bin, home, port, background, lan)
+						if err != nil {
+							return nil, err
+						}
+						return srv, nil
+					}
+					stop := func() { _ = stopLocalServer(base, token) }
+					return &localServer{baseURL: base, token: token, home: home, stop: stop, background: actualBackground,
+						lan: actualLAN, lanIP: lanAddress()}, nil
 				}
 			}
 			continue
 		}
-		srv, err := launchLocalServer(ctx, bin, home, port, background)
+		srv, err := launchLocalServer(ctx, bin, home, port, background, lan)
 		if err == nil {
 			return srv, nil
 		}
@@ -120,7 +140,7 @@ func startLocalServer(ctx context.Context, background bool) (*localServer, error
 }
 
 // launchLocalServer runs the packaged server and waits for it to answer.
-func launchLocalServer(ctx context.Context, bin, home string, port int, background bool) (*localServer, error) {
+func launchLocalServer(ctx context.Context, bin, home string, port int, background, lan bool) (*localServer, error) {
 	logs := filepath.Join(home, "logs")
 	if err := os.MkdirAll(logs, 0o700); err != nil {
 		return nil, err
@@ -130,14 +150,18 @@ func launchLocalServer(ctx context.Context, bin, home string, port int, backgrou
 		return nil, err
 	}
 	defer logFile.Close()
-	cmd := localServerCommand(bin, home, port, background)
+	cmd := localServerCommand(bin, home, port, background, lan)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
+	base := fmt.Sprintf("http://127.0.0.1:%d", port)
 	stop := func() {
+		if token := readLocalToken(home); token != "" && stopLocalServer(base, token) == nil {
+			return
+		}
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
@@ -148,7 +172,6 @@ func launchLocalServer(ctx context.Context, bin, home string, port int, backgrou
 			stop()
 		}()
 	}
-	base := fmt.Sprintf("http://127.0.0.1:%d", port)
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		select {
@@ -162,7 +185,8 @@ func launchLocalServer(ctx context.Context, bin, home string, port int, backgrou
 		}
 		if serverAnswers(base) {
 			if token := readLocalToken(home); token != "" {
-				return &localServer{baseURL: base, token: token, home: home, stop: stop, background: background}, nil
+				return &localServer{baseURL: base, token: token, home: home, stop: stop, background: background,
+					lan: lan, lanIP: lanAddress()}, nil
 			}
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -174,10 +198,96 @@ func launchLocalServer(ctx context.Context, bin, home string, port int, backgrou
 // localServerCommand builds the serve command. A foreground server carries
 // the client's process id so it stops with the client; a background one is
 // started without it and keeps running.
-func localServerCommand(bin, home string, port int, background bool) *exec.Cmd {
-	args := []string{"serve", "--home", home, "--listen", fmt.Sprintf("127.0.0.1:%d", port), "--quiet"}
+func localServerCommand(bin, home string, port int, background, lan bool) *exec.Cmd {
+	listen := "127.0.0.1"
+	if lan {
+		listen = "0.0.0.0"
+	}
+	args := []string{"serve", "--home", home, "--listen", fmt.Sprintf("%s:%d", listen, port), "--quiet"}
 	if !background {
 		args = append(args, "--parent-pid", strconv.Itoa(os.Getpid()))
 	}
 	return exec.Command(bin, args...)
+}
+
+// lanAddress is the address a phone on this network uses to reach this
+// machine. Prefer the interface used by the default route, then fall back
+// to a private IPv4 on a physical-looking interface.
+func lanAddress() string {
+	// Dialing UDP does not send a packet, but it asks the routing table
+	// which local address faces the default network.
+	if conn, err := net.Dial("udp", "8.8.8.8:80"); err == nil {
+		if addr, ok := conn.LocalAddr().(*net.UDPAddr); ok && usableLANIP(addr.IP) {
+			if iface := interfaceForIP(addr.IP); iface == "" || !virtualInterface(iface) {
+				conn.Close()
+				return addr.IP.String()
+			}
+		}
+		conn.Close()
+	}
+	interfaces, err := net.Interfaces()
+	if err == nil {
+		var fallback string
+		for _, iface := range interfaces {
+			if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 || virtualInterface(iface.Name) {
+				continue
+			}
+			addrs, err := iface.Addrs()
+			if err != nil {
+				continue
+			}
+			for _, addr := range addrs {
+				ipnet, ok := addr.(*net.IPNet)
+				if !ok {
+					continue
+				}
+				ip := ipnet.IP.To4()
+				if !usableLANIP(ip) {
+					continue
+				}
+				if ip.IsPrivate() {
+					return ip.String()
+				}
+				if fallback == "" {
+					fallback = ip.String()
+				}
+			}
+		}
+		if fallback != "" {
+			return fallback
+		}
+	}
+	return ""
+}
+
+func usableLANIP(ip net.IP) bool {
+	ip = ip.To4()
+	return ip != nil && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() && !ip.IsUnspecified()
+}
+
+func interfaceForIP(want net.IP) string {
+	interfaces, _ := net.Interfaces()
+	for _, iface := range interfaces {
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			ipnet, ok := addr.(*net.IPNet)
+			if ok && ipnet.IP.Equal(want) {
+				return iface.Name
+			}
+		}
+	}
+	return ""
+}
+
+// virtualInterface keeps VPN, container bridges and mobile hotspots from
+// winning over a normal Wi-Fi/Ethernet interface when several are present.
+func virtualInterface(name string) bool {
+	name = strings.ToLower(name)
+	for _, prefix := range []string{"utun", "tun", "tap", "tailscale", "zt", "docker",
+		"bridge", "vmnet", "vboxnet", "br-", "veth", "virbr"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }

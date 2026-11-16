@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -17,10 +19,21 @@ const localEnvironmentRemoved = "localEnvironmentRemoved"
 // keeps running after the client exits.
 const backgroundServerKey = "backgroundServer"
 
+// lanAccessKey remembers whether the local server listens for phones on
+// this network, which needs no account.
+const lanAccessKey = "lanAccess"
+
 // loadBackgroundServer reads the saved choice; foreground is the default,
 // so an environment never outlives the client unasked.
 func loadBackgroundServer(store appStorage) bool {
 	raw, _ := store.GetItem(backgroundServerKey)
+	return raw == "true"
+}
+
+// loadLANAccess reads the saved choice; a fresh client listens on the
+// loopback address until the user pairs a device on this network.
+func loadLANAccess(store appStorage) bool {
+	raw, _ := store.GetItem(lanAccessKey)
 	return raw == "true"
 }
 
@@ -33,8 +46,25 @@ func (m *environmentManager) setBackgroundServer(on bool) {
 		return
 	}
 	m.background.Set(on)
+	m.restartLocalServer()
+}
+
+// setLANAccess saves the choice and restarts the server, since a listen
+// address only takes effect when the process starts.
+func (m *environmentManager) setLANAccess(on bool) {
+	if err := m.store.SetItem(lanAccessKey, strconv.FormatBool(on)); err != nil {
+		return
+	}
+	m.lan.Set(on)
+	m.restartLocalServer()
+}
+
+// restartLocalServer applies a changed choice to the local server. Both a
+// process owned by this app and a reusable background server expose an
+// authenticated stop function.
+func (m *environmentManager) restartLocalServer() {
 	srv := m.local
-	if !needsRestart(srv, on) {
+	if !needsRestart(srv, m.background.GetUntracked(), m.lan.GetUntracked()) {
 		return
 	}
 	srv.stop()
@@ -42,10 +72,9 @@ func (m *environmentManager) setBackgroundServer(on bool) {
 	m.startLocalEnvironment()
 }
 
-// needsRestart tells whether changing the background choice restarts the
-// running server: only a server this client started can be restarted.
-func needsRestart(srv *localServer, background bool) bool {
-	return srv != nil && srv.stop != nil && srv.background != background
+// needsRestart tells whether a changed choice restarts the running server.
+func needsRestart(srv *localServer, background, lan bool) bool {
+	return srv != nil && srv.stop != nil && (srv.background != background || srv.lan != lan)
 }
 
 // startLocalEnvironment starts the environment server the desktop package
@@ -65,8 +94,9 @@ func (m *environmentManager) startLocalEnvironment() {
 	// meaningful while this runs on the graph's goroutine.
 	ctx := m.cx.Context()
 	background := m.background.GetUntracked()
+	lan := m.lan.GetUntracked()
 	go func() {
-		srv, err := startLocalServer(ctx, background)
+		srv, err := startLocalServer(ctx, background, lan)
 		m.cx.Post(func() {
 			m.localStarting.Set(false)
 			if err != nil {
@@ -115,6 +145,7 @@ func (m *environmentManager) useLocalEnvironment(srv *localServer) {
 		profile.Routes = mergeLocalRoutes(p.Routes, srv.baseURL)
 		break
 	}
+	profile.Routes = applyLANRoute(profile.Routes, srv)
 	m.localID = localID
 	m.store.RemoveItem(localEnvironmentRemoved)
 	session := m.sessions[localID]
@@ -156,6 +187,7 @@ func (m *environmentManager) useLocalEnvironment(srv *localServer) {
 	}
 	m.profiles.Set(next)
 	_ = m.save()
+	session.refreshAccess()
 }
 
 // mergeLocalRoutes keeps the routes to this machine and replaces its
@@ -169,4 +201,36 @@ func mergeLocalRoutes(routes []client.Route, base string) []client.Route {
 		next = append(next, r)
 	}
 	return append([]client.Route{{URL: base, Kind: "direct"}}, next...)
+}
+
+// applyLANRoute keeps the address a phone on this network uses in step
+// with the server's listen mode. The loopback route stays first so this
+// client keeps connecting the short way.
+func applyLANRoute(routes []client.Route, srv *localServer) []client.Route {
+	port := ""
+	if u, err := url.Parse(srv.baseURL); err == nil {
+		port = u.Port()
+	}
+	next := make([]client.Route, 0, len(routes)+1)
+	for _, r := range routes {
+		if r.Kind == "direct" && port != "" && isLANRoute(r.URL, port) {
+			continue
+		}
+		next = append(next, r)
+	}
+	if !srv.lan || srv.lanIP == "" || port == "" {
+		return next
+	}
+	return append(next, client.Route{URL: "http://" + net.JoinHostPort(srv.lanIP, port), Kind: "direct"})
+}
+
+// isLANRoute tells whether an address is a private network address on the
+// port this machine's server uses.
+func isLANRoute(raw, port string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Port() != port {
+		return false
+	}
+	ip := net.ParseIP(u.Hostname())
+	return ip != nil && (ip.IsPrivate() || ip.IsLinkLocalUnicast())
 }

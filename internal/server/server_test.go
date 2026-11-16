@@ -114,11 +114,22 @@ func (e *testEnv) threadWithProvider(t *testing.T, projectID, providerID, model 
 
 func TestHealthAndAuth(t *testing.T) {
 	e := newTestEnv(t)
-	if code := e.request(t, http.MethodGet, "/api/v1/health", nil, "", nil); code != http.StatusOK {
+	var health struct {
+		OK         bool `json:"ok"`
+		Background bool `json:"background"`
+		Listen     string
+	}
+	if code := e.request(t, http.MethodGet, "/api/v1/health", nil, "", &health); code != http.StatusOK {
 		t.Fatalf("health = %d", code)
+	}
+	if !health.OK || !health.Background {
+		t.Fatalf("health = %+v, want an OK background-capable server", health)
 	}
 	if code := e.request(t, http.MethodGet, "/api/v1/projects", nil, "", nil); code != http.StatusUnauthorized {
 		t.Fatalf("unauthorized projects = %d", code)
+	}
+	if code := e.request(t, http.MethodPost, "/api/v1/local/shutdown", nil, "", nil); code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized shutdown = %d", code)
 	}
 	if code := e.request(t, http.MethodGet, "/api/v1/projects?token="+e.token, nil, "", nil); code != http.StatusOK {
 		t.Fatalf("query token projects = %d", code)

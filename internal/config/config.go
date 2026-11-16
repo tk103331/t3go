@@ -28,6 +28,9 @@ type Config struct {
 	// NoAgent keeps the environment from running agent tasks: it serves
 	// threads, files and the relay, but starts no provider turn.
 	NoAgent bool
+	// ParentPID is set for a foreground desktop server. A zero value means
+	// the server was intentionally started in the background.
+	ParentPID int
 }
 
 // HomeDir returns T3GO_HOME, or ~/.t3go.

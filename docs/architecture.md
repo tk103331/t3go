@@ -158,10 +158,13 @@ Windows 则放在可执行文件旁边；macOS 上先给这个可执行文件单
 再让安装包整体签名。手机包用 `nsgo.yaml` 的 `mobile.exclude_resources` 排除它。
 
 启动时 `cmd/t3go-app/local_server_exec.go` 找到这个二进制，用
-`t3go serve --home <T3GO_HOME 或 ~/.t3go> --listen 127.0.0.1:<port> --quiet`
-拉起，并从 `<home>/token` 读 Token 连上去；4870 被占用时依次尝试最多 20 个端口。
+`t3go serve --home <T3GO_HOME 或 ~/.t3go> --listen <地址>:<port> --quiet`
+拉起，并从 `<home>/token` 读 Token 连上去。默认地址为 `127.0.0.1`；
+Access 开启 LAN direct 后改为 `0.0.0.0`。4870 被占用时依次尝试最多 20 个端口。
 如果端口上已经有一个同 home 的 T3Go（Token 能通过 `/api/auth/session`），
-就直接复用它，不重复起进程。
+就复用它，不重复起进程。健康接口报告实际监听地址和是否为后台进程；
+设置改变而复用进程的监听模式不一致时，客户端通过鉴权的本地关闭接口
+停止该后台进程，再以正确参数重启。
 
 环境服务的身份来自 home 目录里的 SQLite，所以重复启动得到同一个
 `environmentId`，环境列表里只更新地址和 Token，不会多出一条。客户端只在没有
@@ -175,3 +178,7 @@ agent run，下次启动复用同一个进程；关闭时随窗口退出。切�
 启动的 server，因为父进程监视只存在于启动命令里。桌面端只负责拉起和连接；
 orchestrator 仍然只有环境服务里的那一份，agent CLI（claude/codex/opencode 等）
 需要装在运行环境的机器上。
+
+访问边界分为三层：本机桌面使用无需账号；同一局域网的手机通过携带环境 Token
+的直连配对链接访问，同样无需账号；只有跨网络访问才需要 Relay 登录。
+Relay 用户身份不等于环境执行身份，环境业务请求仍使用独立的环境 Token。

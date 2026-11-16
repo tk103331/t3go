@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -88,12 +89,19 @@ func setAccessRouteMode(settings *proto.Settings, direct, relay bool) {
 }
 
 func firstAccessRoute(profile client.EnvironmentProfile, kind string) (client.Route, bool) {
+	var fallback client.Route
+	haveFallback := false
 	for _, route := range profile.Routes {
 		if route.Kind == kind {
-			return route, true
+			if kind != "direct" || !isLoopbackURL(route.URL) {
+				return route, true
+			}
+			if !haveFallback {
+				fallback, haveFallback = route, true
+			}
 		}
 	}
-	return client.Route{}, false
+	return fallback, haveFallback
 }
 
 func (a *app) applyRelayAccess(status proto.RelayAccessStatus) {
@@ -157,7 +165,7 @@ func (a *app) configureRelay() {
 	}
 	in := proto.RelayAccessConfig{
 		Server:    strings.TrimSpace(a.relayServer.GetUntracked()),
-		DirectURL: strings.TrimSpace(a.relayDirectURL.GetUntracked()),
+		DirectURL: a.localLANURL(),
 		AllowHTTP: a.relayAllowHTTP.GetUntracked(),
 	}
 	if in.Server == "" {
@@ -298,9 +306,24 @@ func accessRouteWarning(link string) string {
 	}
 	name := strings.ToLower(parsed.Hostname())
 	if name == "localhost" || name == "127.0.0.1" || name == "::1" {
-		return "This direct route only works on this device. Enable Relay for pairing outside this machine."
+		return "This direct route only works on this machine. Turn on LAN access for devices on the same Wi-Fi, or configure Relay for access across networks."
 	}
 	return ""
+}
+
+// localLANURL is the address a phone on the same network can use. It is
+// deliberately separate from Relay: LAN pairing uses the environment token
+// and does not require an account.
+func (a *app) localLANURL() string {
+	if a.manager == nil || !a.manager.lan.GetUntracked() || a.manager.local == nil ||
+		a.manager.local.lanIP == "" {
+		return ""
+	}
+	u, err := url.Parse(a.manager.local.baseURL)
+	if err != nil || u.Port() == "" {
+		return ""
+	}
+	return "http://" + net.JoinHostPort(a.manager.local.lanIP, u.Port())
 }
 
 func accessRouteSwitch(cx *core.Scope, label, testID string, checked func() bool, disabled func() bool,
@@ -347,7 +370,7 @@ func (a *app) relayConfigurationCard(cx *core.Scope) core.Node {
 			Children: []core.Node{
 				core.Text{Content: "Connect Relay", Style: core.Style{FontSize: 12.5, FontWeight: ui.Semibold},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-				core.Text{Content: "Sign in with a Relay account to register this machine outside its local network.",
+				core.Text{Content: "Optional remote access for networks where direct LAN pairing is unavailable.",
 					MaxLines: 2, Style: core.Style{FontSize: 10.5},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 			}},
@@ -411,11 +434,6 @@ func (a *app) relayConfigurationCard(cx *core.Scope) core.Node {
 			TestID: "settings-relay-name"})
 	}
 	body = append(body,
-		mobileInput{Scope: cx, Input: base.Input{Value: a.relayDirectURL.Get, OnChange: func(value string) {
-			a.relayDirectURL.Set(value)
-		}, Placeholder: "Optional LAN URL, for example http://192.168.1.20:4870", Label: "Direct LAN URL",
-			NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone},
-			TestID: "settings-relay-direct-url"},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Column, Gap: 1, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 				Children: []core.Node{
@@ -461,7 +479,8 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 	}
 	enabled := func() bool { return a.settingsDraft.Get().AccessEnabled }
 	body := []core.Node{
-		settingsSectionTitle(cx, "Access", "Pair another device with the local environment using the routes you choose."),
+		settingsSectionTitle(cx, "Access", "Local desktop use needs no account. Devices on the same Wi-Fi pair directly; Relay is only for access across networks."),
+		a.lanAccessCard(cx),
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12,
 			Padding: core.Symmetric(10, 12), Background: colors.Inset(), CornerRadius: 9}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Column, Gap: 2, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
@@ -528,6 +547,7 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 				func(on bool) { toggleRoute(false, on) }),
 		}})
 	if !hasRelay {
+		body = append(body, ui.Text("Remote access (optional)", 12, ui.Semibold, colors.Muted))
 		body = append(body, a.relayConfigurationCard(cx))
 	}
 	link := a.accessLink.Get()
@@ -564,6 +584,38 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 	}
 	body = append(body, a.backgroundServerCard(cx))
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 10}, Children: body}
+}
+
+// lanAccessCard exposes the built-in server on the local network. This is
+// the no-account path used by a phone on the same Wi-Fi.
+func (a *app) lanAccessCard(cx *core.Scope) core.Node {
+	if a.manager == nil || bundledServerPath() == "" || strings.TrimSpace(os.Getenv("T3GO_SERVER")) != "" {
+		return core.Group{}
+	}
+	colors := ui.ColorsOf(cx)
+	address := a.localLANURL()
+	detail := "Turn this on to pair a phone over the same Wi-Fi. The pairing link still requires this environment's token."
+	if a.manager.lan.Get() {
+		if address == "" {
+			detail = "LAN access is on, but no private network address was detected. Reconnect this machine to Wi-Fi."
+		} else {
+			detail = address + " · Same Wi-Fi only; no account required."
+		}
+	}
+	return core.View{TestID: "settings-access-lan", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
+		Gap: 12, Padding: core.Symmetric(10, 12), Background: colors.Inset(), CornerRadius: 9}, Children: []core.Node{
+		core.View{Style: core.Style{Direction: core.Column, Gap: 2, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+			Children: []core.Node{
+				core.Text{Content: "LAN direct", TestID: "settings-access-lan-title",
+					Style:     core.Style{FontSize: 13, FontWeight: ui.Semibold},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+				core.Text{Content: detail, TestID: "settings-access-lan-detail", MaxLines: 3,
+					Style:     core.Style{FontSize: 11, LineHeight: 16},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+			}},
+		settingsSwitch(cx, "Allow direct access from devices on this LAN", "settings-access-lan-toggle",
+			func() bool { return a.manager.lan.Get() }, a.manager.setLANAccess),
+	}}
 }
 
 // backgroundServerCard decides whether paired devices keep reaching this

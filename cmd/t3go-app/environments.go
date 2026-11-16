@@ -139,7 +139,10 @@ type environmentManager struct {
 	// client exits, so agent runs it owns finish. local is the handle to
 	// the server this client started.
 	background *core.Signal[bool]
-	local      *localServer
+	// lan controls whether the local server listens on this network. LAN
+	// pairing uses the environment token and needs no Relay account.
+	lan   *core.Signal[bool]
+	local *localServer
 }
 
 func newEnvironmentManager(cx *core.Scope) *environmentManager {
@@ -151,6 +154,7 @@ func newEnvironmentManager(cx *core.Scope) *environmentManager {
 		localStarting: core.NewSignal(cx, false),
 		localErr:      core.NewSignal(cx, ""),
 		background:    core.NewSignal(cx, loadBackgroundServer(cx.Storage())),
+		lan:           core.NewSignal(cx, loadLANAccess(cx.Storage())),
 		active:        core.NewSignal[*app](cx, nil), pending: core.NewSignal[*app](cx, nil), profiles: core.NewSignalFunc(cx,
 			[]client.EnvironmentProfile{}, func([]client.EnvironmentProfile, []client.EnvironmentProfile) bool { return false }),
 		revision: core.NewSignal(cx, 0)}

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -102,7 +103,9 @@ func PairingLinkOptions(p EnvironmentProfile, includeDirect, includeRelay bool) 
 	if len(p.Routes) == 0 {
 		return "", errors.New("environment has no route")
 	}
-	var relay, direct string
+	// Prefer a direct route another device can reach: the loopback address
+	// of the machine holding the environment only works there.
+	var relay, direct, loopback string
 	for _, route := range p.Routes {
 		raw := strings.TrimRight(strings.TrimSpace(route.URL), "/")
 		if raw == "" {
@@ -111,9 +114,18 @@ func PairingLinkOptions(p EnvironmentProfile, includeDirect, includeRelay bool) 
 		if route.Kind == "relay" && includeRelay && relay == "" {
 			relay = raw
 		}
-		if route.Kind != "relay" && includeDirect && direct == "" {
-			direct = raw
+		if route.Kind != "relay" && includeDirect {
+			if isLoopbackRoute(raw) {
+				if loopback == "" {
+					loopback = raw
+				}
+			} else if direct == "" {
+				direct = raw
+			}
 		}
+	}
+	if direct == "" {
+		direct = loopback
 	}
 	primary := relay
 	if primary == "" {
@@ -131,6 +143,21 @@ func PairingLinkOptions(p EnvironmentProfile, includeDirect, includeRelay bool) 
 		q.Set("key", p.PublicKey)
 	}
 	return "t3go://pair?" + q.Encode(), nil
+}
+
+// isLoopbackRoute tells whether an address names only the machine that
+// holds the environment.
+func isLoopbackRoute(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "localhost" || host == "::1" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func LegacyEnvironmentID(address string) string {

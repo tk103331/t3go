@@ -102,6 +102,7 @@ func cmdServe(args []string) int {
 	cfg.Version = version
 	cfg.Relay = *relayHub
 	cfg.NoAgent = *noAgent
+	cfg.ParentPID = *parent
 	if *web != "" {
 		dir, err := filepath.Abs(*web)
 		if err != nil {

@@ -239,6 +239,7 @@ func (s *Server) Handler() http.Handler {
 		s.Relay.Mount(mux)
 	}
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
+	mux.HandleFunc("POST /api/v1/local/shutdown", s.auth(s.handleLocalShutdown))
 	mux.HandleFunc("GET /api/v1/environment", s.handleEnvironment)
 	mux.HandleFunc("GET /api/v1/access/relay", s.auth(s.handleRelayAccess))
 	mux.HandleFunc("POST /api/v1/access/relay", s.auth(s.handleConfigureRelayAccess))
@@ -442,8 +443,29 @@ func decodeJSON(r *http.Request, v any) error {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "name": "t3go", "version": proto.ProtocolVersion, "serverId": s.ID,
+		"listen": s.Addr(), "background": s.Config.ParentPID == 0,
 		"time": time.Now(), "uptime": time.Since(s.StartedAt).Round(time.Second).String(),
 	})
+}
+
+// handleLocalShutdown lets the packaged desktop client replace a reusable
+// background server when its listen mode changes. The environment token is
+// required, so this does not create an unauthenticated remote stop control.
+func (s *Server) handleLocalShutdown(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusAccepted, map[string]bool{"stopping": true})
+	go func() {
+		// Let the response leave before stopping the handler's HTTP server.
+		time.Sleep(100 * time.Millisecond)
+		s.stopStreaming()
+		s.mu.Lock()
+		h := s.http
+		s.mu.Unlock()
+		if h != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = h.Shutdown(ctx)
+			cancel()
+		}
+	}()
 }
 
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {

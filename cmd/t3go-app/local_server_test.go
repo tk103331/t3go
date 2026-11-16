@@ -120,7 +120,7 @@ func TestStartLocalServerRunsThePackagedServer(t *testing.T) {
 	t.Setenv("T3GO_HOME", filepath.Join(dir, "home"))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	srv, err := startLocalServer(ctx, false)
+	srv, err := startLocalServer(ctx, false, false)
 	if err != nil {
 		t.Fatalf("start the local server: %v", err)
 	}
@@ -146,12 +146,27 @@ func TestStartLocalServerRunsThePackagedServer(t *testing.T) {
 		t.Fatal("the environment has no identity")
 	}
 	// A second start finds the running server instead of a second one.
-	again, err := startLocalServer(ctx, false)
+	again, err := startLocalServer(ctx, false, false)
 	if err != nil {
 		t.Fatalf("start the local server again: %v", err)
 	}
 	if again.baseURL != srv.baseURL {
 		t.Fatalf("second start used %s, want %s", again.baseURL, srv.baseURL)
+	}
+	health, err := fetchLocalServerHealth(srv.baseURL)
+	if err != nil {
+		t.Fatalf("read health: %v", err)
+	}
+	if !isLoopbackURL(health.Listen) || health.Background == nil || *health.Background {
+		t.Fatalf("foreground health = %+v", health)
+	}
+	again.stop()
+	deadline := time.Now().Add(5 * time.Second)
+	for serverAnswers(srv.baseURL) && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if serverAnswers(srv.baseURL) {
+		t.Fatal("the local server did not stop through its authenticated control")
 	}
 }
 
@@ -167,16 +182,27 @@ func TestBundledServerPathNeedsTheBinary(t *testing.T) {
 // TestLocalServerCommandFollowsTheBackgroundSetting keeps the parent watch
 // on a foreground server and off one the user wants to outlive the client.
 func TestLocalServerCommandFollowsTheBackgroundSetting(t *testing.T) {
-	foreground := localServerCommand("/bin/t3go", "/tmp/home", 4870, false)
+	foreground := localServerCommand("/bin/t3go", "/tmp/home", 4870, false, false)
 	if !slices.Contains(foreground.Args, "--parent-pid") {
 		t.Fatalf("foreground args = %v, want a parent pid", foreground.Args)
 	}
 	if !slices.Contains(foreground.Args, strconv.Itoa(os.Getpid())) {
 		t.Fatalf("foreground args = %v, want this process", foreground.Args)
 	}
-	background := localServerCommand("/bin/t3go", "/tmp/home", 4870, true)
+	background := localServerCommand("/bin/t3go", "/tmp/home", 4870, true, false)
 	if slices.Contains(background.Args, "--parent-pid") {
 		t.Fatalf("background args = %v, want no parent pid", background.Args)
+	}
+}
+
+func TestLocalServerCommandFollowsLANSetting(t *testing.T) {
+	localOnly := localServerCommand("/bin/t3go", "/tmp/home", 4870, false, false)
+	if !slices.Contains(localOnly.Args, "127.0.0.1:4870") {
+		t.Fatalf("local-only args = %v, want loopback listen", localOnly.Args)
+	}
+	lan := localServerCommand("/bin/t3go", "/tmp/home", 4870, false, true)
+	if !slices.Contains(lan.Args, "0.0.0.0:4870") {
+		t.Fatalf("LAN args = %v, want all-interface listen", lan.Args)
 	}
 }
 
@@ -184,18 +210,59 @@ func TestLocalServerCommandFollowsTheBackgroundSetting(t *testing.T) {
 // this client cannot control, out of the restart path.
 func TestBackgroundChoiceRestartsOnlyAnOwnedServer(t *testing.T) {
 	owned := &localServer{stop: func() {}}
-	if !needsRestart(owned, true) {
+	if !needsRestart(owned, true, false) {
 		t.Fatal("changing the choice should restart a server this client owns")
 	}
 	owned.background = true
-	if needsRestart(owned, true) {
+	if needsRestart(owned, true, false) {
 		t.Fatal("the same choice should not restart the server")
 	}
-	if needsRestart(&localServer{}, true) {
-		t.Fatal("a reused server should not be restarted")
+	if !needsRestart(owned, true, true) {
+		t.Fatal("changing LAN access should restart the server")
 	}
-	if needsRestart(nil, true) {
+	if needsRestart(&localServer{}, true, false) {
+		t.Fatal("a server without a stop function should not be restarted")
+	}
+	if needsRestart(nil, true, false) {
 		t.Fatal("no server needs no restart")
+	}
+}
+
+func TestApplyLANRouteAddsThePhoneAddress(t *testing.T) {
+	routes := []client.Route{
+		{URL: "http://127.0.0.1:4870", Kind: "direct"},
+		{URL: "https://relay.example.com/e/env", Kind: "relay"},
+	}
+	got := applyLANRoute(routes, &localServer{
+		baseURL: "http://127.0.0.1:4870", lan: true, lanIP: "192.168.1.20",
+	})
+	want := []client.Route{
+		{URL: "http://127.0.0.1:4870", Kind: "direct"},
+		{URL: "https://relay.example.com/e/env", Kind: "relay"},
+		{URL: "http://192.168.1.20:4870", Kind: "direct"},
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("routes = %v, want %v", got, want)
+	}
+	got = applyLANRoute(got, &localServer{baseURL: "http://127.0.0.1:4870"})
+	if slices.Contains(got, client.Route{URL: "http://192.168.1.20:4870", Kind: "direct"}) {
+		t.Fatalf("disabled LAN route remained in %v", got)
+	}
+}
+
+func TestFirstAccessRoutePrefersTheLANAddress(t *testing.T) {
+	profile := client.EnvironmentProfile{Routes: []client.Route{
+		{URL: "http://127.0.0.1:4870", Kind: "direct"},
+		{URL: "http://192.168.1.20:4870", Kind: "direct"},
+	}}
+	got, ok := firstAccessRoute(profile, "direct")
+	if !ok || got.URL != "http://192.168.1.20:4870" {
+		t.Fatalf("first direct route = %+v, want the LAN address", got)
+	}
+	profile.Routes = profile.Routes[:1]
+	got, ok = firstAccessRoute(profile, "direct")
+	if !ok || got.URL != "http://127.0.0.1:4870" {
+		t.Fatalf("loopback fallback = %+v", got)
 	}
 }
 
@@ -216,7 +283,7 @@ func TestBackgroundServerOutlivesItsContext(t *testing.T) {
 	t.Setenv("T3GO_SERVER_BIN", bin)
 	t.Setenv("T3GO_HOME", filepath.Join(dir, "home"))
 	ctx, cancel := context.WithCancel(context.Background())
-	srv, err := startLocalServer(ctx, true)
+	srv, err := startLocalServer(ctx, true, false)
 	if err != nil {
 		cancel()
 		t.Fatalf("start the local server: %v", err)

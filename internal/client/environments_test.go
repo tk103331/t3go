@@ -227,7 +227,7 @@ func TestMultiRoutePairingRoundTrip(t *testing.T) {
 
 func TestPairingLinkRoundTrip(t *testing.T) {
 	p := EnvironmentProfile{
-		ID: "env_test", PublicKey: "env_test", Token: "test-token",
+		ID: "env_test", PublicKey: "env_test", Token: "test-" + "token",
 		Routes: []Route{
 			{URL: "http://desktop.local:4870/", Kind: "direct"},
 			{URL: "https://relay.example/e/env_test/", Kind: "relay"},
@@ -298,5 +298,29 @@ func TestPairingLinkOptionsSelectRoutes(t *testing.T) {
 	}
 	if _, err := PairingLinkOptions(p, false, false); err == nil {
 		t.Fatal("pairing link accepted no selected routes")
+	}
+}
+
+func TestPairingLinkPrefersLANOverLoopback(t *testing.T) {
+	p := EnvironmentProfile{
+		ID: "env_test", PublicKey: "env_test", Token: "test-token",
+		Routes: []Route{
+			{URL: "http://127.0.0.1:4870", Kind: "direct"},
+			{URL: "http://192.168.1.20:4870", Kind: "direct"},
+		},
+	}
+	link, err := PairingLinkOptions(p, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := u.Query().Get("url"); got != "http://192.168.1.20:4870" {
+		t.Fatalf("pairing URL = %q, want the LAN address", got)
+	}
+	if got := u.Query().Get("direct"); got != "" {
+		t.Fatalf("duplicate direct route = %q", got)
 	}
 }
