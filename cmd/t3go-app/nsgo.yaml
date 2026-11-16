@@ -1,7 +1,7 @@
 name: T3Go
 id: dev.nsgo.t3go
 version: 0.1.0
-build_number: 105
+build_number: 106
 
 icon:
   png: assets/Icon.png

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -56,7 +55,7 @@ func (*OpenCode) Snapshot(ctx context.Context) proto.Provider {
 func probeOpenCodeAuth(ctx context.Context, path string) (string, string) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, "auth", "list", "--format", "json").CombinedOutput()
+	out, err := providerCommandContext(ctx, path, "auth", "list", "--format", "json").CombinedOutput()
 	text := strings.TrimSpace(string(out))
 	if err != nil {
 		if strings.Contains(strings.ToLower(text), "no authenticated") {

@@ -12,7 +12,7 @@ import (
 func commandOutput(ctx context.Context, path string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, args...).Output()
+	out, err := providerCommandContext(ctx, path, args...).Output()
 	if err != nil {
 		if exit, ok := err.(*exec.ExitError); ok && len(exit.Stderr) > 0 {
 			return "", &commandError{msg: strings.TrimSpace(string(exit.Stderr))}

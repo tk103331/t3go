@@ -1889,7 +1889,8 @@ func (a *app) sendRequest(threadID string, prompt queuedPrompt) {
 		return
 	}
 	a.call(func(ctx context.Context, c *client.Client) error {
-		_, err := c.SendWithRequest(ctx, threadID, prompt.Text, ids, prompt.RequestID)
+		var err error
+		reconcile, err = deliverPrompt(ctx, c, threadID, prompt, ids, a.idempotentMessages)
 		return err
 	}, func(err error) {
 		delete(a.inflight, threadID)
@@ -1915,6 +1916,65 @@ func (a *app) sendRequest(threadID string, prompt queuedPrompt) {
 		}
 		a.persistPendingMessages()
 	})
+}
+
+// deliverPrompt keeps a send recoverable across a dropped response or a
+// transient relay failure. The receipt check prevents duplicate runs, and the
+// retry reuses the request ID so a request that committed before the response
+// was lost returns the existing run.
+func deliverPrompt(ctx context.Context, c *client.Client, threadID string, prompt queuedPrompt,
+	attachmentIDs []string, idempotent bool) (bool, error) {
+	sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	_, err := c.SendWithRequest(sendCtx, threadID, prompt.Text, attachmentIDs, prompt.RequestID)
+	cancel()
+	if err == nil {
+		return false, nil
+	}
+	if prompt.RequestID == "" || !idempotent || !retryableDeliveryError(err) {
+		return false, err
+	}
+	recovered := true
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			timer := time.NewTimer(time.Duration(attempt) * 300 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return false, ctx.Err()
+			case <-timer.C:
+			}
+		}
+		receiptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, receiptErr := c.MessageReceipt(receiptCtx, threadID, prompt.RequestID)
+		cancel()
+		if receiptErr == nil {
+			return recovered, nil
+		}
+		if client.IsAuthorizationError(receiptErr) {
+			return false, receiptErr
+		}
+		sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		_, err = c.SendWithRequest(sendCtx, threadID, prompt.Text, attachmentIDs, prompt.RequestID)
+		cancel()
+		if err == nil {
+			return recovered, nil
+		}
+		if !retryableDeliveryError(err) {
+			return false, err
+		}
+	}
+	return false, err
+}
+
+func retryableDeliveryError(err error) bool {
+	if client.IsAuthorizationError(err) {
+		return false
+	}
+	var apiErr *client.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Status == 429 || apiErr.Status >= 500
+	}
+	return true
 }
 
 // maybeFlush starts the thread's next queued prompt once it is idle and

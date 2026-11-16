@@ -34,7 +34,7 @@ type procResult struct {
 // kept in a bounded tail for error messages. Cancelling ctx kills the
 // process and its children.
 func runJSON(ctx context.Context, spec procSpec, stdin string, onLine func([]byte)) procResult {
-	cmd := exec.CommandContext(ctx, spec.Path, spec.Args...)
+	cmd := providerCommandContext(ctx, spec.Path, spec.Args...)
 	cmd.Dir = spec.CWD
 	cmd.Stdin = strings.NewReader(stdin)
 	setProcessGroup(cmd)
@@ -136,7 +136,7 @@ func (r *ringBuffer) String() string { return string(r.buf) }
 func versionOf(ctx context.Context, path string) string {
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, "--version").CombinedOutput()
+	out, err := providerCommandContext(ctx, path, "--version").CombinedOutput()
 	if err != nil {
 		return ""
 	}
@@ -145,7 +145,7 @@ func versionOf(ctx context.Context, path string) string {
 
 // detect finds a CLI and probes its version.
 func detect(ctx context.Context, id, name, binary string) proto.Provider {
-	path, err := exec.LookPath(binary)
+	path, err := lookPath(binary)
 	if err != nil {
 		return proto.Provider{ID: id, Name: name, Error: "not installed"}
 	}
@@ -158,7 +158,7 @@ func detect(ctx context.Context, id, name, binary string) proto.Provider {
 func probeAuth(ctx context.Context, path string, args ...string) (string, string) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, args...)
+	cmd := providerCommandContext(ctx, path, args...)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	err := cmd.Run()
