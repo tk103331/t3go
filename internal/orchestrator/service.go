@@ -31,6 +31,8 @@ var (
 	ErrBadPath       = errors.New("path is not a directory")
 	ErrNoProvider    = errors.New("provider is not installed")
 	ErrBadAttachment = errors.New("attachment not found")
+	// ErrAgentDisabled means the environment runs no agent turns.
+	ErrAgentDisabled = errors.New("this environment does not run agent tasks")
 )
 
 // Service is the environment's orchestration layer.
@@ -45,6 +47,9 @@ type Service struct {
 	// about a tool call; without them tools that would prompt are denied.
 	ApprovalURL   string
 	ApprovalToken string
+	// AgentDisabled stops every run from starting. The environment keeps
+	// serving threads, files and the relay, but starts no provider turn.
+	AgentDisabled bool
 
 	mu        sync.Mutex
 	active    map[string]*activeRun

@@ -101,6 +101,9 @@ func (s *Service) sideChatHandoff(ctx context.Context, side proto.Thread) string
 }
 
 func (s *Service) start(ctx context.Context, threadID, prompt string, attachmentIDs []string, recordUser bool, requestID string) (proto.Run, error) {
+	if s.AgentDisabled {
+		return proto.Run{}, ErrAgentDisabled
+	}
 	prompt = strings.TrimSpace(prompt)
 	hash := messageHash(prompt, attachmentIDs)
 	if run, found, err := s.acceptedRequest(ctx, threadID, requestID, hash); found || err != nil {

@@ -25,6 +25,9 @@ type Config struct {
 	// WebDir, when set, holds the built web client to serve at /.
 	WebDir string
 	Relay  bool
+	// NoAgent keeps the environment from running agent tasks: it serves
+	// threads, files and the relay, but starts no provider turn.
+	NoAgent bool
 }
 
 // HomeDir returns T3GO_HOME, or ~/.t3go.

@@ -64,7 +64,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `t3go %s - a Go T3 Code environment
 
 Usage:
-  t3go serve    [--home DIR] [--listen HOST:PORT] [--no-auth] [--web DIR] [--relay] [--connect-relay]
+  t3go serve    [--home DIR] [--listen HOST:PORT] [--no-auth] [--web DIR] [--relay] [--connect-relay] [--no-agent]
   t3go pair     [--home DIR] [--listen HOST:PORT] [--relay]
   t3go relay    --server URL --user-token-file FILE [--direct-url URL] [--home DIR]
   t3go doctor   [--home DIR]
@@ -85,6 +85,7 @@ func cmdServe(args []string) int {
 	web := fs.String("web", "", "directory of the built web client to serve at /")
 	relayHub := fs.Bool("relay", false, "enable authenticated environment relay on this server")
 	connectRelay := fs.Bool("connect-relay", false, "connect this environment to its registered relay")
+	noAgent := fs.Bool("no-agent", false, "serve threads, files and the relay without running agent tasks")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -99,6 +100,7 @@ func cmdServe(args []string) int {
 	}
 	cfg.Version = version
 	cfg.Relay = *relayHub
+	cfg.NoAgent = *noAgent
 	if *web != "" {
 		dir, err := filepath.Abs(*web)
 		if err != nil {
@@ -138,6 +140,9 @@ func cmdServe(args []string) int {
 		fmt.Printf("  listen  http://%s\n", ln.Addr())
 		if cfg.WebDir != "" {
 			fmt.Printf("  web     http://%s/\n", ln.Addr())
+		}
+		if cfg.NoAgent {
+			fmt.Println("  agent   disabled; this environment runs no agent tasks")
 		}
 		if !cfg.NoAuth {
 			fmt.Printf("  token   %s\n", config.TokenPath(cfg.Home))

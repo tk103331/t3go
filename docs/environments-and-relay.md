@@ -37,6 +37,9 @@
   删除运行记录也不会使该请求再次执行；环境重启后返回 run 的实际恢复状态。
   未确认消息保持暂停，可显式查询回执或用原请求重试，不自动重放业务写入或终端输入。
   未声明 `idempotentMessages` 的旧服务端沿用手动检查流程。
+- `t3go serve --no-agent` 让环境不执行任何 Agent 任务：会话、项目、文件、
+  用量和中继照常服务，发送消息、重试和侧栏提问返回 403，不写运行记录、
+  不拉起 provider 进程。
 
 ## 配置与使用
 
@@ -77,6 +80,24 @@ t3go pair --home /path/to/local-data --relay
 `--direct-url` 可省略，此时只走中继，电脑服务可继续只监听 loopback。
 要从局域网访问，则明确监听局域网地址或 `0.0.0.0`，并允许对应防火墙端口；
 无需为出站中继连接配置路由器入站端口映射。每台电脑使用独立数据目录登记。
+
+### 禁止环境执行 Agent 任务
+
+只做中继或只提供网页的环境，可以用 `--no-agent` 启动，服务端不再启动任何
+Agent 任务：
+
+```sh
+t3go serve --home /srv/t3go --listen 0.0.0.0:4870 --relay --web web --no-agent
+```
+
+开启后，服务端仍提供会话、项目、文件、用量和中继转发，但任何创建运行的请求
+都被拒绝：发送消息、重试和侧栏提问返回 403
+`this environment does not run agent tasks`，不写入运行记录，也不拉起 provider
+进程。该开关只影响本进程；在 systemd 单元的 `ExecStart` 追加 `--no-agent`
+并 `systemctl restart t3go` 即可生效。
+
+注意：终端接口（`/api/v1/terminals`）不在此开关内，仍能执行 shell 命令；
+只需要中继转发的环境应另外收紧终端访问。
 
 手机或桌面客户端打开 Settings → Environments，选择 Add environment，
 把上述配对链接粘贴到弹窗的地址或 Token 栏。添加后保留当前会话，侧栏新增该环境

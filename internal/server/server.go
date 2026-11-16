@@ -92,6 +92,7 @@ func New(cfg config.Config, logger *log.Logger) (*Server, error) {
 	providers := provider.NewRegistry()
 	hostname, system := hostinfo.Collect()
 	svc := orchestrator.New(st, providers, bus, cfg.Home, logger)
+	svc.AgentDisabled = cfg.NoAgent
 	providers.Configure(svc.Settings(context.Background()), cfg.Home)
 	svc.ApprovalToken = cfg.Token
 	s := &Server{Config: cfg, Store: st, Service: svc, Bus: bus, Terminals: terminal.NewManager(),
@@ -2549,6 +2550,8 @@ func statusFor(err error) int {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return 404
+	case errors.Is(err, orchestrator.ErrAgentDisabled):
+		return http.StatusForbidden
 	case errors.Is(err, orchestrator.ErrBusy), errors.Is(err, orchestrator.ErrRequestConflict), errors.Is(err, orchestrator.ErrAcceptedRunGone):
 		return 409
 	case errors.Is(err, orchestrator.ErrEmpty), errors.Is(err, orchestrator.ErrBadPath), errors.Is(err, orchestrator.ErrBadAttachment), errors.Is(err, orchestrator.ErrInvalidRequestID):
