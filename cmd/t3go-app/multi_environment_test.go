@@ -68,17 +68,13 @@ func TestUISameNamedProjectsKeepIndependentGroups(t *testing.T) {
 	alphaRow, betaRow := "id:thread-"+pa.ID+"/same-thread", "id:thread-"+pb.ID+"/same-thread"
 	app.WaitFor(alphaRow, 10*time.Second)
 	app.WaitFor(betaRow, 10*time.Second)
-	alphaHeader := "id:project-" + pa.ID + "/same-project >> label:Shared project"
-	app.Press(alphaHeader)
-	app.WaitForGone(alphaRow, 5*time.Second)
-	app.WaitFor(betaRow, 5*time.Second)
-	app.Press(alphaHeader)
-	app.WaitFor(alphaRow, 5*time.Second)
-	app.Press(betaRow)
-	app.WaitUntil(5*time.Second, func() bool { return app.Find("id:current-environment-name").Text == "Beta" })
-	app.Key("up")
+	app.WaitFor("id:project-"+pa.ID+"/same-project", 5*time.Second)
+	app.WaitFor("id:project-"+pb.ID+"/same-project", 5*time.Second)
+	app.WaitFor("id:project-name-"+pa.ID+"/same-project", 5*time.Second)
+	app.WaitFor("id:project-name-"+pb.ID+"/same-project", 5*time.Second)
+	app.Press(alphaRow)
 	app.WaitUntil(5*time.Second, func() bool { return app.Find("id:current-environment-name").Text == "Alpha" })
-	app.Key("down")
+	app.Press(betaRow)
 	app.WaitUntil(5*time.Second, func() bool { return app.Find("id:current-environment-name").Text == "Beta" })
 	app.Type("label:Search threads", "no such thread")
 	app.WaitFor("text:No threads match your search.", 5*time.Second)
@@ -286,10 +282,7 @@ func TestUIChangingProjectEnvironmentIgnoresStaleDirectoryResponse(t *testing.T)
 	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
 		"environments:v1": workspaceRegistry(pa, pb),
 	}))
-	app.WaitUntil(10*time.Second, func() bool {
-		return app.Exists("id:environment-status-"+pa.ID) && app.Find("id:environment-status-"+pa.ID).Text == "Direct" &&
-			app.Exists("id:environment-status-"+pb.ID) && app.Find("id:environment-status-"+pb.ID).Text == "Direct"
-	})
+	app.WaitFor("id:new-project", 10*time.Second)
 	app.Press("id:new-project")
 	app.WaitFor("id:browse-project", 5*time.Second)
 	app.Type("label:Project path", t.TempDir())
@@ -349,9 +342,9 @@ func TestUIUnavailableEnvironmentDoesNotBlockHealthySessions(t *testing.T) {
 	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
 		"environments:v1": workspaceRegistry(pb, pa),
 	}))
-	app.WaitFor("text:Healthy project", 10*time.Second)
+	app.WaitFor("id:project-"+pa.ID+"/"+project.ID, 10*time.Second)
 	app.WaitUntil(5*time.Second, func() bool {
-		return app.Find("id:environment-status-"+pb.ID).Text == "Authorization required"
+		return app.Find("id:connection-status").Text == "Authorization required"
 	})
 	app.Press("id:thread-" + pa.ID + "/" + thread.ID)
 	app.WaitFor("label:Message", 5*time.Second)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,11 +26,15 @@ func TestUITranscriptCards(t *testing.T) {
 		t.Fatalf("thread: %v", err)
 	}
 	longThought := strings.Repeat("Thinking about the next step. ", 8)
+	longCommand := "grep -rn --exclude-dir=.git " + strings.Repeat("--include='*.go' very-long-search-term ", 20)
 	for _, m := range []proto.Message{
 		{ID: "msg_reason", ThreadID: thread.ID, RunID: "run_cards", Role: proto.RoleAssistant, Kind: proto.KindReasoning,
 			Content: longThought, Status: "completed", CreatedAt: time.Now()},
 		{ID: "msg_tool", ThreadID: thread.ID, RunID: "run_cards", Role: proto.RoleAssistant, Kind: proto.KindTool, Title: "Bash",
 			Detail: `{"command":"go test ./..."}`, Content: "ok github.com/tk/t3go", Status: "completed", CreatedAt: time.Now().Add(time.Second)},
+		{ID: "msg_tool_long", ThreadID: thread.ID, RunID: "run_cards", Role: proto.RoleAssistant, Kind: proto.KindTool, Title: "Bash",
+			Detail: `{"command":` + strconv.Quote(longCommand) + `}`, Content: "search complete", Status: "completed",
+			CreatedAt: time.Now().Add(1500 * time.Millisecond)},
 		{ID: "msg_progress", ThreadID: thread.ID, RunID: "run_cards", Role: proto.RoleAssistant, Kind: proto.KindText,
 			Content: "Checking the result.", Status: "completed", CreatedAt: time.Now().Add(2 * time.Second)},
 		{ID: "msg_final", ThreadID: thread.ID, RunID: "run_cards", Role: proto.RoleAssistant, Kind: proto.KindText,
@@ -47,7 +52,7 @@ func TestUITranscriptCards(t *testing.T) {
 	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
 	app.Press("id:thread-" + thread.ID)
 	app.WaitFor("id:turn-summary-run_cards", 10*time.Second)
-	app.WaitFor("text:Thought once · 1 tool call", 5*time.Second)
+	app.WaitFor("text:Thought once · 2 tool calls", 5*time.Second)
 	app.WaitFor("text:All checks passed.", 5*time.Second)
 	if app.Exists("id:reasoning-msg_reason") || app.Exists("id:tool-msg_tool") {
 		t.Fatal("completed process entries were visible before the summary was expanded")
@@ -55,16 +60,31 @@ func TestUITranscriptCards(t *testing.T) {
 	app.Press("id:turn-summary-run_cards")
 	app.WaitFor("id:reasoning-msg_reason", 10*time.Second)
 	app.WaitFor("id:tool-msg_tool", 10*time.Second)
+	app.WaitFor("id:tool-msg_tool_long", 10*time.Second)
 	app.WaitFor("text:Checking the result.", 5*time.Second)
+	summary := app.Find("id:tool-summary-msg_tool_long")
+	card := app.Find("id:tool-msg_tool_long")
+	if right := leftEdge(summary) + float32(summary.Frame.Size.Width); right > leftEdge(card)+float32(card.Frame.Size.Width)+0.5 {
+		t.Fatalf("long tool summary right edge %.1f exceeds card right edge %.1f",
+			right, leftEdge(card)+float32(card.Frame.Size.Width))
+	}
 
 	// Closed cards show a one-line summary and keep the full text hidden.
 	app.Press("label:Thought")
 	app.WaitFor("text:Thinking about the next step.", 5*time.Second)
 
 	// A tool card opens to its command and output.
-	app.Press("label:Bash")
+	app.Press("id:tool-msg_tool >> label:Bash")
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:go test ./...")) > 0 })
 	app.WaitFor("text:ok github.com/tk/t3go", 5*time.Second)
+}
+
+func leftEdge(v *nsgotest.View) float32 {
+	var x float32
+	for ; v != nil; v = v.Parent {
+		x += float32(v.Frame.Origin.X)
+	}
+	return x
 }
 
 func TestSplitTurnKeepsLiveProcessAndFoldsCompletedTurns(t *testing.T) {

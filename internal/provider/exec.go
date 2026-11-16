@@ -225,3 +225,24 @@ func marshalDetail(v any) string {
 	}
 	return s
 }
+
+// valueMap reads a decoded JSON value as an object.
+func valueMap(v any) map[string]any {
+	m, _ := v.(map[string]any)
+	return m
+}
+
+// valueText renders a decoded JSON value as text.
+func valueText(v any) string {
+	switch value := v.(type) {
+	case string:
+		return value
+	case json.Number:
+		return value.String()
+	case nil:
+		return ""
+	default:
+		raw, _ := json.Marshal(value)
+		return string(raw)
+	}
+}

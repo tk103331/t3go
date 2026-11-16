@@ -65,6 +65,13 @@ type Server struct {
 	stopOnce sync.Once
 	ticketMu sync.Mutex
 	tickets  map[string]time.Time
+
+	lifecycle       context.Context
+	relayConnMu     sync.Mutex
+	relayConnCancel context.CancelFunc
+	relayConnGen    uint64
+	relayState      string
+	relayError      string
 }
 
 // New opens the environment's database and builds its services.
@@ -135,6 +142,7 @@ func (s *Server) Start(listen string) error {
 		return fmt.Errorf("server: listen: %w", err)
 	}
 	s.mu.Lock()
+	s.lifecycle = context.Background()
 	s.listener = ln
 	s.addr = ln.Addr().String()
 	s.Service.ApprovalURL = localURL(s.addr)
@@ -155,6 +163,7 @@ func (s *Server) Start(listen string) error {
 // Serve serves on an existing listener until ctx ends.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	s.mu.Lock()
+	s.lifecycle = ctx
 	s.listener = ln
 	s.addr = ln.Addr().String()
 	s.Service.ApprovalURL = localURL(s.addr)
@@ -178,6 +187,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 // otherwise hold Shutdown open until its deadline.
 func (s *Server) stopStreaming() {
 	s.stopOnce.Do(func() {
+		s.stopRelayConnector()
 		close(s.closing)
 		if s.Relay != nil {
 			s.Relay.Close()
@@ -229,6 +239,10 @@ func (s *Server) Handler() http.Handler {
 	}
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /api/v1/environment", s.handleEnvironment)
+	mux.HandleFunc("GET /api/v1/access/relay", s.auth(s.handleRelayAccess))
+	mux.HandleFunc("POST /api/v1/access/relay", s.auth(s.handleConfigureRelayAccess))
+	mux.HandleFunc("POST /api/v1/access/relay/register", s.auth(s.handleRegisterRelayUser))
+	mux.HandleFunc("POST /api/v1/access/relay/login", s.auth(s.handleLoginRelayUser))
 	mux.HandleFunc("POST /oauth/token", s.handleOAuthToken)
 	mux.HandleFunc("GET /api/auth/session", s.auth(s.handleAuthSession))
 	mux.HandleFunc("POST /api/auth/websocket-ticket", s.auth(s.handleWebsocketTicket))

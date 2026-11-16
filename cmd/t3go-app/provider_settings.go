@@ -30,19 +30,12 @@ func commandArgs(text string) []string {
 	return args
 }
 
-func providerTextKeyPi(field string) string {
-	return "pi:" + field
-}
-
 func providerTextKeyACP(id, field string) string {
 	return "acp:" + id + ":" + field
 }
 
 func (a *app) loadProviderTextDraft(settings proto.Settings) {
-	values := map[string]string{
-		providerTextKeyPi("binary"): settings.PiProvider.BinaryPath,
-		providerTextKeyPi("args"):   commandArgsText(settings.PiProvider.LaunchArgs),
-	}
+	values := map[string]string{}
 	for _, configured := range settings.ACPProviders {
 		values[providerTextKeyACP(configured.ID, "name")] = configured.Name
 		values[providerTextKeyACP(configured.ID, "path")] = configured.CommandPath
@@ -69,12 +62,6 @@ func (a *app) setProviderTextValue(key, value string) {
 
 func (a *app) syncProviderTextDraft() {
 	a.settingsDraft.Update(func(settings proto.Settings) proto.Settings {
-		if value, ok := a.providerTextDraft.GetUntracked()[providerTextKeyPi("binary")]; ok {
-			settings.PiProvider.BinaryPath = strings.TrimSpace(value)
-		}
-		if value, ok := a.providerTextDraft.GetUntracked()[providerTextKeyPi("args")]; ok {
-			settings.PiProvider.LaunchArgs = commandArgs(value)
-		}
 		for index := range settings.ACPProviders {
 			id := settings.ACPProviders[index].ID
 			if value, ok := a.providerTextDraft.GetUntracked()[providerTextKeyACP(id, "name")]; ok {
@@ -143,34 +130,6 @@ func providerSettingsHeader(cx *core.Scope, name, detail, testID string, enabled
 			}},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: trailing},
 	}}
-}
-
-func (a *app) piProviderSettingsCard(cx *core.Scope) core.Node {
-	colors := ui.ColorsOf(cx)
-	return providerSettingsCard(cx, "settings-pi-provider",
-		providerSettingsHeader(cx, "Pi", "Built-in Pi coding agent over its native RPC mode.",
-			"settings-pi-provider", func() bool { return a.settingsDraft.Get().PiProvider.Enabled },
-			func(enabled bool) {
-				a.updateProviderSettings(func(settings *proto.Settings) { settings.PiProvider.Enabled = enabled })
-			}, "", "", nil),
-		mobileInput{Scope: cx, Input: base.Input{Value: func() string {
-			return a.providerTextValue(providerTextKeyPi("binary"), "")
-		}, OnChange: func(path string) {
-			a.setProviderTextValue(providerTextKeyPi("binary"), path)
-		}, Placeholder: "pi on PATH, or an absolute executable path", Label: "Pi executable",
-			NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone},
-			TestID: "settings-pi-binary"},
-		mobileInput{Scope: cx, Input: base.Input{Value: func() string {
-			return a.providerTextValue(providerTextKeyPi("args"), "")
-		}, OnChange: func(value string) {
-			a.setProviderTextValue(providerTextKeyPi("args"), value)
-		}, Placeholder: "One literal launch argument per line", Label: "Pi launch arguments",
-			Multiline: true, NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone},
-			TestID: "settings-pi-args"},
-		core.Text{Content: "T3Go manages --mode rpc and session flags. Install with npm install -g --ignore-scripts @earendil-works/pi-coding-agent, then run pi and use /login if no models appear.",
-			MaxLines: 4, Style: core.Style{FontSize: 10.5, LineHeight: 15},
-			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-	)
 }
 
 func (a *app) acpProviderSettingsCards(cx *core.Scope) []core.Node {
@@ -524,8 +483,7 @@ func (a *app) providerAddPanel(cx *core.Scope) core.Node {
 
 func (a *app) providerSettingsSection(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	cards := []core.Node{a.piProviderSettingsCard(cx)}
-	cards = append(cards, a.acpProviderSettingsCards(cx)...)
+	cards := a.acpProviderSettingsCards(cx)
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 7}, Children: []core.Node{
 		core.Text{Content: "Configured providers", Style: core.Style{FontSize: 11, FontWeight: ui.Semibold},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},

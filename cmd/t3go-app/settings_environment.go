@@ -84,6 +84,7 @@ func (a *app) loadSettingsSection(section string) {
 	case "providers":
 		target.refreshProviders()
 	case "access":
+		target.refreshRelayAccess()
 		target.refreshAccess()
 	case "usage":
 		target.loadUsage(target.usageDays.GetUntracked())

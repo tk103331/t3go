@@ -2,6 +2,7 @@ package main
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
@@ -15,6 +16,7 @@ type scopedSidebar struct {
 	Sections   func() []ui.SidebarSection
 	Selected   func() string
 	OnSelect   func(string)
+	CanFocus   func(string) bool
 	TakingKeys *core.Signal[bool]
 	Offset     *core.Points
 }
@@ -44,6 +46,9 @@ func (s scopedSidebar) Render(cx *core.Scope) core.Node {
 				continue
 			}
 			for _, item := range section.Items {
+				if s.CanFocus != nil && !s.CanFocus(item.ID) {
+					continue
+				}
 				ids = append(ids, item.ID)
 			}
 		}
@@ -113,7 +118,11 @@ func (s scopedSidebar) Render(cx *core.Scope) core.Node {
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }}
 			var title core.Node = label
 			if current.Collapsible {
-				title = base.Button{Label: current.Title, Expanded: open, OnPress: func(core.PressEvent) {
+				testID := ""
+				if current.TestID != "" {
+					testID = current.TestID + "-toggle"
+				}
+				title = base.Button{Label: current.Title, TestID: testID, Expanded: open, OnPress: func(core.PressEvent) {
 					takeKeys()
 					if current.OnOpenChange != nil {
 						current.OnOpenChange(!open())
@@ -180,6 +189,9 @@ func (s scopedSidebar) Render(cx *core.Scope) core.Node {
 		if section.Collapsible {
 			return base.Collapsible{TestID: section.TestID, Open: open, Reveal: func() bool { return true },
 				Children: []core.Node{header}, Content: rows}
+		}
+		if strings.TrimSpace(section.Title) == "" && section.Actions == nil && section.Trailing == nil {
+			return core.View{TestID: section.TestID, Style: core.Style{Gap: 2}, Children: []core.Node{rows}}
 		}
 		return core.View{TestID: section.TestID, Style: core.Style{Gap: 2}, Children: []core.Node{header, rows}}
 	})

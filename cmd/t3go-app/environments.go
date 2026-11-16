@@ -113,27 +113,30 @@ func (a *app) restoreEnvironmentData() {
 }
 
 type environmentManager struct {
-	cx            *core.Scope
-	store         core.Storage
-	profiles      *core.Signal[[]client.EnvironmentProfile]
-	revision      *core.Signal[int]
-	current       string
-	defaultID     string
-	adding        bool
-	migrating     bool
-	app           *app
-	sessions      map[string]*app
-	active        *core.Signal[*app]
-	pending       *core.Signal[*app]
-	sidebarKeys   *core.Signal[bool]
-	sidebarOffset core.Points
-	appliedAccent string
-	appearance    *core.Signal[clientAppearance]
+	cx             *core.Scope
+	store          core.Storage
+	profiles       *core.Signal[[]client.EnvironmentProfile]
+	revision       *core.Signal[int]
+	current        string
+	defaultID      string
+	adding         bool
+	migrating      bool
+	app            *app
+	sessions       map[string]*app
+	active         *core.Signal[*app]
+	pending        *core.Signal[*app]
+	sidebarKeys    *core.Signal[bool]
+	sidebarOffset  core.Points
+	appliedAccent  string
+	appearance     *core.Signal[clientAppearance]
+	inboxCollapsed *core.Signal[map[string]bool]
 }
 
 func newEnvironmentManager(cx *core.Scope) *environmentManager {
 	m := &environmentManager{cx: cx, store: cx.Storage(), sessions: map[string]*app{},
-		appearance:  core.NewSignal(cx, loadClientAppearance(cx.Storage())),
+		appearance: core.NewSignal(cx, loadClientAppearance(cx.Storage())),
+		inboxCollapsed: core.NewSignalFunc(cx, storedValue(cx.Storage(), "inboxCollapsed", map[string]bool{}),
+			func(map[string]bool, map[string]bool) bool { return false }),
 		sidebarKeys: core.NewSignal(cx, false),
 		active:      core.NewSignal[*app](cx, nil), pending: core.NewSignal[*app](cx, nil), profiles: core.NewSignalFunc(cx,
 			[]client.EnvironmentProfile{}, func([]client.EnvironmentProfile, []client.EnvironmentProfile) bool { return false }),

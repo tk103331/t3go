@@ -134,7 +134,10 @@ func TestUIMobileUnifiedInbox(t *testing.T) {
 
 func openMobileProjects(app *nsgotest.App) {
 	app.WaitFor("id:mobile-filter", 10*time.Second)
-	app.Press("id:mobile-filter")
+	for attempt := 0; attempt < 3 && !app.Exists("id:mobile-tab-projects"); attempt++ {
+		app.Press("id:mobile-filter")
+		app.Settle()
+	}
 	app.WaitFor("id:mobile-tab-projects", 5*time.Second)
 	app.Press("id:mobile-tab-projects")
 }

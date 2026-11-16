@@ -168,7 +168,7 @@ type Provider struct {
 	Installed bool   `json:"installed"`
 	// Enabled is false when the provider is configured but switched off.
 	Enabled bool `json:"enabled"`
-	// Source is builtin, pi, or acp.
+	// Source is builtin or acp.
 	Source string `json:"source,omitempty"`
 	// ConfigID identifies a configurable provider instance.
 	ConfigID string  `json:"configId,omitempty"`
@@ -185,13 +185,6 @@ type Provider struct {
 	LoginCommand    string `json:"loginCommand,omitempty"`
 }
 
-// PiProviderSettings configures the built-in Pi adapter.
-type PiProviderSettings struct {
-	Enabled    bool     `json:"enabled"`
-	BinaryPath string   `json:"binaryPath,omitempty"`
-	LaunchArgs []string `json:"launchArgs,omitempty"`
-}
-
 // ACPProviderSettings configures one local or registry ACP instance.
 type ACPProviderSettings struct {
 	ID           string   `json:"id"`
@@ -204,6 +197,55 @@ type ACPProviderSettings struct {
 	CommandArgs  []string `json:"commandArgs,omitempty"`
 	AuthMethodID string   `json:"authMethodId,omitempty"`
 	Distribution string   `json:"distribution,omitempty"` // auto, npx, uvx, or binary
+}
+
+// RelayAccessStatus describes this environment's registered relay route.
+// ConnectToken is deliberately omitted because it never leaves the host.
+type RelayAccessStatus struct {
+	Configured bool   `json:"configured"`
+	Server     string `json:"server,omitempty"`
+	Route      string `json:"route,omitempty"`
+	DirectURL  string `json:"directUrl,omitempty"`
+	State      string `json:"state,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+// RelayAccessConfig registers this environment with a relay hub. AdminToken
+// is used once for registration and is not persisted by the client.
+type RelayAccessConfig struct {
+	Server     string `json:"server"`
+	UserToken  string `json:"userToken,omitempty"`
+	AdminToken string `json:"adminToken,omitempty"` // legacy operator fallback
+	DirectURL  string `json:"directUrl,omitempty"`
+	AllowHTTP  bool   `json:"allowHttp,omitempty"`
+}
+
+// RelayAccountRequest signs up or signs in to a Relay account. Passwords are
+// forwarded only to the selected Relay server and are never persisted locally.
+type RelayAccountRequest struct {
+	Server    string `json:"server"`
+	Email     string `json:"email"`
+	Password  string `json:"password"`
+	Name      string `json:"name,omitempty"`
+	AllowHTTP bool   `json:"allowHttp,omitempty"`
+}
+
+// RelayUser is the public account attached to a Relay session.
+type RelayUser struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	Provider  string    `json:"provider"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// RelayUserSession is returned after local Relay account registration or login.
+// Token is kept in memory by the desktop app and used to register this
+// environment; it is never written to relay.json.
+type RelayUserSession struct {
+	User      RelayUser `json:"user"`
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expiresAt"`
 }
 
 // ACPRegistryAgent is one agent advertised by the official ACP Registry.
@@ -482,7 +524,6 @@ type Settings struct {
 	// AccessRoutes selects which local environment routes are shared:
 	// both, direct, or relay. Empty preserves the original both behavior.
 	AccessRoutes string                `json:"accessRoutes,omitempty"`
-	PiProvider   PiProviderSettings    `json:"piProvider,omitempty"`
 	ACPProviders []ACPProviderSettings `json:"acpProviders,omitempty"`
 }
 

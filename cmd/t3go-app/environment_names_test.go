@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -165,19 +166,34 @@ func TestUIDefaultEnvironmentNamesStayConsistent(t *testing.T) {
 					return app.Find("id:mobile-thread-environment-"+pb.ID+"/"+thread.ID).Text == names[1]
 				})
 				openMobileProjects(app)
+				app.WaitUntil(5*time.Second, func() bool {
+					return app.Find("id:environment-status-"+pa.ID).Text == "Direct" &&
+						app.Find("id:environment-status-"+pb.ID).Text == "Relay"
+				})
+				for i, p := range []client.EnvironmentProfile{pa, pb} {
+					app.WaitFor("id:sidebar-environment-"+p.ID+" >> text:"+names[i], 5*time.Second)
+				}
+			} else {
+				app.WaitUntil(5*time.Second, func() bool {
+					context := app.Find("id:thread-context-" + pb.ID + "/" + thread.ID).Text
+					return strings.Contains(context, names[1])
+				})
+				if app.Exists("id:sidebar-environment-"+pa.ID) || app.Exists("id:sidebar-environment-"+pb.ID) {
+					t.Fatal("desktop inbox still groups conversations by environment")
+				}
+				app.WaitUntil(5*time.Second, func() bool {
+					return app.Find("id:project-environment-"+pb.ID+"/"+project.ID).Text == names[1]
+				})
 			}
-			app.WaitUntil(5*time.Second, func() bool {
-				return app.Find("id:environment-status-"+pa.ID).Text == "Direct" &&
-					app.Find("id:environment-status-"+pb.ID).Text == "Relay"
-			})
-			for i, p := range []client.EnvironmentProfile{pa, pb} {
-				app.WaitFor("id:sidebar-environment-"+p.ID+" >> text:"+names[i], 5*time.Second)
-			}
-			raw, _ := app.Storage().GetItem("environments:v1")
 			var saved savedEnvironments
-			if err := json.Unmarshal([]byte(raw), &saved); err != nil {
-				t.Fatal(err)
-			}
+			app.WaitUntil(5*time.Second, func() bool {
+				raw, _ := app.Storage().GetItem("environments:v1")
+				if json.Unmarshal([]byte(raw), &saved) != nil {
+					return false
+				}
+				offline := environmentDisplayNames(saved.Profiles)
+				return offline[pa.ID] == names[0] && offline[pb.ID] == names[1]
+			})
 			offlineNames := environmentDisplayNames(saved.Profiles)
 			for i, p := range []client.EnvironmentProfile{pa, pb} {
 				if got := offlineNames[p.ID]; got != names[i] {
@@ -224,8 +240,12 @@ func TestUIDefaultEnvironmentNamesStayConsistent(t *testing.T) {
 			waitSheetGone(app, "id:settings-dialog")
 			if width < 760 {
 				openMobileProjects(app)
+				app.WaitFor("id:sidebar-environment-"+pb.ID+" >> text:My desktop", 5*time.Second)
+			} else {
+				app.WaitUntil(5*time.Second, func() bool {
+					return app.Find("id:project-environment-"+pb.ID+"/"+project.ID).Text == "My desktop"
+				})
 			}
-			app.WaitFor("id:sidebar-environment-"+pb.ID+" >> text:My desktop", 5*time.Second)
 			app.Press("id:new-project")
 			app.WaitFor("id:project-environment-"+pb.ID+" >> text:My desktop", 5*time.Second)
 			app.Press("id:cancel-project")

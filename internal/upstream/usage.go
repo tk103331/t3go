@@ -18,7 +18,7 @@ type UsageRun struct {
 	HasUsage  bool
 }
 
-var usageProviders = map[string]bool{"claude": true, "codex": true, "opencode": true, "grok": true, "cursor": true, "antigravity": true, "pi": true, "muse": true}
+var usageProviders = map[string]bool{"claude": true, "codex": true, "opencode": true, "grok": true, "cursor": true, "antigravity": true, "muse": true}
 
 // UsageSummary aggregates runs into the upstream usage summary shapes.
 func UsageSummary(env Environment, sinceDay, untilDay, timeZone string, runs []UsageRun) map[string]any {
@@ -96,7 +96,7 @@ func UsageSummary(env Environment, sinceDay, untilDay, timeZone string, runs []U
 		})
 	}
 	sourceRows := make([]any, 0, len(sources))
-	for _, provider := range []string{"claude", "codex", "opencode", "grok", "cursor", "antigravity", "pi", "muse"} {
+	for _, provider := range []string{"claude", "codex", "opencode", "grok", "cursor", "antigravity", "muse"} {
 		if row, ok := sources[provider]; ok {
 			sourceRows = append(sourceRows, row)
 		}

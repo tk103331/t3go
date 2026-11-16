@@ -97,6 +97,14 @@ func (a *app) connectView(cx *core.Scope) core.Node {
 			mobileInput{Scope: cx, Input: base.Input{Value: a.token.Get, OnChange: a.token.Set, Placeholder: "Token, or paste a t3go:// pair link",
 				Label: "Token", Masked: true, SubmitBehavior: core.SubmitBehaviorSubmit,
 				OnSubmit: func(string) { a.connect(a.serverURL.Get(), a.token.Get()) }}},
+			core.Show{
+				When: func() bool { return ui.Touch(cx) && cx.Env().CanTakePhoto() },
+				Then: func(cx *core.Scope) core.Node {
+					return ui.Button{Text: "Scan QR code", Icon: lucide.ScanQrCode, Variant: ui.ButtonSecondary,
+						Size: controlSize(cx), TestID: "environment-scan-qr", Flex: 1,
+						OnPress: func() { a.scanEnvironmentQR(cx) }}
+				},
+			},
 			core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node {
 				return core.View{Style: core.Style{Padding: core.Symmetric(8, 10), CornerRadius: 7,
 					Background: ui.Alpha(colors.Danger(), 0.1)}, Children: []core.Node{
@@ -192,12 +200,192 @@ func (a *app) sidebar(cx *core.Scope) core.Node {
 				Placeholder: "Search threads", Label: "Search threads"}},
 		}},
 		core.View{Style: ui.FillRest, Children: []core.Node{
-			scopedSidebar{Sections: func() []ui.SidebarSection { return a.sidebarSections(cx) },
+			scopedSidebar{Sections: func() []ui.SidebarSection { return a.sidebarInboxSections(cx) },
 				TakingKeys: takingKeys, Offset: offset,
-				Selected: func() string { return a.threadKey(a.selected.Get()) }, OnSelect: a.selectSidebarThread},
+				Selected: func() string { return a.threadKey(a.selected.Get()) }, OnSelect: a.selectSidebarThread,
+				CanFocus: func(id string) bool {
+					return !strings.HasPrefix(id, "project:") && !strings.Contains(id, "/project:")
+				}},
 		}},
 		a.sidebarFooter(cx),
 	}}
+}
+
+type inboxThread struct {
+	owner   *app
+	thread  proto.Thread
+	project string
+	pinned  bool
+}
+
+type inboxProject struct {
+	owner   *app
+	project proto.Project
+}
+
+// sidebarInboxSections is one desktop and web inbox across every connected
+// environment. Environment names stay on each row, while the list itself is
+// grouped only by operational state.
+func (a *app) sidebarInboxSections(cx *core.Scope) []ui.SidebarSection {
+	colors := ui.ColorsOf(cx)
+	query := strings.ToLower(strings.TrimSpace(a.sidebarQuery.Get()))
+	showArchived := a.showArchived.Get()
+	sessions := []*app{a}
+	if a.manager != nil {
+		_ = a.manager.revision.Get()
+		sessions = nil
+		for _, p := range a.manager.profiles.Get() {
+			if session := a.manager.sessions[p.ID]; session != nil {
+				sessions = append(sessions, session)
+			}
+		}
+	}
+
+	var recent, working, settled []inboxThread
+	var projects []inboxProject
+	for _, session := range sessions {
+		projectNames := make(map[string]string)
+		for _, project := range session.projects.Get() {
+			projectNames[project.ID] = project.Name
+			projects = append(projects, inboxProject{owner: session, project: project})
+		}
+		pinned := session.pinned.Get()
+		for _, thread := range session.threads.Get() {
+			if !showArchived && thread.Archived {
+				continue
+			}
+			if query != "" && !threadMatches(thread, query) {
+				continue
+			}
+			entry := inboxThread{
+				owner: session, thread: thread, project: projectNames[thread.ProjectID],
+				pinned: pinned[thread.ID],
+			}
+			switch {
+			case thread.Status == proto.ThreadRunning:
+				working = append(working, entry)
+			case thread.Settled:
+				settled = append(settled, entry)
+			default:
+				recent = append(recent, entry)
+			}
+		}
+	}
+	sortInboxThreads := func(threads []inboxThread) {
+		sort.SliceStable(threads, func(i, j int) bool {
+			if threads[i].pinned != threads[j].pinned {
+				return threads[i].pinned
+			}
+			return threads[i].thread.UpdatedAt.After(threads[j].thread.UpdatedAt)
+		})
+	}
+	sortInboxThreads(recent)
+	sortInboxThreads(working)
+	sortInboxThreads(settled)
+
+	itemsFor := func(threads []inboxThread) []ui.SidebarItem {
+		items := make([]ui.SidebarItem, 0, len(threads))
+		for _, entry := range threads {
+			item := entry.owner.sidebarThreadItem(entry.thread)
+			context := strings.TrimSpace(entry.project)
+			if name := strings.TrimSpace(entry.owner.envName()); name != "" {
+				if context != "" {
+					context += " · "
+				}
+				context += name
+			}
+			if !entry.owner.settingsConnectionReady() {
+				context += " · " + entry.owner.connectionLabel()
+			}
+			item.Content = entry.owner.threadRow(cx, entry.thread, colors, context)
+			items = append(items, item)
+		}
+		return items
+	}
+
+	var sections []ui.SidebarSection
+	if items := itemsFor(recent); len(items) > 0 {
+		sections = append(sections, ui.SidebarSection{
+			Items: items, TestID: "sidebar-status-recent",
+		})
+	}
+	for _, group := range []struct {
+		name    string
+		threads []inboxThread
+	}{
+		{name: "Working", threads: working},
+		{name: "Settled", threads: settled},
+	} {
+		items := itemsFor(group.threads)
+		if len(items) == 0 {
+			continue
+		}
+		status := strings.ToLower(group.name)
+		sections = append(sections, ui.SidebarSection{
+			Title: group.name, Items: items, Collapsible: true,
+			Open: func() bool {
+				return !a.statusSectionCollapsed(status)
+			},
+			OnOpenChange: func(open bool) {
+				a.setStatusSectionCollapsed(status, !open)
+			},
+			Trailing: ui.Text(strconv.Itoa(len(items)), 10.5, ui.Regular, colors.Faint),
+			TestID:   "sidebar-status-" + status,
+		})
+	}
+
+	if len(projects) > 0 && query == "" {
+		items := make([]ui.SidebarItem, 0, len(projects))
+		for _, entry := range projects {
+			owner, project := entry.owner, entry.project
+			rowID := owner.sidebarID(project.ID)
+			menu := ui.Menu{
+				TestID: "project-menu-" + rowID,
+				Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost, Size: controlSize(cx),
+					Label: "Project actions", TestID: "project-actions-" + rowID},
+				Children: []core.Node{
+					ui.MenuItem{Text: "New thread…", TestID: "new-thread-in-" + rowID, OnSelect: owner.inEnvironment(func() { owner.openNewThreadIn(project.ID) })},
+					ui.MenuItem{Text: "Rename project…", TestID: "rename-project-" + rowID, OnSelect: owner.inEnvironment(func() { owner.askRenameProject(project) })},
+					ui.MenuItem{Text: "Delete project", Variant: ui.MenuItemDanger,
+						TestID: "delete-project-" + rowID, OnSelect: owner.inEnvironment(func() { owner.askDeleteProject(project) })},
+				},
+			}
+			items = append(items, ui.SidebarItem{
+				ID: owner.threadKey("project:" + project.ID), Text: project.Name,
+				Content: core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 7,
+					MinWidth: core.Pt(0), FlexGrow: 1}, Children: []core.Node{
+					ui.Icon(lucide.Folder, 14, colors.Muted),
+					core.Text{Content: project.Name, TestID: "project-name-" + rowID,
+						Style: core.Style{FontSize: 12.5, FontWeight: ui.Medium, FlexShrink: 1},
+						StyleFunc: func() core.Style {
+							return core.Style{Color: colors.Text()}
+						}},
+					core.Text{Content: projectEnvironmentLabel(owner), TestID: "project-environment-" + rowID, MaxLines: 1,
+						Style:     core.Style{FontSize: 10, FlexShrink: 1},
+						StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+					ui.Spacer{},
+					menu,
+				}},
+				TestID: "project-" + rowID,
+			})
+		}
+		sections = append(sections, ui.SidebarSection{
+			Title: "Projects", Items: items, Collapsible: true,
+			Open: func() bool {
+				return !a.statusSectionCollapsed("projects")
+			},
+			OnOpenChange: func(open bool) {
+				a.setStatusSectionCollapsed("projects", !open)
+			},
+			Trailing: ui.Text(strconv.Itoa(len(items)), 10.5, ui.Regular, colors.Faint),
+			TestID:   "sidebar-project-management",
+		})
+	}
+	if len(sections) == 0 && query != "" {
+		sections = append(sections, ui.SidebarSection{Title: "Threads", TestID: "sidebar-no-results",
+			Note: ui.Text("No threads match your search.", 12, ui.Regular, colors.Faint)})
+	}
+	return sections
 }
 
 // sidebarSections builds the project and thread groups under the current
@@ -251,13 +439,23 @@ func (a *app) sidebarID(id string) string {
 
 func (a *app) selectSidebarThread(key string) {
 	if a.manager == nil {
+		if projectID, ok := strings.CutPrefix(key, "project:"); ok {
+			a.openNewThreadIn(projectID)
+			return
+		}
+		a.showNewThread.Set(false)
 		a.selectThread(key)
 		return
 	}
-	env, thread, ok := strings.Cut(key, "/")
+	env, target, ok := strings.Cut(key, "/")
 	if session := a.manager.sessions[env]; ok && session != nil {
 		a.manager.activate(env)
-		session.selectThread(thread)
+		if projectID, isProject := strings.CutPrefix(target, "project:"); isProject {
+			session.openNewThreadIn(projectID)
+			return
+		}
+		a.showNewThread.Set(false)
+		session.selectThread(target)
 	}
 }
 
@@ -298,25 +496,9 @@ func (a *app) projectSections(cx *core.Scope, query string, showArchived bool) [
 		var items []ui.SidebarItem
 		for _, t := range threads {
 			t := t
-			archiveText := "Archive thread"
-			if t.Archived {
-				archiveText = "Unarchive thread"
-			}
-			pinText := "Pin thread"
-			if a.threadPinned(t.ID) {
-				pinText = "Unpin thread"
-			}
-			rowID := a.sidebarID(t.ID)
-			items = append(items, ui.SidebarItem{ID: a.threadKey(t.ID), Text: t.Title, TestID: "thread-" + rowID,
-				Content: a.threadRow(cx, t, colors),
-				Menu: []core.Node{
-					ui.MenuItem{Text: pinText, TestID: "pin-thread-" + rowID, OnSelect: func() { a.togglePin(t) }},
-					a.settleMenuItem(t, rowID),
-					ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread-" + rowID, OnSelect: a.inEnvironment(func() { a.askRenameThread(t) })},
-					ui.MenuItem{Text: archiveText, TestID: "archive-thread-" + rowID, OnSelect: func() { a.setArchived(t, !t.Archived) }},
-					ui.MenuItem{Text: "Delete thread", Variant: ui.MenuItemDanger,
-						TestID: "delete-thread-" + rowID, OnSelect: a.inEnvironment(func() { a.askDeleteThread(t) })},
-				}})
+			item := a.sidebarThreadItem(t)
+			item.Content = a.threadRow(cx, t, colors, "")
+			items = append(items, item)
 		}
 		if query != "" && len(items) == 0 {
 			continue
@@ -366,15 +548,36 @@ func (a *app) projectSections(cx *core.Scope, query string, showArchived bool) [
 	return sections
 }
 
+func (a *app) sidebarThreadItem(t proto.Thread) ui.SidebarItem {
+	archiveText := "Archive thread"
+	if t.Archived {
+		archiveText = "Unarchive thread"
+	}
+	pinText := "Pin thread"
+	if a.threadPinned(t.ID) {
+		pinText = "Unpin thread"
+	}
+	rowID := a.sidebarID(t.ID)
+	return ui.SidebarItem{ID: a.threadKey(t.ID), Text: t.Title, TestID: "thread-" + rowID,
+		Menu: []core.Node{
+			ui.MenuItem{Text: pinText, TestID: "pin-thread-" + rowID, OnSelect: func() { a.togglePin(t) }},
+			a.settleMenuItem(t, rowID),
+			ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread-" + rowID, OnSelect: a.inEnvironment(func() { a.askRenameThread(t) })},
+			ui.MenuItem{Text: archiveText, TestID: "archive-thread-" + rowID, OnSelect: func() { a.setArchived(t, !t.Archived) }},
+			ui.MenuItem{Text: "Delete thread", Variant: ui.MenuItemDanger,
+				TestID: "delete-thread-" + rowID, OnSelect: a.inEnvironment(func() { a.askDeleteThread(t) })},
+		}}
+}
+
 // threadRow is one thread's line in the sidebar: its state, title, the
 // last prompt and when it changed.
-func (a *app) threadRow(cx *core.Scope, t proto.Thread, colors ui.Colors) core.Node {
+func (a *app) threadRow(cx *core.Scope, t proto.Thread, colors ui.Colors, projectName string) core.Node {
 	title := t.Title
 	if strings.TrimSpace(title) == "" {
 		title = "Untitled thread"
 	}
 	titleColor := colors.Text
-	if t.Archived {
+	if t.Archived || t.Settled {
 		titleColor = colors.Muted
 	}
 	head := []core.Node{}
@@ -421,6 +624,13 @@ func (a *app) threadRow(cx *core.Scope, t proto.Thread, colors ui.Colors) core.N
 	} else if preview == "" {
 		preview = t.Provider
 	}
+	if projectName = strings.TrimSpace(projectName); projectName != "" && draft == "" {
+		if preview == "" {
+			preview = projectName
+		} else {
+			preview = projectName + " · " + preview
+		}
+	}
 	line := []core.Node{}
 	switch {
 	case draft != "":
@@ -429,7 +639,8 @@ func (a *app) threadRow(cx *core.Scope, t proto.Thread, colors ui.Colors) core.N
 		line = append(line, ui.Icon(lucide.GitBranch, 10, colors.Faint))
 	}
 	if strings.TrimSpace(preview) != "" {
-		line = append(line, core.Text{Content: preview, MaxLines: 1, Style: core.Style{FontSize: 11, FlexGrow: 1, FlexShrink: 1},
+		line = append(line, core.Text{Content: preview, TestID: "thread-context-" + a.sidebarID(t.ID),
+			MaxLines: 1, Style: core.Style{FontSize: 11, FlexGrow: 1, FlexShrink: 1},
 			StyleFunc: func() core.Style { return core.Style{Color: previewColor()} }})
 	}
 	if len(line) > 0 {
@@ -437,6 +648,14 @@ func (a *app) threadRow(cx *core.Scope, t proto.Thread, colors ui.Colors) core.N
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 1, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Padding: core.Symmetric(3, 0)},
 		Children: rows}
+}
+
+func projectEnvironmentLabel(owner *app) string {
+	label := owner.envName()
+	if owner.settingsConnectionReady() {
+		return label
+	}
+	return label + " · " + owner.connectionLabel()
 }
 
 // threadMatches reports whether a thread's title, prompt or branch matches
@@ -492,6 +711,20 @@ func (a *app) sidebarFooter(cx *core.Scope) core.Node {
 
 func (a *app) contentHeader(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
+	if a.showNewThread.Get() && !compactSettings(cx) {
+		return core.View{TestID: "new-thread-header", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
+			Gap: 7, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+			a.sidebarToggle(),
+			brandWordmark(cx, 17),
+			ui.Text("/", 12, ui.Regular, colors.Faint),
+			ui.Text("New thread", 12.5, ui.Medium, colors.Text),
+			ui.Spacer{},
+			ui.IconButton{Icon: lucide.X, Label: "Cancel new thread", TestID: "cancel-thread",
+				Size: 34, IconSize: 17, Disabled: a.threadBusy.Get,
+				OnPress: func() { a.showNewThread.Set(false) }},
+			a.rightToggle(),
+		}}
+	}
 	d := a.detail.Get()
 	if d.Thread.ID == "" {
 		return core.View{Style: core.Style{Height: core.Pt(32), Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
@@ -582,6 +815,9 @@ func (a *app) branchMenu(cx *core.Scope, detail proto.ThreadDetail) core.Node {
 }
 
 func (a *app) content(cx *core.Scope) core.Node {
+	if a.showNewThread.Get() && !compactSettings(cx) {
+		return a.desktopNewThreadPage(cx)
+	}
 	if a.selected.Get() == "" {
 		return a.welcome(cx)
 	}
@@ -675,7 +911,7 @@ func (a *app) dialogs(cx *core.Scope) core.Node {
 	// Each modal owns its subscriptions. Keyboard/layout changes in one dialog
 	// must not dispose a focused field in another one.
 	dialogs := core.Group{
-		core.Dynamic(a.newProjectDialog), core.Dynamic(a.newThreadDialog), core.Dynamic(a.settingsDialog),
+		core.Dynamic(a.newProjectDialog), core.Dynamic(a.settingsDialog),
 		core.Dynamic(a.diffDialog), core.Dynamic(a.runsDialog), core.Dynamic(a.renameDialog), core.Dynamic(a.deleteDialog),
 		core.Dynamic(a.paletteDialog), core.Dynamic(a.approvalDialog), core.Dynamic(a.discardDialog),
 		core.Dynamic(a.editMessageDialog), core.Dynamic(a.newBranchDialog), core.Dynamic(a.branchesDialog),
@@ -740,9 +976,13 @@ func closeDialog(sig *core.Signal[bool]) func(bool, base.Reason) {
 
 // paletteDialog searches the environment's threads and actions.
 func (a *app) paletteDialog(cx *core.Scope) core.Node {
+	commandHeight := core.Pt(580)
+	if compactSettings(cx) {
+		commandHeight = core.Pt(440)
+	}
 	command := ui.Command{
 		AutoFocus: true,
-		Style:     core.Style{FlexGrow: 1, FlexShrink: 1, Height: core.Pt(440)},
+		Style:     core.Style{FlexGrow: 1, FlexShrink: 1, Height: commandHeight},
 		Items:     a.commandItems, OnSelect: a.runCommand,
 		OnQueryChange: a.searchMessages,
 		Loading:       func() bool { return a.searchBusy.Get() },
@@ -760,6 +1000,8 @@ func (a *app) paletteDialog(cx *core.Scope) core.Node {
 		style.MarginEnv = core.EnvEdges{Bottom: core.EnvKeyboard}
 		footer = []core.Node{ui.Button{Text: "Close", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "palette-close",
 			OnPress: func() { a.showPalette.Set(false) }}}
+	} else {
+		style.Width = core.Pt(720)
 	}
 	return ui.Dialog{Open: a.showPalette.Get, OnOpenChange: closeDialog(a.showPalette),
 		TestID: "palette", Label: "Commands", Bare: true, Style: style, Footer: footer,
@@ -806,48 +1048,30 @@ func (a *app) newProjectDialog(cx *core.Scope) core.Node {
 		}}
 }
 
-func (a *app) newThreadDialog(cx *core.Scope) core.Node {
-	if compactSettings(cx) {
-		return core.Group{}
-	}
+func (a *app) desktopNewThreadPage(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	return ui.Dialog{
-		Open: a.showNewThread.Get, OnOpenChange: closeDialog(a.showNewThread),
-		Bare: true, TestID: "new-thread-dialog",
-		Style: core.Style{
-			Width: core.Pt(1000), Height: core.Pt(660),
-			MaxWidth: core.Pct(92), MaxHeight: core.Pct(88),
-			Background: colors.Surface(),
-		},
-		Children: []core.Node{a.desktopNewThreadBody(cx)},
-	}
+	return core.View{TestID: "new-thread-page", Style: core.Style{FlexGrow: 1, FlexShrink: 1,
+		MinWidth: core.Pt(0), MinHeight: core.Pt(0), Padding: core.Symmetric(24, 28),
+		Background: colors.Background()}, Children: []core.Node{a.desktopNewThreadBody(cx)}}
 }
 
 // desktopNewThreadBody keeps the composer outside the stateful option
 // sections. Selecting a provider, permission or worktree option therefore
 // does not replace the input or its send action.
 func (a *app) desktopNewThreadBody(cx *core.Scope) core.Node {
-	colors := ui.ColorsOf(cx)
 	return core.View{
 		Style: core.Style{
 			FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
-			Padding: core.Symmetric(22, 28), Gap: 12,
+			AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
 		},
 		Children: []core.Node{
-			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, FlexShrink: 0},
-				Children: []core.Node{
-					ui.Text("New thread", 12, ui.Semibold, colors.Muted),
-					ui.Text(a.envName()+" · "+a.connectionLabel(), 12, ui.Regular, colors.Faint),
-					ui.Spacer{},
-					ui.IconButton{Icon: lucide.X, Label: "Cancel new thread", TestID: "cancel-thread",
-						Size: 30, IconSize: 17, OnPress: func() { a.showNewThread.Set(false) }},
-				}},
 			core.Scroll{
-				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
+				Style: core.Style{Width: core.Pct(100), FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
 				Children: []core.Node{core.View{
-					Style: core.Style{Width: core.Pct(100), AlignItems: core.AlignCenter, Padding: core.Edges{Bottom: 10}},
+					Style: core.Style{Width: core.Pct(100), MinHeight: core.Pct(100),
+						AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Padding: core.Edges{Bottom: 32}},
 					Children: []core.Node{core.View{
-						Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(880), Gap: 14},
+						Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(900), Gap: 18},
 						Children: []core.Node{
 							core.Dynamic(a.desktopNewThreadHero),
 							mobileComposer{

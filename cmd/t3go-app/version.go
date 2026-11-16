@@ -8,7 +8,7 @@ import (
 
 const (
 	appVersion     = "0.1.0"
-	appBuildNumber = "108"
+	appBuildNumber = "114"
 )
 
 func nsgoVersion() string {

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"net"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
@@ -94,6 +96,167 @@ func firstAccessRoute(profile client.EnvironmentProfile, kind string) (client.Ro
 	return client.Route{}, false
 }
 
+func (a *app) applyRelayAccess(status proto.RelayAccessStatus) {
+	a.relayAccess.Set(status)
+	if !status.Configured || strings.TrimSpace(status.Route) == "" {
+		return
+	}
+	route := client.Route{URL: strings.TrimRight(status.Route, "/"), Kind: "relay"}
+	found := false
+	for _, existing := range a.profile.Routes {
+		if existing.URL == route.URL {
+			found = true
+			break
+		}
+	}
+	if !found {
+		a.profile.Routes = append(a.profile.Routes, route)
+		if a.manager != nil {
+			a.manager.update(a.profile)
+		}
+	}
+	a.refreshAccess()
+}
+
+func (a *app) refreshRelayAccess() {
+	if !a.connected.GetUntracked() || !isLocalEnvironmentProfile(a.profile) {
+		return
+	}
+	c := a.client()
+	if c == nil {
+		return
+	}
+	a.relaySeq++
+	seq := a.relaySeq
+	a.relayErr.Set("")
+	go func() {
+		ctx, cancel := context.WithTimeout(a.lifetime, 10*time.Second)
+		defer cancel()
+		status, err := c.RelayAccess(ctx)
+		a.cx.Post(func() {
+			if seq != a.relaySeq {
+				return
+			}
+			if err != nil {
+				a.relayErr.Set(friendlyError(err))
+				return
+			}
+			a.applyRelayAccess(status)
+		})
+	}()
+}
+
+func (a *app) configureRelay() {
+	if a.relayBusy.GetUntracked() {
+		return
+	}
+	c := a.client()
+	if c == nil {
+		a.relayErr.Set("Connect the local environment before configuring Relay.")
+		return
+	}
+	in := proto.RelayAccessConfig{
+		Server:    strings.TrimSpace(a.relayServer.GetUntracked()),
+		DirectURL: strings.TrimSpace(a.relayDirectURL.GetUntracked()),
+		AllowHTTP: a.relayAllowHTTP.GetUntracked(),
+	}
+	if in.Server == "" {
+		a.relayErr.Set("Enter the Relay server URL.")
+		return
+	}
+	email := strings.TrimSpace(a.relayEmail.GetUntracked())
+	password := a.relayPassword.GetUntracked()
+	if email == "" {
+		a.relayErr.Set("Enter your Relay account email.")
+		return
+	}
+	if password == "" {
+		a.relayErr.Set("Enter your Relay account password.")
+		return
+	}
+	a.relayBusy.Set(true)
+	a.relayErr.Set("")
+	authMode := strings.ToLower(strings.TrimSpace(a.relayAuthMode.GetUntracked()))
+	account := proto.RelayAccountRequest{
+		Server: in.Server, Email: email, Password: password,
+		Name: strings.TrimSpace(a.relayName.GetUntracked()), AllowHTTP: in.AllowHTTP,
+	}
+	a.relaySeq++
+	seq := a.relaySeq
+	go func() {
+		ctx, cancel := context.WithTimeout(a.lifetime, 45*time.Second)
+		defer cancel()
+		var session proto.RelayUserSession
+		var err error
+		if authMode == "register" {
+			session, err = c.RegisterRelayUser(ctx, account)
+		} else {
+			session, err = c.LoginRelayUser(ctx, account)
+		}
+		if err == nil {
+			in.UserToken = session.Token
+		}
+		var status proto.RelayAccessStatus
+		if err == nil {
+			status, err = c.ConfigureRelay(ctx, in)
+		}
+		a.cx.Post(func() {
+			a.relayBusy.Set(false)
+			if seq != a.relaySeq {
+				return
+			}
+			if err != nil {
+				a.relayErr.Set(friendlyError(err))
+				return
+			}
+			a.relayPassword.Set("")
+			a.relayConfigOpen.Set(false)
+			a.settingsDraft.Update(func(settings proto.Settings) proto.Settings {
+				settings.AccessRoutes = "both"
+				return settings
+			})
+			a.applyRelayAccess(status)
+			a.scheduleRelayStatusRefresh()
+		})
+	}()
+}
+
+// Registration returns before the WebSocket tunnel finishes connecting. Poll a
+// few times so Access can move from Connecting to Online without reopening it.
+func (a *app) scheduleRelayStatusRefresh() {
+	for _, delay := range []time.Duration{750 * time.Millisecond, 2 * time.Second, 5 * time.Second} {
+		go func(delay time.Duration) {
+			timer := time.NewTimer(delay)
+			defer timer.Stop()
+			select {
+			case <-a.lifetime.Done():
+				return
+			case <-timer.C:
+			}
+			a.cx.Post(func() {
+				if a.settingsSection.GetUntracked() == "access" {
+					a.refreshRelayAccess()
+				}
+			})
+		}(delay)
+	}
+}
+
+func relayAccessStateLabel(status proto.RelayAccessStatus) string {
+	switch strings.ToLower(strings.TrimSpace(status.State)) {
+	case "connecting":
+		return "Connecting"
+	case "retrying":
+		return "Reconnecting"
+	case "active":
+		return "Online"
+	case "error":
+		return "Connection error"
+	default:
+		return "Configured"
+	}
+}
+
 // refreshAccess builds the pairing link from the current environment's saved
 // identity and routes. The link is only rendered after the environment's
 // Access switch has been enabled.
@@ -172,6 +335,121 @@ func accessRouteRow(cx *core.Scope, label, detail, testID string, available bool
 	}}
 }
 
+func (a *app) relayConfigurationCard(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	open := func() bool { return a.relayConfigOpen.Get() }
+	authMode := strings.ToLower(strings.TrimSpace(a.relayAuthMode.Get()))
+	if authMode != "register" {
+		authMode = "login"
+	}
+	header := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+		core.View{Style: core.Style{Direction: core.Column, Gap: 2, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+			Children: []core.Node{
+				core.Text{Content: "Connect Relay", Style: core.Style{FontSize: 12.5, FontWeight: ui.Semibold},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+				core.Text{Content: "Sign in with a Relay account to register this machine outside its local network.",
+					MaxLines: 2, Style: core.Style{FontSize: 10.5},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+			}},
+		ui.Button{Text: func() string {
+			if open() {
+				return "Cancel"
+			}
+			return "Configure"
+		}(), Variant: ui.ButtonSecondary, Size: controlSize(cx), TestID: "settings-relay-config-open",
+			OnPress: func() { a.relayConfigOpen.Set(!open()) }},
+	}}
+	if !open() {
+		return core.View{TestID: "settings-relay-config", Style: core.Style{Direction: core.Column, Gap: 7,
+			Padding: core.Symmetric(9, 11), Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{header}}
+	}
+	body := []core.Node{
+		header,
+		core.View{TestID: "settings-relay-auth-mode", Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
+			ui.Button{Text: "Sign in", Variant: func() ui.ButtonVariant {
+				if authMode == "login" {
+					return ui.ButtonPrimary
+				}
+				return ui.ButtonSecondary
+			}(), Size: controlSize(cx), TestID: "settings-relay-auth-login",
+				OnPress: func() {
+					a.relayAuthMode.Set("login")
+					a.relayErr.Set("")
+				}},
+			ui.Button{Text: "Create account", Variant: func() ui.ButtonVariant {
+				if authMode == "register" {
+					return ui.ButtonPrimary
+				}
+				return ui.ButtonSecondary
+			}(), Size: controlSize(cx), TestID: "settings-relay-auth-register",
+				OnPress: func() {
+					a.relayAuthMode.Set("register")
+					a.relayErr.Set("")
+				}},
+		}},
+		mobileInput{Scope: cx, Input: base.Input{Value: a.relayServer.Get, OnChange: func(value string) {
+			a.relayServer.Set(value)
+		}, Placeholder: "https://relay.example.com", Label: "Relay server URL",
+			NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone},
+			TestID: "settings-relay-server"},
+		mobileInput{Scope: cx, Input: base.Input{Value: a.relayEmail.Get, OnChange: func(value string) {
+			a.relayEmail.Set(value)
+		}, Placeholder: "you@example.com", Label: "Relay account email",
+			NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone},
+			TestID: "settings-relay-email"},
+		mobileInput{Scope: cx, Input: base.Input{Value: a.relayPassword.Get, OnChange: func(value string) {
+			a.relayPassword.Set(value)
+		}, Placeholder: "At least 8 characters", Label: "Relay account password",
+			Masked: true, NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone},
+			TestID: "settings-relay-password"},
+	}
+	if authMode == "register" {
+		body = append(body, mobileInput{Scope: cx, Input: base.Input{Value: a.relayName.Get, OnChange: func(value string) {
+			a.relayName.Set(value)
+		}, Placeholder: "Optional display name", Label: "Account display name",
+			NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeWords},
+			TestID: "settings-relay-name"})
+	}
+	body = append(body,
+		mobileInput{Scope: cx, Input: base.Input{Value: a.relayDirectURL.Get, OnChange: func(value string) {
+			a.relayDirectURL.Set(value)
+		}, Placeholder: "Optional LAN URL, for example http://192.168.1.20:4870", Label: "Direct LAN URL",
+			NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone},
+			TestID: "settings-relay-direct-url"},
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}, Children: []core.Node{
+			core.View{Style: core.Style{Direction: core.Column, Gap: 1, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+				Children: []core.Node{
+					core.Text{Content: "Allow insecure HTTP", Style: core.Style{FontSize: 11.5, FontWeight: ui.Medium},
+						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+					core.Text{Content: "Use only for a trusted private network.", MaxLines: 2,
+						Style:     core.Style{FontSize: 10.5},
+						StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+				}},
+			settingsSwitch(cx, "Allow insecure HTTP Relay", "settings-relay-allow-http", a.relayAllowHTTP.Get,
+				func(value bool) { a.relayAllowHTTP.Set(value) }),
+		}},
+	)
+	if a.relayErr.Get() != "" {
+		body = append(body, core.Text{Content: a.relayErr.Get(), TestID: "settings-relay-error", MaxLines: 4,
+			Style:     core.Style{FontSize: 10.5},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }})
+	}
+	if a.relayBusy.Get() {
+		body = append(body, ui.Spinner{Size: 14, Label: "Authenticating and registering Relay"})
+	} else {
+		body = append(body, ui.Button{Text: func() string {
+			if authMode == "register" {
+				return "Create account and connect"
+			}
+			return "Sign in and connect"
+		}(), Icon: lucide.LogIn, Variant: ui.ButtonPrimary,
+			Size: controlSize(cx), TestID: "settings-relay-submit", OnPress: a.configureRelay})
+	}
+	return core.View{TestID: "settings-relay-config", Style: core.Style{Direction: core.Column, Gap: 8,
+		Padding: core.Symmetric(9, 11), Background: colors.Inset(), CornerRadius: 8,
+		BorderWidth: 1, BorderColor: colors.Border()}, Children: body}
+}
+
 // settingsAccess configures pairing only for the local environment.
 func (a *app) settingsAccess(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
@@ -232,6 +510,9 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 	relayDetail := "No relay route saved for this environment."
 	if hasRelay {
 		relayDetail = relayRoute.URL
+		if state := relayAccessStateLabel(a.relayAccess.Get()); state != "" {
+			relayDetail += " · " + state
+		}
 	}
 	body = append(body, core.View{TestID: "settings-access-routes",
 		Style: core.Style{Direction: core.Column, Gap: 7}, Children: []core.Node{
@@ -245,6 +526,9 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 				func() bool { return modeRelay && hasRelay && (!modeDirect || !hasDirect) },
 				func(on bool) { toggleRoute(false, on) }),
 		}})
+	if !hasRelay {
+		body = append(body, a.relayConfigurationCard(cx))
+	}
 	link := a.accessLink.Get()
 	if a.accessErr.Get() != "" {
 		body = append(body, ui.Text(a.accessErr.Get(), 11.5, ui.Regular, colors.Danger))

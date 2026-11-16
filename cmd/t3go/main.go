@@ -66,7 +66,7 @@ func usage() {
 Usage:
   t3go serve    [--home DIR] [--listen HOST:PORT] [--no-auth] [--web DIR] [--relay] [--connect-relay]
   t3go pair     [--home DIR] [--listen HOST:PORT] [--relay]
-  t3go relay    --server URL --admin-token-file FILE [--direct-url URL] [--home DIR]
+  t3go relay    --server URL --user-token-file FILE [--direct-url URL] [--home DIR]
   t3go doctor   [--home DIR]
   t3go version
 
@@ -145,11 +145,19 @@ func cmdServe(args []string) int {
 			fmt.Printf("  t3      %s\n", upstreamPairingURL(ln.Addr().String(), cfg.Token))
 		}
 	}
-	if *connectRelay {
-		if err := startRelayConnector(ctx, cfg.Home, srv.Identity.ID, ln.Addr().String(), func(err error) { logger.Printf("relay: %v", err) }); err != nil {
+	if !cfg.NoAuth {
+		started, relayErr := srv.StartSavedRelayConnector(ctx, ln.Addr().String())
+		switch {
+		case relayErr != nil && *connectRelay:
 			_ = ln.Close()
-			fmt.Fprintf(os.Stderr, "t3go: connect relay: %v\n", err)
+			fmt.Fprintf(os.Stderr, "t3go: connect relay: %v\n", relayErr)
 			return 1
+		case relayErr != nil:
+			logger.Printf("relay: saved configuration could not be restored: %v", relayErr)
+		case started && !*quiet:
+			fmt.Println("  relay   restoring saved tunnel")
+		case *connectRelay && !*quiet:
+			fmt.Println("  relay   not configured; configure Access in the desktop app")
 		}
 	}
 	if err := srv.Serve(ctx, ln); err != nil {

@@ -234,7 +234,7 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 	refresh := ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: controlSize(cx),
 		TestID: "settings-refresh-providers", OnPress: a.refreshProviders, Disabled: a.providersBusy.Get}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: []core.Node{
-		settingsSectionTitle(cx, "Providers", "Configure Pi and ACP agents for this environment, then detect their installed models."),
+		settingsSectionTitle(cx, "Providers", "Configure ACP agents for this environment, then detect their installed models."),
 		core.Show{When: a.providersBusy.Get, Then: func(*core.Scope) core.Node {
 			return ui.Spinner{Size: 14, Label: "Detecting providers on " + a.envName()}
 		}},

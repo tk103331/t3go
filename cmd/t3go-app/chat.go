@@ -728,15 +728,27 @@ func (a *app) reasoningCard(cx *core.Scope, m proto.Message) core.Node {
 func (a *app) toolCard(cx *core.Scope, m proto.Message) core.Node {
 	colors := ui.ColorsOf(cx)
 	key := "tool:" + m.ID
+	open := func() bool { return a.isExpanded(key, false) }
 	head := m.Title
 	if head == "" {
 		head = "Tool"
 	}
-	trigger := []core.Node{ui.Icon(toolIcon(head), 13, colors.Muted), ui.Text(head, 12, ui.Semibold, colors.Text)}
-	if summary := toolSummary(m.Detail); summary != "" {
-		trigger = append(trigger, core.Text{Content: summary, MaxLines: 1, Style: core.Style{FontSize: 11.5, FontFamily: "Menlo, monospace"},
+	summary := toolSummary(m.Detail)
+	label := []core.Node{
+		ui.Icon(toolIcon(head), 13, colors.Muted),
+		core.Text{Content: head, MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold,
+			FlexShrink: 1, MinWidth: core.Pt(0)},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+	}
+	if summary != "" {
+		label = append(label, core.Text{Content: summary, TestID: "tool-summary-" + m.ID, MaxLines: 1,
+			Style: core.Style{FontSize: 11.5, FontFamily: "Menlo, monospace", FlexGrow: 1, FlexShrink: 1,
+				MinWidth: core.Pt(0), Overflow: core.Hidden},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 	}
+	trigger := []core.Node{toolDisclosureArrow(cx, open),
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
+			FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Overflow: core.Hidden}, Children: label}}
 	switch m.Status {
 	case "running":
 		trigger = append(trigger, ui.Spinner{Size: 12, Label: "Running " + head})
@@ -769,12 +781,36 @@ func (a *app) toolCard(cx *core.Scope, m proto.Message) core.Node {
 	}
 	return core.View{Style: core.Style{MinWidth: core.Pt(0), Padding: core.Symmetric(6, 9),
 		Background: ui.Alpha(colors.Inset(), 0.72), BorderWidth: 1, BorderColor: ui.Alpha(colors.Muted(), 0.1), CornerRadius: 8}, Children: []core.Node{
-		ui.Collapsible{Variant: ui.CollapsibleArrowLeft, Text: head, Trigger: trigger,
-			Open:         func() bool { return a.isExpanded(key, false) },
-			OnOpenChange: func(open bool) { a.setExpanded(key, open) },
-			TestID:       "tool-" + m.ID,
-			Content:      core.View{Style: core.Style{Direction: core.Column, Gap: 6, MinWidth: core.Pt(0)}, Children: blocks}},
-	}}
+		base.Collapsible{Open: open, Reveal: func() bool { return true }, TestID: "tool-" + m.ID,
+			Content: core.View{Style: core.Style{Direction: core.Column, Gap: 6, MinWidth: core.Pt(0),
+				Padding: core.Edges{Top: 4, Bottom: 4, Left: 22}}, Children: blocks},
+			Children: []core.Node{base.Button{Expanded: open, Label: head,
+				OnPress: func(core.PressEvent) {
+					a.setExpanded(key, !core.Untracked(cx, open))
+				},
+				Style: core.Style{Direction: core.Row, AlignSelf: core.AlignStretch, AlignItems: core.AlignCenter,
+					Gap: 4, Padding: core.Edges{Top: 4, Right: 8, Bottom: 4, Left: 2}, MinWidth: core.Pt(0),
+					FlexShrink: 1, Overflow: core.Hidden, CornerRadius: ui.RadiusControl},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Text(), Focus: ui.FocusRing(cx, 2)} },
+				Children:  trigger}},
+		}},
+	}
+}
+
+func toolDisclosureArrow(cx *core.Scope, open func() bool) core.Node {
+	icon := ui.IconOf(lucide.ChevronRight, 13, ui.ColorsOf(cx).Muted)
+	return core.View{Style: core.Style{FlexShrink: 0, Width: core.Pt(13), Height: core.Pt(13)}, StyleFunc: func() core.Style {
+		var degrees float32
+		if open() {
+			degrees = 90
+		}
+		style := core.Style{Transform: core.Transform{Rotate: degrees}}
+		if !ui.ReduceMotion(cx) {
+			style.Transition = core.Transition{Duration: 200 * time.Millisecond, Easing: core.EaseOut,
+				Properties: core.TransitionTransform}
+		}
+		return style
+	}, Children: []core.Node{icon}}
 }
 
 // changedFilesBlock lists the files a tool call changed.

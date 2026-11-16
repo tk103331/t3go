@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -82,5 +83,45 @@ func TestRelayCannotExposeUnauthenticatedEnvironment(t *testing.T) {
 		if code := cmdServe([]string{"--home", t.TempDir(), "--no-auth", mode}); code != 1 {
 			t.Fatalf("%s accepted --no-auth", mode)
 		}
+	}
+}
+
+func TestRelayCLIUsesUserToken(t *testing.T) {
+	hub, err := relay.New(t.TempDir(), "relay-user-cli-administrator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hub.Close()
+	mux := http.NewServeMux()
+	hub.Mount(mux)
+	cloud := httptest.NewServer(mux)
+	defer cloud.Close()
+
+	body := strings.NewReader(`{"email":"cli@example.com","password":"alice-password","name":"CLI user"}`)
+	req, _ := http.NewRequest(http.MethodPost, cloud.URL+"/api/v1/auth/register", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("register user = %d", resp.StatusCode)
+	}
+	var session relay.UserSession
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil || len(session.Token) < 20 {
+		t.Fatalf("decode user session: %v", err)
+	}
+	tokenFile := filepath.Join(t.TempDir(), "user-token")
+	if err := os.WriteFile(tokenFile, []byte(session.Token), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	if code := cmdRelay([]string{"--home", home, "--server", cloud.URL,
+		"--user-token-file", tokenFile, "--allow-http"}); code != 0 {
+		t.Fatalf("user-token registration exited %d", code)
+	}
+	if credentials, err := loadRelay(home); err != nil || credentials.ConnectToken == "" {
+		t.Fatalf("user-token relay credentials = %#v, %v", credentials, err)
 	}
 }

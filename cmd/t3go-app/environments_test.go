@@ -50,8 +50,8 @@ func TestUIMultipleEnvironmentsKeepDraftsAndThreadsSeparate(t *testing.T) {
 	}
 	raw, _ := json.Marshal(savedEnvironments{Version: 1, Active: profiles[0].ID, Profiles: profiles})
 	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{"environments:v1": string(raw)}))
-	app.WaitFor("text:Environment Alpha", 10*time.Second)
-	app.WaitFor("text:Environment Beta", 10*time.Second)
+	app.WaitFor("id:thread-"+a.Identity.ID+"/same-thread", 10*time.Second)
+	app.WaitFor("id:thread-"+b.Identity.ID+"/same-thread", 10*time.Second)
 	if app.Exists("id:environment-switcher") || app.Exists("id:environments") {
 		t.Fatal("environment management still appears outside Settings")
 	}
@@ -74,7 +74,7 @@ func TestUIMultipleEnvironmentsKeepDraftsAndThreadsSeparate(t *testing.T) {
 		t.Fatalf("background event disturbed composer: %+v", input)
 	}
 	app.Press(betaRow)
-	app.WaitFor("text:Environment Alpha", 5*time.Second)
+	app.WaitFor(alphaRow, 5*time.Second)
 	app.WaitFor("label:Message", 10*time.Second)
 	app.Type("label:Message", "Beta draft")
 	app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "Beta draft" })

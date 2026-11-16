@@ -19,8 +19,9 @@ type Connector struct {
 	EnvironmentID string
 	Token         string
 	// Target is a fixed local TCP endpoint, never supplied by a hub request.
-	Target  string
-	OnError func(error)
+	Target      string
+	OnConnected func()
+	OnError     func(error)
 }
 
 // Run reconnects until ctx is canceled. Existing streams close with their tunnel.
@@ -84,6 +85,9 @@ func (c Connector) runOnce(ctx context.Context) error {
 	session, err := yamux.Server(websocket.NetConn(ctx, conn, websocket.MessageBinary), tunnelConfig())
 	if err != nil {
 		return err
+	}
+	if c.OnConnected != nil {
+		c.OnConnected()
 	}
 	stop := context.AfterFunc(ctx, func() { _ = session.Close() })
 	defer stop()

@@ -97,6 +97,18 @@ type app struct {
 	accessLink          *core.Signal[string]
 	accessQR            *core.Signal[[]byte]
 	accessErr           *core.Signal[string]
+	relayAccess         *core.Signal[proto.RelayAccessStatus]
+	relayConfigOpen     *core.Signal[bool]
+	relayServer         *core.Signal[string]
+	relayAuthMode       *core.Signal[string]
+	relayEmail          *core.Signal[string]
+	relayPassword       *core.Signal[string]
+	relayName           *core.Signal[string]
+	relayDirectURL      *core.Signal[string]
+	relayAllowHTTP      *core.Signal[bool]
+	relayBusy           *core.Signal[bool]
+	relayErr            *core.Signal[string]
+	relaySeq            int
 
 	showArchived        *core.Signal[bool]
 	showCustomModel     *core.Signal[bool]
@@ -391,6 +403,17 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		accessLink:          core.NewSignal(cx, ""),
 		accessQR:            sliceSignal[byte](cx),
 		accessErr:           core.NewSignal(cx, ""),
+		relayAccess:         core.NewSignalFunc(cx, proto.RelayAccessStatus{}, func(a, b proto.RelayAccessStatus) bool { return a == b }),
+		relayConfigOpen:     core.NewSignal(cx, false),
+		relayServer:         core.NewSignal(cx, ""),
+		relayAuthMode:       core.NewSignal(cx, "login"),
+		relayEmail:          core.NewSignal(cx, ""),
+		relayPassword:       core.NewSignal(cx, ""),
+		relayName:           core.NewSignal(cx, ""),
+		relayDirectURL:      core.NewSignal(cx, ""),
+		relayAllowHTTP:      core.NewSignal(cx, false),
+		relayBusy:           core.NewSignal(cx, false),
+		relayErr:            core.NewSignal(cx, ""),
 
 		showArchived:        core.NewSignal(cx, false),
 		showCustomModel:     core.NewSignal(cx, false),
@@ -2806,6 +2829,41 @@ func (a *app) setProjectCollapsed(id string, collapsed bool) {
 	a.sidebarCollapsed.Set(next)
 	if raw, err := json.Marshal(next); err == nil {
 		_ = a.store.SetItem("sidebarCollapsed", string(raw))
+	}
+}
+
+// statusSectionCollapsed keeps Working and Projects open, and Settled
+// folded until the reader chooses otherwise.
+func (a *app) statusSectionCollapsed(id string) bool {
+	collapsedState := a.sidebarCollapsed.Get()
+	if a.manager != nil {
+		collapsedState = a.manager.inboxCollapsed.Get()
+	}
+	if collapsed, ok := collapsedState[id]; ok {
+		return collapsed
+	}
+	return id == "settled"
+}
+
+func (a *app) setStatusSectionCollapsed(id string, collapsed bool) {
+	current := a.sidebarCollapsed.GetUntracked()
+	store := a.store
+	if a.manager != nil {
+		current = a.manager.inboxCollapsed.GetUntracked()
+		store = a.manager.store
+	}
+	next := make(map[string]bool, len(current)+1)
+	for k, v := range current {
+		next[k] = v
+	}
+	next[id] = collapsed
+	if a.manager != nil {
+		a.manager.inboxCollapsed.Set(next)
+	} else {
+		a.sidebarCollapsed.Set(next)
+	}
+	if raw, err := json.Marshal(next); err == nil {
+		_ = store.SetItem("inboxCollapsed", string(raw))
 	}
 }
 

@@ -106,12 +106,11 @@ func (r *Registry) Register(p Provider) {
 	r.cache = nil
 }
 
-// Configure applies this environment's Pi and ACP settings. Configured
-// providers are replaced as a group, while the built-in adapters stay
-// available on every environment.
+// Configure applies this environment's ACP settings. Configured providers
+// are replaced as a group, while the built-in adapters stay available on
+// every environment.
 func (r *Registry) Configure(settings proto.Settings, home string) {
 	next := make(map[string]Provider)
-	next["pi"] = &Pi{Settings: settings.PiProvider}
 	for _, cfg := range settings.ACPProviders {
 		if cfg.ID == "" {
 			continue
@@ -128,14 +127,9 @@ func (r *Registry) Configure(settings proto.Settings, home string) {
 			providers = append(providers, p)
 		}
 	}
-	if pi, ok := next["pi"]; ok {
-		providers = append(providers, pi)
-	}
 	ids := make([]string, 0, len(next))
 	for id := range next {
-		if id != "pi" {
-			ids = append(ids, id)
-		}
+		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	for _, id := range ids {

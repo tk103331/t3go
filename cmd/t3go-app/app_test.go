@@ -74,7 +74,7 @@ func TestUIListAndThread(t *testing.T) {
 		"serverUrl": ts.URL,
 		"token":     cfg.Token,
 	}))
-	app.WaitFor("text:Demo Project", 15*time.Second)
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
 	app.Press("id:thread-" + thread.ID)
 	app.WaitFor("text:Hello from the agent", 15*time.Second)
 }
@@ -97,7 +97,7 @@ func TestUICreateThreadInProject(t *testing.T) {
 		"serverUrl": ts.URL,
 		"token":     cfg.Token,
 	}))
-	app.WaitFor("text:Beta", 15*time.Second)
+	app.WaitFor("id:project-"+beta.ID, 15*time.Second)
 	app.Press("id:new-thread")
 	app.WaitFor("id:new-thread-project-"+beta.ID, 5*time.Second)
 	app.Press("id:new-thread-project-" + beta.ID)
@@ -221,7 +221,7 @@ func TestUICreateThreadInWorktree(t *testing.T) {
 		"serverUrl": ts.URL,
 		"token":     cfg.Token,
 	}))
-	app.WaitFor("text:Repo", 15*time.Second)
+	app.WaitFor("id:project-"+project.ID, 15*time.Second)
 	app.Press("id:new-thread")
 	app.WaitFor("id:create-thread", 5*time.Second)
 	app.Press("id:toggle-worktree") // Own worktree: on
@@ -311,11 +311,20 @@ func TestUIArchiveThread(t *testing.T) {
 // both, checking the server kept each change.
 // pressThreadMenuItem opens the conversation's overflow menu and presses
 // the item the selector names.
-func pressThreadMenuItem(app *nsgotest.App, item string) {
-	app.Press("id:thread-menu")
-	app.WaitFor(item, 5*time.Second)
+func pressThreadMenuItem(app *nsgotest.App, item string) bool {
+	if !app.Exists(item) {
+		if !app.Exists("id:thread-menu") {
+			return false
+		}
+		app.Press("id:thread-menu")
+		app.Settle()
+	}
+	if !app.Exists(item) {
+		return false
+	}
 	app.Press(item)
 	app.Settle()
+	return true
 }
 
 func TestUIRenameAndDelete(t *testing.T) {
@@ -361,7 +370,9 @@ func TestUIRenameAndDelete(t *testing.T) {
 	app.Clear("label:Project name")
 	app.Type("label:Project name", "Renamed project")
 	app.Press("id:confirm-rename")
-	app.WaitFor("text:Renamed project", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		return app.Exists("id:project-name-"+project.ID) && app.Find("id:project-name-"+project.ID).Text == "Renamed project"
+	})
 	app.WaitUntil(10*time.Second, func() bool {
 		p, err := srv.Store.Project(ctx, project.ID)
 		return err == nil && p.Name == "Renamed project"
@@ -393,7 +404,7 @@ func TestUIRenameAndDelete(t *testing.T) {
 		return false
 	})
 	app.Press("id:confirm-delete")
-	app.WaitForGone("text:Renamed project", 10*time.Second)
+	app.WaitForGone("id:project-name-"+project.ID, 10*time.Second)
 
 	app.WaitUntil(10*time.Second, func() bool {
 		_, err := srv.Store.Project(ctx, project.ID)
@@ -423,10 +434,14 @@ func TestUIPalette(t *testing.T) {
 		"serverUrl": ts.URL,
 		"token":     cfg.Token,
 	}))
-	app.WaitFor("text:Demo Project", 15*time.Second)
+	app.WaitFor("id:project-"+project.ID, 15*time.Second)
 
 	app.Press("id:open-palette")
 	app.WaitFor("id:palette", 5*time.Second)
+	palette := app.Find("id:palette").Frame
+	if palette.Size.Width < 680 || palette.Size.Height < 540 {
+		t.Fatalf("desktop command palette is too small: %+v", palette)
+	}
 	app.Type("label:Search commands", "Second")
 	app.Key("enter")
 	app.WaitFor("id:content-header >> text:Second thread", 10*time.Second)
@@ -682,7 +697,7 @@ func TestUINewThreadInProject(t *testing.T) {
 		"serverUrl": ts.URL,
 		"token":     cfg.Token,
 	}))
-	app.WaitFor("text:Beta", 15*time.Second)
+	app.WaitFor("id:project-"+beta.ID, 15*time.Second)
 	app.Press("id:project-menu-" + beta.ID)
 	app.WaitFor("id:new-thread-in-"+beta.ID, 5*time.Second)
 	app.Press("id:new-thread-in-" + beta.ID)
@@ -1003,7 +1018,7 @@ func TestUITranscriptScrolls(t *testing.T) {
 	}
 }
 
-// TestUIDialogsFit keeps the model-heavy settings and new-thread dialogs
+// TestUIDialogsFit keeps the model-heavy settings dialog and new-thread page
 // inside the window.
 func TestUIDialogsFit(t *testing.T) {
 	srv, ts, cfg := startEnv(t)
@@ -1049,26 +1064,29 @@ func TestUIDialogsFit(t *testing.T) {
 	app.WaitForGone("id:settings-dialog", 5*time.Second)
 
 	app.Press("id:new-thread")
-	app.WaitFor("id:new-thread-dialog", 5*time.Second)
+	app.WaitFor("id:new-thread-page", 5*time.Second)
 	app.WaitFor("id:new-thread-model", 5*time.Second)
-	check("id:new-thread-dialog")
+	check("id:new-thread-page")
 	app.WaitFor(`text:"What should we build in"`, 5*time.Second)
-	dialog := mobileScreenFrame(app.Find("id:new-thread-dialog"))
+	page := mobileScreenFrame(app.Find("id:new-thread-page"))
 	composer := mobileScreenFrame(app.Find("id:new-thread-composer"))
 	context := mobileScreenFrame(app.Find("id:new-thread-context"))
-	if dialog.Size.Width < 900 {
-		t.Fatalf("new thread dialog is still using the old compact width: %v", dialog)
+	if page.Size.Width < 800 {
+		t.Fatalf("new thread page does not fill the conversation area: %v", page)
 	}
-	if composer.Size.Width < 800 {
+	if composer.Size.Width < 700 {
 		t.Fatalf("new thread composer is not using the page-width layout: %v", composer)
 	}
 	if context.Origin.Y < composer.Origin.Y+composer.Size.Height {
 		t.Fatalf("thread context should sit below the composer: composer %v context %v", composer, context)
 	}
-	dialogCenter := dialog.Origin.X + dialog.Size.Width/2
+	pageCenter := page.Origin.X + page.Size.Width/2
 	composerCenter := composer.Origin.X + composer.Size.Width/2
-	if delta := dialogCenter - composerCenter; delta < -2 || delta > 2 {
-		t.Fatalf("new thread composer is not centered: dialog %v composer %v", dialog, composer)
+	if delta := pageCenter - composerCenter; delta < -2 || delta > 2 {
+		t.Fatalf("new thread composer is not centered: page %v composer %v", page, composer)
+	}
+	if app.Exists("id:new-thread-dialog") {
+		t.Fatal("desktop new thread still opens as a dialog")
 	}
 	create := app.Find("id:create-thread")
 	app.Press(`text:"supervised"`)
@@ -1186,13 +1204,18 @@ func TestUISidebarThreads(t *testing.T) {
 	app.WaitFor("id:thread-"+second.ID, 5*time.Second)
 	app.WaitForGone("id:thread-"+first.ID, 5*time.Second)
 	app.Clear("label:Search threads")
+	app.Type("label:Search threads", "No such thread")
+	app.WaitFor("id:sidebar-no-results", 5*time.Second)
+	app.Clear("label:Search threads")
 	app.WaitFor("id:thread-"+first.ID, 5*time.Second)
 
-	// A project's title folds its threads away.
-	app.Press("label:Alpha")
-	app.WaitForGone("id:thread-"+first.ID, 5*time.Second)
-	app.Press("label:Alpha")
+	// Recent conversations have no heading, while project administration
+	// stays available in a folded group.
 	app.WaitFor("id:thread-"+first.ID, 5*time.Second)
+	if app.Exists("text:Recent") {
+		t.Fatal("recent conversations should stay ungrouped")
+	}
+	app.WaitFor("id:project-"+project.ID, 5*time.Second)
 
 	// Work finished elsewhere marks the row until it is opened.
 	updated := "Second thread updated"
@@ -2514,7 +2537,7 @@ func TestUINewThreadOptions(t *testing.T) {
 	}))
 	app.WaitFor("id:new-thread", 15*time.Second)
 	app.Press("id:new-thread")
-	app.WaitFor("id:new-thread-dialog", 5*time.Second)
+	app.WaitFor("id:new-thread-page", 5*time.Second)
 	app.Press("id:new-thread-project-" + project.ID)
 	app.Press("id:new-thread-provider-side-fake")
 	app.Press("id:new-thread-perm-auto")

@@ -4,6 +4,7 @@ package relay
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -29,6 +30,7 @@ import (
 // Binding contains public discovery data and hashes of environment-scoped secrets.
 type Binding struct {
 	ID          string   `json:"environmentId"`
+	OwnerID     string   `json:"ownerId,omitempty"`
 	Name        string   `json:"name"`
 	PublicKey   string   `json:"publicKey"`
 	DirectURLs  []string `json:"directUrls,omitempty"`
@@ -37,15 +39,64 @@ type Binding struct {
 }
 
 type Registration struct {
-	ID         string   `json:"environmentId"`
-	Name       string   `json:"name"`
-	PublicKey  string   `json:"publicKey"`
-	Token      string   `json:"token"`
-	DirectURLs []string `json:"directUrls,omitempty"`
+	ID         string    `json:"environmentId"`
+	Name       string    `json:"name"`
+	PublicKey  string    `json:"publicKey"`
+	Token      string    `json:"token"`
+	DirectURLs []string  `json:"directUrls,omitempty"`
+	Nonce      string    `json:"nonce,omitempty"`
+	IssuedAt   time.Time `json:"issuedAt,omitempty"`
+	Signature  string    `json:"signature,omitempty"`
 }
 
 type Registered struct {
 	ConnectToken string `json:"connectToken"`
+}
+
+func (r *Registration) Sign(privateKey ed25519.PrivateKey) error {
+	if len(privateKey) != ed25519.PrivateKeySize {
+		return errors.New("invalid environment signing key")
+	}
+	nonce := make([]byte, 18)
+	if _, err := rand.Read(nonce); err != nil {
+		return err
+	}
+	r.Nonce = base64.RawURLEncoding.EncodeToString(nonce)
+	r.IssuedAt = time.Now().UTC()
+	r.Signature = ""
+	raw, err := registrationSigningBytes(*r)
+	if err != nil {
+		return err
+	}
+	r.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, raw))
+	return nil
+}
+
+func registrationSigningBytes(registration Registration) ([]byte, error) {
+	registration.Token = ""
+	registration.Signature = ""
+	return json.Marshal(registration)
+}
+
+func verifyRegistrationSignature(registration Registration, now time.Time) error {
+	if registration.Nonce == "" || len(registration.Nonce) > 128 || registration.IssuedAt.IsZero() ||
+		registration.IssuedAt.Before(now.Add(-10*time.Minute)) ||
+		registration.IssuedAt.After(now.Add(10*time.Minute)) {
+		return errors.New("registration proof is missing or expired")
+	}
+	publicKey, err := base64.RawURLEncoding.DecodeString(registration.PublicKey)
+	if err != nil || len(publicKey) != ed25519.PublicKeySize {
+		return errors.New("invalid environment public key")
+	}
+	signature, err := base64.RawURLEncoding.DecodeString(registration.Signature)
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return errors.New("invalid environment registration signature")
+	}
+	raw, err := registrationSigningBytes(registration)
+	if err != nil || !ed25519.Verify(publicKey, raw, signature) {
+		return errors.New("invalid environment registration signature")
+	}
+	return nil
 }
 
 type peer struct {
@@ -54,20 +105,31 @@ type peer struct {
 }
 
 type Hub struct {
-	mu       sync.Mutex
-	path     string
-	admin    string
-	bindings map[string]Binding
-	peers    map[string]*peer
-	closed   bool
+	mu           sync.Mutex
+	path         string
+	usersPath    string
+	admin        string
+	bindings     map[string]Binding
+	users        map[string]userRecord
+	sessions     map[string]sessionRecord
+	authFailures map[string]authFailure
+	peers        map[string]*peer
+	closed       bool
+
+	dummyPasswordHash []byte
 }
 
 func New(home, admin string) (*Hub, error) {
 	if len(admin) < 20 {
 		return nil, errors.New("relay requires an authenticated administrator")
 	}
-	h := &Hub{path: filepath.Join(home, "relay-bindings.json"), admin: digest(admin),
-		bindings: map[string]Binding{}, peers: map[string]*peer{}}
+	dummyHash, err := newDummyPasswordHash()
+	if err != nil {
+		return nil, err
+	}
+	h := &Hub{path: filepath.Join(home, "relay-bindings.json"),
+		usersPath: filepath.Join(home, "relay-users.json"), admin: digest(admin),
+		bindings: map[string]Binding{}, authFailures: map[string]authFailure{}, peers: map[string]*peer{}}
 	raw, err := os.ReadFile(h.path)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
@@ -77,10 +139,19 @@ func New(home, admin string) (*Hub, error) {
 			return nil, errors.New("invalid relay bindings file")
 		}
 	}
+	users, err := loadUserFile(h.usersPath)
+	if err != nil {
+		return nil, err
+	}
+	h.users, h.sessions, h.dummyPasswordHash = users.Users, users.Sessions, dummyHash
 	return h, nil
 }
 
 func (h *Hub) Mount(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/v1/auth/register", h.registerUser)
+	mux.HandleFunc("POST /api/v1/auth/login", h.loginUser)
+	mux.HandleFunc("GET /api/v1/auth/me", h.currentUser)
+	mux.HandleFunc("POST /api/v1/auth/logout", h.logoutUser)
 	mux.HandleFunc("POST /api/v1/relay/environments", h.register)
 	mux.HandleFunc("GET /api/v1/relay/environments", h.list)
 	mux.HandleFunc("DELETE /api/v1/relay/environments/{id}", h.remove)
@@ -116,8 +187,9 @@ func fail(w http.ResponseWriter, status int, code, message string) {
 }
 
 func (h *Hub) register(w http.ResponseWriter, r *http.Request) {
-	if !matches(h.admin, bearer(r)) {
-		fail(w, 401, "unauthorized", "relay administrator token required")
+	ownerID, admin, authorized := h.registrationAuth(r)
+	if !authorized {
+		fail(w, 401, "unauthorized", "relay user token required")
 		return
 	}
 	var in Registration
@@ -129,6 +201,12 @@ func (h *Hub) register(w http.ResponseWriter, r *http.Request) {
 	if err != nil || len(key) != 32 || in.ID != in.PublicKey || len(in.Token) < 20 || len(in.Name) > 200 || len(in.DirectURLs) > 16 {
 		fail(w, 400, "registration", "valid environment identity and token required")
 		return
+	}
+	if !admin {
+		if err := verifyRegistrationSignature(in, time.Now()); err != nil {
+			fail(w, 400, "registration", err.Error())
+			return
+		}
 	}
 	for _, address := range in.DirectURLs {
 		if _, err := ValidateURL(address); err != nil {
@@ -142,7 +220,7 @@ func (h *Hub) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
-	binding := Binding{ID: in.ID, Name: in.Name, PublicKey: in.PublicKey,
+	binding := Binding{ID: in.ID, OwnerID: ownerID, Name: in.Name, PublicKey: in.PublicKey,
 		DirectURLs: in.DirectURLs, ConnectHash: digest(token), AccessHash: digest(in.Token)}
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -164,14 +242,18 @@ func (h *Hub) register(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Hub) list(w http.ResponseWriter, r *http.Request) {
-	if !matches(h.admin, bearer(r)) {
-		fail(w, 401, "unauthorized", "relay administrator token required")
+	ownerID, admin, authorized := h.registrationAuth(r)
+	if !authorized {
+		fail(w, 401, "unauthorized", "relay user token required")
 		return
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	out := make([]map[string]any, 0, len(h.bindings))
 	for id, binding := range h.bindings {
+		if !admin && binding.OwnerID != ownerID {
+			continue
+		}
 		p := h.peers[id]
 		out = append(out, map[string]any{"environmentId": id, "name": binding.Name,
 			"publicKey": binding.PublicKey, "directUrls": binding.DirectURLs,
@@ -181,14 +263,20 @@ func (h *Hub) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Hub) remove(w http.ResponseWriter, r *http.Request) {
-	if !matches(h.admin, bearer(r)) {
-		fail(w, 401, "unauthorized", "relay administrator token required")
+	ownerID, admin, authorized := h.registrationAuth(r)
+	if !authorized {
+		fail(w, 401, "unauthorized", "relay user token required")
 		return
 	}
 	h.mu.Lock()
 	id := r.PathValue("id")
 	binding, exists := h.bindings[id]
 	if !exists {
+		h.mu.Unlock()
+		fail(w, 404, "environment", "unknown environment")
+		return
+	}
+	if !admin && binding.OwnerID != ownerID {
 		h.mu.Unlock()
 		fail(w, 404, "environment", "unknown environment")
 		return

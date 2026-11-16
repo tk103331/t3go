@@ -48,14 +48,26 @@ t3go serve --home /srv/t3go --listen 0.0.0.0:4870 --relay --web web
 
 在前面配置可信 HTTPS 反向代理，并允许 WebSocket Upgrade 和 SSE 长连接，
 关闭 SSE 缓冲。`--relay` 必须启用鉴权。中继管理员 Token 是该数据目录
-已有的 `token` 文件；通过可信方式取得，仅在登记或撤销时使用。
+已有的 `token` 文件；通过可信方式取得，仅用于运维和兼容旧的登记流程。
 
-在电脑上登记本地环境（这里的 `--home` 是电脑自己的数据目录）：
+普通用户不需要管理员 Token。在桌面端打开 **Settings → Access**，选择
+**Create account** 注册，之后可以选择 **Sign in** 登录。Relay 为注册和登录
+签发独立的用户 Token，桌面端立即使用该 Token 登记当前电脑并启动隧道；
+用户 Token 不会写入 `relay.json`。密码使用 bcrypt 哈希，Relay 只保存用户
+Token 的 SHA-256 摘要，默认会话有效期为 30 天。
+
+每个环境绑定到登记它的用户。用户只能列出和撤销自己的环境；管理员仍可查看
+全部环境。用户 Token 只用于账户认证、环境登记和管理，环境业务接口继续使用
+独立的环境访问 Token。普通用户登记环境时必须提交环境 Ed25519 私钥签名，
+因此仅有环境 ID 或公钥不能抢注别人的环境。
+
+也可以用 CLI 使用已经取得的用户 Token 登记本地环境（这里的 `--home`
+是电脑自己的数据目录）：
 
 ```sh
 t3go relay --home /path/to/local-data \
   --server https://relay.example.com \
-  --admin-token-file /path/to/hub-admin-token \
+  --user-token-file /path/to/user-token \
   --direct-url http://192.168.1.20:4870
 
 t3go serve --home /path/to/local-data --listen 0.0.0.0:4870 --connect-relay
@@ -102,12 +114,13 @@ HTTP 局域网地址；不可达时使用中继，Direct 模式不回退。
 ```sh
 t3go relay --home /path/to/local-data \
   --server https://relay.example.com \
-  --admin-token-file /path/to/hub-admin-token \
+  --user-token-file /path/to/user-token \
   --revoke ENVIRONMENT_ID
 ```
 
 成功撤销后，若本机 `relay.json` 与该中继和环境匹配，也移除该凭证文件。
 然后可重新登记。撤销只影响中继入口，局域网直连权限由电脑的 Token 决定。
+管理员仍可使用 `--admin-token-file` 撤销任意环境。
 
 ## 第一版存储与接口
 
@@ -117,15 +130,20 @@ t3go relay --home /path/to/local-data \
 | 环境 SQLite `message_receipts` | 线程内 Request ID、请求摘要、原 run ID 和接收时间 |
 | 电脑 `relay.json`（0600） | 中继地址、环境 ID、连接凭证和可选直连地址 |
 | 中继 `relay-bindings.json`（0600） | 环境公钥、名称、地址及连接/访问 Token 的 SHA-256 摘要 |
+| 中继 `relay-users.json`（0600） | 用户公开资料、bcrypt 密码哈希和用户 Token 的 SHA-256 摘要 |
 | 客户端 `environments:v1` | 版本、环境配置、活动/默认环境、路线及共享 Token |
 | 客户端 `env:<id>:<key>` | 每个环境的草稿、队列和 UI 状态 |
 
 | 接口 | 权限与用途 |
 | --- | --- |
 | `GET /api/v1/environment?challenge=...` | 公开的随机挑战签名描述 |
-| `POST /api/v1/relay/environments` | 中继管理员登记环境，返回独立连接凭证 |
-| `GET /api/v1/relay/environments` | 中继管理员列出登记与隧道在线状态 |
-| `DELETE /api/v1/relay/environments/{id}` | 中继管理员撤销并关闭活动隧道 |
+| `POST /api/v1/auth/register` | 创建本地 Relay 账号并返回用户 Token |
+| `POST /api/v1/auth/login` | 登录并签发新的用户 Token |
+| `GET /api/v1/auth/me` | 用户 Token 查询当前账号 |
+| `POST /api/v1/auth/logout` | 撤销当前用户 Token |
+| `POST /api/v1/relay/environments` | 用户或管理员登记环境，返回独立连接凭证 |
+| `GET /api/v1/relay/environments` | 用户列出自己的环境；管理员列出全部 |
+| `DELETE /api/v1/relay/environments/{id}` | 用户撤销自己的环境；管理员可撤销任意环境 |
 | `GET /relay/connect/{id}` | 电脑连接凭证建立 WebSocket + yamux 隧道 |
 | `/e/{id}/{path...}` | 环境 Token 鉴权后代理到电脑原有接口 |
 | `POST /api/v1/threads/{id}/messages` | 环境 Token；可选 `requestId` 对同线程消息去重 |
@@ -137,9 +155,11 @@ t3go relay --home /path/to/local-data \
 
 ## 尚未实现的设计目标
 
-当前仍使用原有的**共享环境 Token**，作为本地 API 与该环境中继入口的访问凭证，
-本地 API 仍会再次检查它。电脑连接凭证独立生成，仅允许建立对应隧道。
-尚无云端账户、一次性设备配对、独立中继访问会话或单客户端设备撤销；
+当前环境中继入口仍使用原有的**共享环境 Token**，本地 API 会再次检查它。
+电脑连接凭证独立生成，仅允许建立对应隧道。Relay 已有本地账号、用户级环境
+归属和可撤销用户会话；Google/GitHub OAuth、一次性设备配对和单客户端设备撤销
+尚未接入。用户模型已包含 `provider` 和 `providerSubject` 字段，可作为后续
+OAuth 身份映射基础；
 配对链接授予完整环境权限，应该按密码管理。Token 变更后需撤销并重新登记。
 
 客户端凭证目前保存在 NSGo Storage 中，没有接入系统安全存储；

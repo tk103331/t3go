@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// jsonlPeer is a small JSON-RPC-like line protocol peer used by Pi RPC and
-// ACP. Both protocols delimit messages with LF and use JSON id fields.
+// jsonlPeer is a small JSON-RPC-like line protocol peer used by ACP.
+// The protocol delimits messages with LF and uses JSON id fields.
 type jsonlPeer struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser

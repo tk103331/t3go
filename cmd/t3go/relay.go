@@ -52,6 +52,7 @@ func cmdRelay(args []string) int {
 	fs := flag.NewFlagSet("relay", flag.ContinueOnError)
 	home := fs.String("home", "", "environment data directory")
 	address := fs.String("server", "", "trusted hub http(s) URL")
+	userTokenFile := fs.String("user-token-file", "", "file containing a Relay user token")
 	adminFile := fs.String("admin-token-file", "", "file containing hub administrator token")
 	direct := fs.String("direct-url", "", "optional reachable LAN URL for this environment")
 	name := fs.String("name", "", "environment name")
@@ -75,9 +76,17 @@ func cmdRelay(args []string) int {
 			return 1
 		}
 	}
-	admin, err := os.ReadFile(*adminFile)
+	tokenFile := strings.TrimSpace(*userTokenFile)
+	if tokenFile == "" {
+		tokenFile = strings.TrimSpace(*adminFile)
+	}
+	if tokenFile == "" {
+		fmt.Fprintln(os.Stderr, "t3go relay: a Relay user token file is required")
+		return 1
+	}
+	token, err := os.ReadFile(tokenFile)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "t3go relay: cannot read administrator token file")
+		fmt.Fprintln(os.Stderr, "t3go relay: cannot read Relay token file")
 		return 1
 	}
 	cfg, err := config.Load(*home, "", false)
@@ -120,6 +129,12 @@ func cmdRelay(args []string) int {
 		if *direct != "" {
 			registration.DirectURLs = []string{*direct}
 		}
+		if strings.TrimSpace(*userTokenFile) != "" {
+			if err := registration.Sign(identity.PrivateKey); err != nil {
+				fmt.Fprintln(os.Stderr, "t3go relay: could not sign environment registration")
+				return 1
+			}
+		}
 		raw, _ = json.Marshal(registration)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, target, bytes.NewReader(raw))
@@ -127,7 +142,7 @@ func cmdRelay(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(admin)))
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
 	req.Header.Set("Content-Type", "application/json")
 	httpClient := &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := httpClient.Do(req)
