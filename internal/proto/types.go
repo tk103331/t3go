@@ -163,13 +163,19 @@ type Model struct {
 
 // Provider is an agent CLI the server can run.
 type Provider struct {
-	ID        string  `json:"id"`
-	Name      string  `json:"name"`
-	Installed bool    `json:"installed"`
-	Version   string  `json:"version,omitempty"`
-	Path      string  `json:"path,omitempty"`
-	Error     string  `json:"error,omitempty"`
-	Models    []Model `json:"models,omitempty"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Installed bool   `json:"installed"`
+	// Enabled is false when the provider is configured but switched off.
+	Enabled bool `json:"enabled"`
+	// Source is builtin, pi, or acp.
+	Source string `json:"source,omitempty"`
+	// ConfigID identifies a configurable provider instance.
+	ConfigID string  `json:"configId,omitempty"`
+	Version  string  `json:"version,omitempty"`
+	Path     string  `json:"path,omitempty"`
+	Error    string  `json:"error,omitempty"`
+	Models   []Model `json:"models,omitempty"`
 	// AuthStatus is authenticated, unauthenticated or unknown.
 	AuthStatus      string `json:"authStatus,omitempty"`
 	AuthDetail      string `json:"authDetail,omitempty"`
@@ -177,6 +183,64 @@ type Provider struct {
 	CanAuthenticate bool   `json:"canAuthenticate,omitempty"`
 	InstallCommand  string `json:"installCommand,omitempty"`
 	LoginCommand    string `json:"loginCommand,omitempty"`
+}
+
+// PiProviderSettings configures the built-in Pi adapter.
+type PiProviderSettings struct {
+	Enabled    bool     `json:"enabled"`
+	BinaryPath string   `json:"binaryPath,omitempty"`
+	LaunchArgs []string `json:"launchArgs,omitempty"`
+}
+
+// ACPProviderSettings configures one local or registry ACP instance.
+type ACPProviderSettings struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Enabled      bool     `json:"enabled"`
+	Source       string   `json:"source"` // registry or local
+	AgentID      string   `json:"agentId,omitempty"`
+	Version      string   `json:"version,omitempty"`
+	CommandPath  string   `json:"commandPath,omitempty"`
+	CommandArgs  []string `json:"commandArgs,omitempty"`
+	AuthMethodID string   `json:"authMethodId,omitempty"`
+	Distribution string   `json:"distribution,omitempty"` // auto, npx, uvx, or binary
+}
+
+// ACPRegistryAgent is one agent advertised by the official ACP Registry.
+type ACPRegistryAgent struct {
+	ID            string                  `json:"id"`
+	Name          string                  `json:"name"`
+	Version       string                  `json:"version"`
+	Description   string                  `json:"description,omitempty"`
+	Repository    string                  `json:"repository,omitempty"`
+	Website       string                  `json:"website,omitempty"`
+	License       string                  `json:"license,omitempty"`
+	Icon          string                  `json:"icon,omitempty"`
+	Distributions []string                `json:"distributions,omitempty"`
+	Distribution  ACPRegistryDistribution `json:"distribution,omitempty"`
+}
+
+// ACPRegistryDistribution describes how an ACP Registry agent is launched.
+type ACPRegistryDistribution struct {
+	Binary map[string]ACPBinaryDistribution `json:"binary,omitempty"`
+	NPX    *ACPPackageDistribution          `json:"npx,omitempty"`
+	UVX    *ACPPackageDistribution          `json:"uvx,omitempty"`
+}
+
+// ACPBinaryDistribution is one platform archive in the ACP Registry.
+type ACPBinaryDistribution struct {
+	Archive string            `json:"archive"`
+	CMD     string            `json:"cmd"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	SHA256  string            `json:"sha256,omitempty"`
+}
+
+// ACPPackageDistribution is an npx or uvx package pinned by the registry.
+type ACPPackageDistribution struct {
+	Package string            `json:"package"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
 }
 
 // MessageHit is a message matching a search.
@@ -413,6 +477,10 @@ type Settings struct {
 	// Accent is a #rrggbb accent, empty for the theme's own.
 	Accent string `json:"accent,omitempty"`
 	Title  string `json:"title"`
+	// AccessEnabled controls whether the desktop shows its local pairing link.
+	AccessEnabled bool                  `json:"accessEnabled,omitempty"`
+	PiProvider    PiProviderSettings    `json:"piProvider,omitempty"`
+	ACPProviders  []ACPProviderSettings `json:"acpProviders,omitempty"`
 }
 
 // DefaultSettings are a new environment's defaults.

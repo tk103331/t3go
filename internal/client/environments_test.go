@@ -224,3 +224,38 @@ func TestMultiRoutePairingRoundTrip(t *testing.T) {
 		t.Fatal("unpinned multi-route pairing accepted")
 	}
 }
+
+func TestPairingLinkRoundTrip(t *testing.T) {
+	p := EnvironmentProfile{
+		ID: "env_test", PublicKey: "env_test", Token: "test-token",
+		Routes: []Route{
+			{URL: "http://desktop.local:4870/", Kind: "direct"},
+			{URL: "https://relay.example/e/env_test/", Kind: "relay"},
+		},
+	}
+	link, err := PairingLink(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := PairingProfile(link, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != p.ID || got.PublicKey != p.PublicKey || got.Token != p.Token {
+		t.Fatalf("identity = %#v", got)
+	}
+	if len(got.Routes) != 2 ||
+		got.Routes[0].Kind != "direct" || got.Routes[0].URL != "http://desktop.local:4870" ||
+		got.Routes[1].Kind != "relay" || got.Routes[1].URL != "https://relay.example/e/env_test" {
+		t.Fatalf("link = %q routes = %#v", link, got.Routes)
+	}
+}
+
+func TestPairingLinkRequiresReachableIdentity(t *testing.T) {
+	if _, err := PairingLink(EnvironmentProfile{}); err == nil {
+		t.Fatal("empty profile produced a pairing link")
+	}
+	if _, err := PairingLink(EnvironmentProfile{Token: "secret"}); err == nil {
+		t.Fatal("profile without routes produced a pairing link")
+	}
+}

@@ -85,6 +85,54 @@ func PairingProfile(address, token string) (EnvironmentProfile, error) {
 	return p, nil
 }
 
+// PairingLink encodes a saved environment profile as the portable link a
+// phone can scan. A relay route is preferred for cross-network access, while
+// one direct route is carried alongside it for LAN fallback.
+func PairingLink(p EnvironmentProfile) (string, error) {
+	p.Token = strings.TrimSpace(p.Token)
+	if p.Token == "" {
+		return "", errors.New("environment token is missing")
+	}
+	if len(p.Routes) == 0 {
+		return "", errors.New("environment has no route")
+	}
+	var relay, direct, first string
+	for _, route := range p.Routes {
+		raw := strings.TrimRight(strings.TrimSpace(route.URL), "/")
+		if raw == "" {
+			continue
+		}
+		if first == "" {
+			first = raw
+		}
+		if route.Kind == "relay" && relay == "" {
+			relay = raw
+		}
+		if route.Kind != "relay" && direct == "" {
+			direct = raw
+		}
+	}
+	primary := relay
+	if primary == "" {
+		primary = direct
+	}
+	if primary == "" {
+		primary = first
+	}
+	if primary == "" {
+		return "", errors.New("environment has no usable route")
+	}
+	q := url.Values{"url": {primary}, "token": {p.Token}}
+	if direct != "" && direct != primary {
+		q.Set("direct", direct)
+	}
+	if p.ID != "" && p.PublicKey != "" {
+		q.Set("environment", p.ID)
+		q.Set("key", p.PublicKey)
+	}
+	return "t3go://pair?" + q.Encode(), nil
+}
+
 func LegacyEnvironmentID(address string) string {
 	sum := sha256.Sum256([]byte(address))
 	return "legacy-" + base64.RawURLEncoding.EncodeToString(sum[:12])

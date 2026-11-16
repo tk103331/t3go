@@ -26,6 +26,7 @@ func (a *app) settingsConnectionReady() bool {
 func (a *app) beginSettingsDraft() {
 	s := a.settings.GetUntracked()
 	a.settingsDraft.Set(s)
+	a.loadProviderTextDraft(s)
 	a.settingsTitle.Set(s.Title)
 }
 
@@ -57,6 +58,8 @@ func (a *app) loadSettingsSection(section string) {
 	switch section {
 	case "providers":
 		target.refreshProviders()
+	case "access":
+		target.refreshAccess()
 	case "usage":
 		target.loadUsage(target.usageDays.GetUntracked())
 	}
@@ -156,6 +159,8 @@ func (a *app) settingsPage(cx *core.Scope) core.Node {
 			switch a.settingsSection.Get() {
 			case "providers":
 				return target.settingsProviders(cx, a)
+			case "access":
+				return target.settingsAccess(cx)
 			case "usage":
 				return target.settingsUsage(cx)
 			case "worktrees":
@@ -175,6 +180,7 @@ func (a *app) saveTargetSettings(target *app) {
 	if a.settingsSaveBusy.GetUntracked() || !target.settingsConnectionReady() {
 		return
 	}
+	target.syncProviderTextDraft()
 	s := target.settingsDraft.GetUntracked()
 	s.Title = target.settingsTitle.GetUntracked()
 	a.settingsSaveBusy.Set(true)

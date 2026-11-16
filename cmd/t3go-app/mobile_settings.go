@@ -24,7 +24,7 @@ func (a *app) mobileSettings(cx *core.Scope) core.Node {
 			}},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				target := a.settingsTarget()
-				if a.settingsSection.Get() != "environment-defaults" || target == nil || !target.settingsConnectionReady() {
+				if !settingsSectionSaves(a.settingsSection.Get()) || target == nil || !target.settingsConnectionReady() {
 					return core.View{}
 				}
 				return core.View{Style: core.Style{Direction: core.Row, FlexShrink: 0, Gap: 8, Padding: core.Symmetric(8, 18)},

@@ -133,7 +133,10 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 			Sidebar: []core.Node{core.Dynamic(a.sidebar)},
 			Header:  []core.Node{core.Dynamic(a.contentHeader)},
 			Content: []core.Node{core.Dynamic(a.content)},
-			Open:    a.sidebarOpen.Get, OnOpenChange: a.setSidebarOpen,
+			// The conversation header owns both panel toggles. SidebarShell
+			// renders another leading toggle whenever OnOpenChange is set,
+			// which would duplicate the conversation-header control.
+			Open:  a.sidebarOpen.Get,
 			Width: a.sidebarWidth.Get, OnWidthChange: a.setSidebarWidth,
 			DefaultWidth: 260, MinWidth: 220, MaxWidth: 380,
 			ResizeLabel: "Resize sidebar",
@@ -1227,7 +1230,7 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 		Title: "Settings", Description: "Manage environments and workspace preferences.",
 		TestID: "settings-dialog", Style: settingsDialogStyle(cx), Children: []core.Node{core.Dynamic(a.settingsBody)},
 		Footer: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
-			if a.settingsSection.Get() != "environment-defaults" {
+			if !settingsSectionSaves(a.settingsSection.Get()) {
 				return ui.Button{Text: "Close", Variant: ui.ButtonGhost, TestID: "settings-close", OnPress: a.closeSettings}
 			}
 			target := a.settingsTarget()
@@ -1236,6 +1239,15 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 			}
 			return core.View{Style: core.Style{Direction: core.Row, Gap: 8, Width: core.Pct(100)}, Children: settingsFooter(cx, a, target)}
 		})}}
+}
+
+func settingsSectionSaves(section string) bool {
+	switch section {
+	case "environment-defaults", "providers", "access":
+		return true
+	default:
+		return false
+	}
 }
 
 // settingsDialogStyle is wide on desktops and the sheet's width on phones.

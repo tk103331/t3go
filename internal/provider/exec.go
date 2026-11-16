@@ -21,6 +21,7 @@ type procSpec struct {
 	Path string
 	Args []string
 	CWD  string
+	Env  []string
 }
 
 // procResult is what a finished provider process left.
@@ -147,9 +148,9 @@ func versionOf(ctx context.Context, path string) string {
 func detect(ctx context.Context, id, name, binary string) proto.Provider {
 	path, err := lookPath(binary)
 	if err != nil {
-		return proto.Provider{ID: id, Name: name, Error: "not installed"}
+		return proto.Provider{ID: id, Name: name, Enabled: true, Source: "builtin", Error: "not installed"}
 	}
-	p := proto.Provider{ID: id, Name: name, Installed: true, Path: path, Version: versionOf(ctx, path)}
+	p := proto.Provider{ID: id, Name: name, Enabled: true, Source: "builtin", Installed: true, Path: path, Version: versionOf(ctx, path)}
 	return p
 }
 

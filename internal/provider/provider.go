@@ -4,6 +4,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -66,17 +67,27 @@ var ErrNotInstalled = errors.New("provider is not installed")
 
 // Registry holds the supported providers and caches their snapshots.
 type Registry struct {
-	providers []Provider
-	mu        sync.Mutex
-	cache     []proto.Provider
-	cachedAt  time.Time
+	providers  []Provider
+	builtinIDs map[string]bool
+	configured map[string]Provider
+	home       string
+	mu         sync.Mutex
+	cache      []proto.Provider
+	cachedAt   time.Time
 }
 
 // NewRegistry returns the built-in providers.
 func NewRegistry() *Registry {
-	return &Registry{providers: []Provider{
-		&Claude{}, &Codex{}, &OpenCode{},
-	}}
+	builtins := []Provider{&Claude{}, &Codex{}, &OpenCode{}}
+	ids := make(map[string]bool, len(builtins))
+	for _, p := range builtins {
+		ids[p.ID()] = true
+	}
+	return &Registry{
+		providers:  append([]Provider(nil), builtins...),
+		builtinIDs: ids,
+		configured: map[string]Provider{},
+	}
 }
 
 // Register adds or replaces a provider, for a custom adapter or a test's
@@ -95,9 +106,52 @@ func (r *Registry) Register(p Provider) {
 	r.cache = nil
 }
 
+// Configure applies this environment's Pi and ACP settings. Configured
+// providers are replaced as a group, while the built-in adapters stay
+// available on every environment.
+func (r *Registry) Configure(settings proto.Settings, home string) {
+	next := make(map[string]Provider)
+	next["pi"] = &Pi{Settings: settings.PiProvider}
+	for _, cfg := range settings.ACPProviders {
+		if cfg.ID == "" {
+			continue
+		}
+		next[cfg.ID] = &ACP{IDValue: cfg.ID, Settings: cfg, Home: home}
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.home = home
+	providers := make([]Provider, 0, len(r.providers)+len(next))
+	for _, p := range r.providers {
+		if _, replaced := r.configured[p.ID()]; !replaced {
+			providers = append(providers, p)
+		}
+	}
+	if pi, ok := next["pi"]; ok {
+		providers = append(providers, pi)
+	}
+	ids := make([]string, 0, len(next))
+	for id := range next {
+		if id != "pi" {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		providers = append(providers, next[id])
+	}
+	r.configured = next
+	r.providers = providers
+	r.cache, r.cachedAt = nil, time.Time{}
+}
+
 // Get returns a runner by id.
 func (r *Registry) Get(id string) (Runner, bool) {
-	for _, p := range r.providers {
+	r.mu.Lock()
+	providers := append([]Provider(nil), r.providers...)
+	r.mu.Unlock()
+	for _, p := range providers {
 		if p.ID() == id {
 			run, ok := p.(Runner)
 			return run, ok
@@ -108,6 +162,8 @@ func (r *Registry) Get(id string) (Runner, bool) {
 
 // Providers returns the supported providers' ids.
 func (r *Registry) Providers() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	out := make([]string, len(r.providers))
 	for i, p := range r.providers {
 		out[i] = p.ID()
@@ -123,13 +179,14 @@ func (r *Registry) Snapshot(ctx context.Context) []proto.Provider {
 		r.mu.Unlock()
 		return out
 	}
+	providers := append([]Provider(nil), r.providers...)
 	r.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	out := make([]proto.Provider, len(r.providers))
+	out := make([]proto.Provider, len(providers))
 	var wg sync.WaitGroup
-	for i, p := range r.providers {
+	for i, p := range providers {
 		wg.Add(1)
 		go func(i int, p Provider) {
 			defer wg.Done()
@@ -155,7 +212,7 @@ func (r *Registry) Invalidate() {
 func (r *Registry) Models(ctx context.Context) []proto.Model {
 	var out []proto.Model
 	for _, p := range r.Snapshot(ctx) {
-		if p.Installed {
+		if p.Installed && (p.Enabled || p.Source == "") {
 			out = append(out, p.Models...)
 		}
 	}

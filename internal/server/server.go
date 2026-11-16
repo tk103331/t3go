@@ -85,6 +85,7 @@ func New(cfg config.Config, logger *log.Logger) (*Server, error) {
 	providers := provider.NewRegistry()
 	hostname, system := hostinfo.Collect()
 	svc := orchestrator.New(st, providers, bus, cfg.Home, logger)
+	providers.Configure(svc.Settings(context.Background()), cfg.Home)
 	svc.ApprovalToken = cfg.Token
 	s := &Server{Config: cfg, Store: st, Service: svc, Bus: bus, Terminals: terminal.NewManager(),
 		Log: logger, ID: id.New("env"), Hostname: hostname, System: system, StartedAt: time.Now(),
@@ -282,6 +283,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/terminals/{id}/ws", s.auth(s.handleTerminalWS))
 	mux.HandleFunc("POST /api/v1/threads/{id}/branches", s.auth(s.handleSwitchBranch))
 	mux.HandleFunc("GET /api/v1/providers", s.auth(s.handleProviders))
+	mux.HandleFunc("GET /api/v1/providers/registry", s.auth(s.handleACPRegistry))
+	mux.HandleFunc("POST /api/v1/providers/registry/{id}/prepare", s.auth(s.handlePrepareACPRegistry))
 	mux.HandleFunc("GET /api/v1/devices", s.auth(s.handleDevices))
 	mux.HandleFunc("GET /api/v1/preview/servers", s.auth(s.handlePreviewServers))
 	mux.HandleFunc("GET /api/v1/usage", s.auth(s.handleUsage))
@@ -2461,6 +2464,25 @@ func (s *Server) handleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 	s.Service.Providers.Invalidate()
 	writeJSON(w, 200, map[string]any{"providers": s.Service.Providers.Snapshot(r.Context()), "models": s.Service.Providers.Models(r.Context())})
+}
+
+func (s *Server) handleACPRegistry(w http.ResponseWriter, r *http.Request) {
+	agents, err := provider.ACPRegistrySearch(r.Context(), s.Config.Home, r.URL.Query().Get("q"),
+		r.URL.Query().Get("refresh") == "1")
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "acp-registry", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"agents": nonNil(agents)})
+}
+
+func (s *Server) handlePrepareACPRegistry(w http.ResponseWriter, r *http.Request) {
+	path, err := provider.PrepareACPRegistryAgent(r.Context(), s.Config.Home, r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "acp-registry", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"path": path})
 }
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {

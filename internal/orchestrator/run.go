@@ -245,7 +245,7 @@ const maxAttachments = 10
 func providerInstalled(list []proto.Provider, id string) bool {
 	for _, p := range list {
 		if p.ID == id {
-			return p.Installed
+			return p.Installed && (p.Enabled || p.Source == "")
 		}
 	}
 	return false

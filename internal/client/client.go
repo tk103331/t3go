@@ -714,6 +714,29 @@ func (c *Client) Providers(ctx context.Context) ([]proto.Provider, []proto.Model
 	return out.Providers, out.Models, err
 }
 
+// ACPRegistry lists agents published by the official ACP Registry.
+func (c *Client) ACPRegistry(ctx context.Context, query string, refresh bool) ([]proto.ACPRegistryAgent, error) {
+	var out struct {
+		Agents []proto.ACPRegistryAgent `json:"agents"`
+	}
+	path := "/api/v1/providers/registry?q=" + url.QueryEscape(query)
+	if refresh {
+		path += "&refresh=1"
+	}
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out.Agents, err
+}
+
+// PrepareACPRegistry installs an agent's managed binary distribution.
+func (c *Client) PrepareACPRegistry(ctx context.Context, agentID string) (string, error) {
+	var out struct {
+		Path string `json:"path"`
+	}
+	path := "/api/v1/providers/registry/" + url.PathEscape(agentID) + "/prepare"
+	err := c.do(ctx, http.MethodPost, path, map[string]any{}, &out)
+	return out.Path, err
+}
+
 // Settings reads the environment's defaults.
 func (c *Client) Settings(ctx context.Context) (proto.Settings, error) {
 	var out proto.Settings

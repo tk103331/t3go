@@ -21,6 +21,7 @@ var settingsNav = []settingsNavItem{
 	{ID: "general", Label: "Appearance", Icon: lucide.Settings},
 	{ID: "environments", Label: "Environments", Icon: lucide.Network},
 	{ID: "providers", Label: "Providers", Icon: lucide.Bot},
+	{ID: "access", Label: "Access", Icon: lucide.Smartphone},
 	{ID: "usage", Label: "Usage", Icon: lucide.ChartColumn},
 	{ID: "worktrees", Label: "Worktrees", Icon: lucide.GitBranch},
 	{ID: "shortcuts", Label: "Shortcuts", Icon: lucide.Keyboard},
@@ -72,7 +73,7 @@ func (a *app) settingsBody(cx *core.Scope) core.Node {
 		var chips []core.Node
 		for _, item := range settingsNav {
 			item := item
-			if item.ID == "usage" {
+			if item.ID == "usage" || item.ID == "access" {
 				continue
 			}
 			variant := ui.ButtonSecondary
@@ -230,7 +231,7 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 	refresh := ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: controlSize(cx),
 		TestID: "settings-refresh-providers", OnPress: a.refreshProviders, Disabled: a.providersBusy.Get}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: []core.Node{
-		settingsSectionTitle(cx, "Providers", "Agent CLIs T3Go can run. Install a CLI and keep it on PATH to use it."),
+		settingsSectionTitle(cx, "Providers", "Configure Pi and ACP agents for this environment, then detect their installed models."),
 		core.Show{When: a.providersBusy.Get, Then: func(*core.Scope) core.Node {
 			return ui.Spinner{Size: 14, Label: "Detecting providers on " + a.envName()}
 		}},
@@ -242,6 +243,8 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 			refresh,
 		}},
+		a.providerSettingsSection(cx),
+		ui.Text("Detected providers", 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Column, Gap: 6}, Children: cards},
 	}}
 }

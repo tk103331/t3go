@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strconv"
@@ -26,6 +27,10 @@ import (
 	"github.com/tk/t3go/internal/id"
 	"github.com/tk/t3go/internal/proto"
 )
+
+func settingsEqual(a, b proto.Settings) bool {
+	return reflect.DeepEqual(a, b)
+}
 
 // app is the desktop client's state: the connection, the environment's
 // snapshot and the selected thread's transcript.
@@ -70,11 +75,27 @@ type app struct {
 	providers *core.Signal[[]proto.Provider]
 	models    *core.Signal[[]proto.Model]
 	// customModels are model ids the environment's CLIs accept but do not list.
-	customModels  *core.Signal[map[string][]proto.Model]
-	settings      *core.Signal[proto.Settings]
-	providersBusy *core.Signal[bool]
-	providersErr  *core.Signal[string]
-	providersSeq  int
+	customModels        *core.Signal[map[string][]proto.Model]
+	settings            *core.Signal[proto.Settings]
+	providersBusy       *core.Signal[bool]
+	providersErr        *core.Signal[string]
+	providersSeq        int
+	providerCatalog     *core.Signal[[]proto.ACPRegistryAgent]
+	providerCatalogBusy *core.Signal[bool]
+	providerCatalogErr  *core.Signal[string]
+	providerAddOpen     *core.Signal[bool]
+	providerAddMode     *core.Signal[string]
+	providerSearchQuery *core.Signal[string]
+	providerLocalName   *core.Signal[string]
+	providerLocalPath   *core.Signal[string]
+	providerLocalArgs   *core.Signal[string]
+	providerManageErr   *core.Signal[string]
+	providerPrepareID   *core.Signal[string]
+	providerTextDraft   *core.Signal[map[string]string]
+	providerSeq         int
+	accessLink          *core.Signal[string]
+	accessQR            *core.Signal[[]byte]
+	accessErr           *core.Signal[string]
 
 	showArchived        *core.Signal[bool]
 	showCustomModel     *core.Signal[bool]
@@ -345,14 +366,29 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		offline:    core.NewSignal(cx, false),
 		connErr:    core.NewSignal(cx, ""),
 
-		projects:      sliceSignal[proto.Project](cx),
-		threads:       sliceSignal[proto.Thread](cx),
-		providers:     sliceSignal[proto.Provider](cx),
-		models:        sliceSignal[proto.Model](cx),
-		customModels:  core.NewSignalFunc(cx, map[string][]proto.Model{}, func(map[string][]proto.Model, map[string][]proto.Model) bool { return false }),
-		settings:      core.NewSignal(cx, proto.DefaultSettings()),
-		providersBusy: core.NewSignal(cx, false),
-		providersErr:  core.NewSignal(cx, ""),
+		projects:            sliceSignal[proto.Project](cx),
+		threads:             sliceSignal[proto.Thread](cx),
+		providers:           sliceSignal[proto.Provider](cx),
+		models:              sliceSignal[proto.Model](cx),
+		customModels:        core.NewSignalFunc(cx, map[string][]proto.Model{}, func(map[string][]proto.Model, map[string][]proto.Model) bool { return false }),
+		settings:            core.NewSignalFunc(cx, proto.DefaultSettings(), settingsEqual),
+		providersBusy:       core.NewSignal(cx, false),
+		providersErr:        core.NewSignal(cx, ""),
+		providerCatalog:     sliceSignal[proto.ACPRegistryAgent](cx),
+		providerCatalogBusy: core.NewSignal(cx, false),
+		providerCatalogErr:  core.NewSignal(cx, ""),
+		providerAddOpen:     core.NewSignal(cx, false),
+		providerAddMode:     core.NewSignal(cx, "registry"),
+		providerSearchQuery: core.NewSignal(cx, ""),
+		providerLocalName:   core.NewSignal(cx, ""),
+		providerLocalPath:   core.NewSignal(cx, ""),
+		providerLocalArgs:   core.NewSignal(cx, ""),
+		providerManageErr:   core.NewSignal(cx, ""),
+		providerPrepareID:   core.NewSignal(cx, ""),
+		providerTextDraft:   core.NewSignalFunc(cx, map[string]string{}, func(map[string]string, map[string]string) bool { return false }),
+		accessLink:          core.NewSignal(cx, ""),
+		accessQR:            sliceSignal[byte](cx),
+		accessErr:           core.NewSignal(cx, ""),
 
 		showArchived:        core.NewSignal(cx, false),
 		showCustomModel:     core.NewSignal(cx, false),
@@ -411,7 +447,7 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		showNewThread:         core.NewSignal(cx, false),
 		showSettings:          core.NewSignal(cx, false),
 		showPalette:           core.NewSignal(cx, false),
-		settingsDraft:         core.NewSignal(cx, proto.DefaultSettings()),
+		settingsDraft:         core.NewSignalFunc(cx, proto.DefaultSettings(), settingsEqual),
 		settingsTitle:         core.NewSignal(cx, ""),
 		settingsSection:       core.NewSignal(cx, "general"),
 		settingsEnv:           core.NewSignal(cx, profile.ID),

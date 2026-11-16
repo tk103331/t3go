@@ -122,6 +122,7 @@ func (s *Service) SaveSettings(ctx context.Context, settings proto.Settings) err
 	if err := s.Store.SetSetting(ctx, "settings", string(raw)); err != nil {
 		return err
 	}
+	s.Providers.Configure(settings, s.Home)
 	s.publish(ctx, proto.Event{Type: proto.EventSettings, Data: settings})
 	return nil
 }
