@@ -26,7 +26,15 @@ type mobileComposer struct {
 	Running                func() bool
 	Disabled               func() bool
 	OnSend, OnStop         func()
-	TestID                 string
+	SendIcon               func() *core.SVG
+	TestID, SendTestID     string
+	// EditorMinHeight, EditorFocusedHeight and EditorMaxHeight let a page
+	// composer open tall while its embedded conversation composer stays
+	// compact.
+	EditorMinHeight, EditorFocusedHeight, EditorMaxHeight core.Points
+	// AllowEmptySend lets a create surface use its send control as the
+	// thread creation action even when no prompt was typed.
+	AllowEmptySend bool
 }
 
 func (m mobileComposer) Render(cx *core.Scope) core.Node {
@@ -37,13 +45,31 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 		}
 		return m.Draft()
 	}
-	focused, dragging := core.NewSignal(cx, false), core.NewSignal(cx, false)
-	height := core.NewSignal(cx, core.Points(20))
-	minHeight := func() core.Points {
-		if focused.Get() {
-			return 66
+	minimumHeight := func() core.Points {
+		if m.EditorMinHeight > 0 {
+			return m.EditorMinHeight
 		}
 		return 20
+	}
+	focusedHeight := func() core.Points {
+		if m.EditorFocusedHeight > 0 {
+			return m.EditorFocusedHeight
+		}
+		return 66
+	}
+	maximumHeight := func() core.Points {
+		if m.EditorMaxHeight > 0 {
+			return m.EditorMaxHeight
+		}
+		return 200
+	}
+	focused, dragging := core.NewSignal(cx, false), core.NewSignal(cx, false)
+	height := core.NewSignal(cx, minimumHeight())
+	minHeight := func() core.Points {
+		if focused.Get() {
+			return focusedHeight()
+		}
+		return minimumHeight()
 	}
 
 	editor := base.Input{
@@ -52,14 +78,14 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 		Placeholder: m.Placeholder, TestID: "composer", OnPaste: m.OnPaste,
 		OnFocus: func() {
 			focused.Set(true)
-			if height.Get() < 66 {
-				height.Set(66)
+			if height.Get() < focusedHeight() {
+				height.Set(focusedHeight())
 			}
 		},
 		OnBlur: func() {
 			focused.Set(false)
 			if strings.TrimSpace(draft()) == "" {
-				height.Set(20)
+				height.Set(minimumHeight())
 			}
 		},
 		OnContentSizeChange: func(s core.Size) {
@@ -67,8 +93,8 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 			if s.Height < minimum {
 				s.Height = minimum
 			}
-			if s.Height > 200 {
-				s.Height = 200
+			if s.Height > maximumHeight() {
+				s.Height = maximumHeight()
 			}
 			height.Set(s.Height)
 		},
@@ -86,10 +112,17 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 		},
 	}
 
+	sendTestID := m.SendTestID
+	if sendTestID == "" {
+		sendTestID = "composer-send"
+	}
 	send := ui.IconButton{
 		IconFunc: func() *core.SVG {
 			if m.Running != nil && m.Running() && strings.TrimSpace(draft()) == "" {
 				return lucide.Square()
+			}
+			if m.SendIcon != nil {
+				return m.SendIcon()
 			}
 			return lucide.Send()
 		},
@@ -99,7 +132,7 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 			}
 			return "Send"
 		},
-		Variant: ui.IconButtonPrimary, Size: 38, IconSize: 19, TestID: "composer-send", Disabled: m.Disabled,
+		Variant: ui.IconButtonPrimary, Size: 38, IconSize: 19, TestID: sendTestID, Disabled: m.Disabled,
 		OnPress: func() {
 			if m.Running != nil && m.Running() && strings.TrimSpace(draft()) == "" {
 				if m.OnStop != nil {
@@ -107,7 +140,7 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 				}
 				return
 			}
-			if strings.TrimSpace(draft()) != "" && m.OnSend != nil {
+			if (m.AllowEmptySend || strings.TrimSpace(draft()) != "") && m.OnSend != nil {
 				m.OnSend()
 			}
 		},

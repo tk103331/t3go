@@ -202,7 +202,14 @@ func (a *app) mobileNewThreadOptions(cx *core.Scope) core.Node {
 }
 
 func (a *app) createMobileThread(send bool) {
-	target := a.newThreadTarget()
+	a.createPreparedThread(send)
+}
+
+func (a *app) createPreparedThread(send bool) {
+	target := a
+	if a.cx != nil && compactSettings(a.cx) {
+		target = a.newThreadTarget()
+	}
 	if target == nil || target.threadBusy.GetUntracked() {
 		return
 	}
@@ -237,6 +244,8 @@ func (a *app) createMobileThread(send bool) {
 			}
 			target.setDraft(prompt)
 			target.send()
+		} else if target.newThreadPrompt.GetUntracked() == draft {
+			target.newThreadPrompt.Set("")
 		}
 	})
 }

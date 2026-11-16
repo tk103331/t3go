@@ -367,15 +367,31 @@ func TestUIRenameAndDelete(t *testing.T) {
 		return err == nil && p.Name == "Renamed project"
 	})
 
-	app.Press("id:delete-thread-" + thread.ID)
-	app.WaitFor("id:confirm-delete", 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:confirm-delete") {
+			return true
+		}
+		if app.Exists("id:delete-thread-" + thread.ID) {
+			app.Press("id:delete-thread-" + thread.ID)
+			app.Settle()
+		}
+		return false
+	})
 	app.Press("id:confirm-delete")
 	app.WaitForGone("id:thread-"+thread.ID, 10*time.Second)
 
 	app.Press("id:project-menu-" + project.ID)
 	app.WaitFor("id:delete-project-"+project.ID, 5*time.Second)
-	app.Press("id:delete-project-" + project.ID)
-	app.WaitFor("id:confirm-delete", 5*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:confirm-delete") {
+			return true
+		}
+		if app.Exists("id:delete-project-" + project.ID) {
+			app.Press("id:delete-project-" + project.ID)
+			app.Settle()
+		}
+		return false
+	})
 	app.Press("id:confirm-delete")
 	app.WaitForGone("text:Renamed project", 10*time.Second)
 
@@ -418,7 +434,7 @@ func TestUIPalette(t *testing.T) {
 
 	app.Key("mod+n")
 	app.WaitFor("id:create-thread", 5*time.Second)
-	app.Press("text:Cancel")
+	app.Press("id:cancel-thread")
 	app.WaitForGone("id:create-thread", 5*time.Second)
 
 	app.Key("mod+k")
@@ -1036,6 +1052,24 @@ func TestUIDialogsFit(t *testing.T) {
 	app.WaitFor("id:new-thread-dialog", 5*time.Second)
 	app.WaitFor("id:new-thread-model", 5*time.Second)
 	check("id:new-thread-dialog")
+	app.WaitFor(`text:"What should we build in"`, 5*time.Second)
+	dialog := mobileScreenFrame(app.Find("id:new-thread-dialog"))
+	composer := mobileScreenFrame(app.Find("id:new-thread-composer"))
+	context := mobileScreenFrame(app.Find("id:new-thread-context"))
+	if dialog.Size.Width < 900 {
+		t.Fatalf("new thread dialog is still using the old compact width: %v", dialog)
+	}
+	if composer.Size.Width < 800 {
+		t.Fatalf("new thread composer is not using the page-width layout: %v", composer)
+	}
+	if context.Origin.Y < composer.Origin.Y+composer.Size.Height {
+		t.Fatalf("thread context should sit below the composer: composer %v context %v", composer, context)
+	}
+	dialogCenter := dialog.Origin.X + dialog.Size.Width/2
+	composerCenter := composer.Origin.X + composer.Size.Width/2
+	if delta := dialogCenter - composerCenter; delta < -2 || delta > 2 {
+		t.Fatalf("new thread composer is not centered: dialog %v composer %v", dialog, composer)
+	}
 	create := app.Find("id:create-thread")
 	app.Press(`text:"supervised"`)
 	app.Settle()

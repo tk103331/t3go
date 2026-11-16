@@ -807,16 +807,278 @@ func (a *app) newThreadDialog(cx *core.Scope) core.Node {
 	if compactSettings(cx) {
 		return core.Group{}
 	}
-	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showNewThread.Get, OnOpenChange: closeDialog(a.showNewThread), Title: "New thread",
-		Description: "The agent runs in the project's directory, or in its own worktree.",
-		TestID:      "new-thread-dialog", Style: dialogWidth(cx, 540),
-		Children: []core.Node{core.Dynamic(a.newThreadBody)},
-		Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "cancel-thread",
-				OnPress: func() { a.showNewThread.Set(false) }},
-			ui.Button{Text: "Create thread", Icon: lucide.MessageSquarePlus, Variant: ui.ButtonPrimary, Size: controlSize(cx),
-				TestID: "create-thread", Disabled: func() bool { return a.threadBusy.Get() }, OnPress: a.createThread},
+	colors := ui.ColorsOf(cx)
+	return ui.Dialog{
+		Open: a.showNewThread.Get, OnOpenChange: closeDialog(a.showNewThread),
+		Bare: true, TestID: "new-thread-dialog",
+		Style: core.Style{
+			Width: core.Pt(1000), Height: core.Pt(660),
+			MaxWidth: core.Pct(92), MaxHeight: core.Pct(88),
+			Background: colors.Surface(),
+		},
+		Children: []core.Node{a.desktopNewThreadBody(cx)},
+	}
+}
+
+// desktopNewThreadBody keeps the composer outside the stateful option
+// sections. Selecting a provider, permission or worktree option therefore
+// does not replace the input or its send action.
+func (a *app) desktopNewThreadBody(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	return core.View{
+		Style: core.Style{
+			FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
+			Padding: core.Symmetric(22, 28), Gap: 12,
+		},
+		Children: []core.Node{
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, FlexShrink: 0},
+				Children: []core.Node{
+					ui.Text("New thread", 12, ui.Semibold, colors.Muted),
+					ui.Text(a.envName()+" · "+a.connectionLabel(), 12, ui.Regular, colors.Faint),
+					ui.Spacer{},
+					ui.IconButton{Icon: lucide.X, Label: "Cancel new thread", TestID: "cancel-thread",
+						Size: 30, IconSize: 17, OnPress: func() { a.showNewThread.Set(false) }},
+				}},
+			core.Scroll{
+				Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
+				Children: []core.Node{core.View{
+					Style: core.Style{Width: core.Pct(100), AlignItems: core.AlignCenter, Padding: core.Edges{Bottom: 10}},
+					Children: []core.Node{core.View{
+						Style: core.Style{Width: core.Pct(100), MaxWidth: core.Pt(880), Gap: 14},
+						Children: []core.Node{
+							core.Dynamic(a.desktopNewThreadHero),
+							mobileComposer{
+								Draft: a.newThreadPrompt.Get, OnDraftChange: a.newThreadPrompt.Set,
+								Label:       "New thread message",
+								Placeholder: "Ask anything. @ files, $ skills, / commands",
+								TestID:      "new-thread-composer", SendTestID: "create-thread",
+								EditorMinHeight: 104, EditorFocusedHeight: 104, EditorMaxHeight: 190,
+								AllowEmptySend: true,
+								Disabled:       func() bool { return a.threadBusy.Get() },
+								SendIcon:       lucide.ArrowUp,
+								OnSend: func() {
+									a.createPreparedThread(strings.TrimSpace(a.newThreadPrompt.GetUntracked()) != "")
+								},
+								Accessory: func(cx *core.Scope) core.Node {
+									return ui.IconButton{Icon: lucide.FolderPlus, Label: "Add a project",
+										TestID: "new-thread-new-project", Size: 34, IconSize: 18,
+										OnPress: a.openNewProjectForThread}
+								},
+								Controls: func(*core.Scope) core.Node {
+									return core.View{
+										Style: core.Style{Direction: core.Row, Width: core.Pct(100),
+											AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+										Children: []core.Node{core.Dynamic(a.desktopNewThreadModelMenu)},
+									}
+								},
+							},
+							core.Dynamic(a.desktopNewThreadProjectPicker),
+							core.Dynamic(a.desktopNewThreadAgentPicker),
+							core.Dynamic(a.desktopNewThreadDetails),
+							core.Dynamic(a.desktopNewThreadError),
+						},
+					}},
+				}},
+			},
+		},
+	}
+}
+
+func (a *app) desktopNewThreadHero(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	project := ""
+	for _, candidate := range a.projects.Get() {
+		if candidate.ID == a.newThreadProj.Get() {
+			project = candidate.Name
+			break
+		}
+	}
+	subtitle := "Choose a project below to give the agent a workspace."
+	if project != "" {
+		subtitle = "Start a new thread in " + project + "."
+	}
+	return core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 5, Padding: core.Edges{Bottom: 4}},
+		Children: []core.Node{
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignBaseline, JustifyContent: core.JustifyCenter,
+				Gap: 0, Wrap: core.Wrap}, Children: []core.Node{
+				core.Text{Content: "What should we build in",
+					Style:     core.Style{FontSize: 28, FontWeight: ui.Semibold, TextAlign: core.TextAlignCenter},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+				core.View{Style: core.Style{Width: core.Pt(8), Height: core.Pt(1)}},
+				brandWordmark(cx, 30),
+				core.Text{Content: "?", Style: core.Style{FontSize: 28, FontWeight: ui.Semibold},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+			}},
+			ui.Text(subtitle, 13.5, ui.Regular, colors.Muted),
 		}}
+}
+
+func (a *app) desktopNewThreadModelMenu(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	provider := a.newThreadProv.Get()
+	modelLabel := "Choose model"
+	var items []core.Node
+	for _, model := range a.allModels() {
+		if model.Provider != provider {
+			continue
+		}
+		model := model
+		if model.ID == a.newThreadModel.Get() {
+			modelLabel = model.Name
+		}
+		items = append(items, ui.MenuItem{Text: model.Name, TestID: "new-thread-model-" + model.ID,
+			Checked:  func() bool { return a.newThreadModel.Get() == model.ID },
+			OnSelect: func() { a.newThreadModel.Set(model.ID) }})
+	}
+	if len(items) == 0 {
+		return ui.Text("No models for this provider", 12, ui.Regular, colors.Faint)
+	}
+	return ui.Menu{TestID: "new-thread-model", MaxHeight: 320,
+		Trigger: ui.Button{Text: modelLabel, Icon: lucide.Sparkles, Variant: ui.ButtonGhost,
+			Size: controlSize(cx), Label: "Model: " + modelLabel},
+		Children: items}
+}
+
+func (a *app) desktopNewThreadProjectPicker(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	projects := a.projects.Get()
+	projectID := a.newThreadProj.Get()
+	selectedPath := ""
+	var choices []core.Node
+	for _, project := range projects {
+		project := project
+		if project.ID == projectID {
+			selectedPath = project.Path
+		}
+		variant := ui.ButtonGhost
+		if project.ID == projectID {
+			variant = ui.ButtonSecondary
+		}
+		choices = append(choices, ui.Button{Text: project.Name, Icon: lucide.Folder, Variant: variant,
+			Size: controlSize(cx), TestID: "new-thread-project-" + project.ID,
+			OnPress: func() { a.selectNewThreadProject(project.ID) }})
+	}
+	row := core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 5},
+		Children: append([]core.Node{
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+				Padding: core.Edges{Right: 4}}, Children: []core.Node{
+				ui.Icon(lucide.FolderGit2, 15, colors.Muted),
+				ui.Text("Current checkout", 12, ui.Medium, colors.Muted),
+			}},
+		}, choices...)}
+	children := []core.Node{row}
+	if selectedPath != "" {
+		children = append(children, core.Text{Content: selectedPath, MaxLines: 1,
+			Style:     core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
+	}
+	return core.View{TestID: "new-thread-context", Style: core.Style{Gap: 3}, Children: children}
+}
+
+func (a *app) desktopNewThreadAgentPicker(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	provider := a.newThreadProv.Get()
+	var providers []core.Node
+	for _, candidate := range a.providers.Get() {
+		candidate := candidate
+		label := candidate.Name
+		if !candidate.Installed {
+			label += " (missing)"
+		}
+		variant := ui.ButtonGhost
+		if candidate.ID == provider {
+			variant = ui.ButtonSecondary
+		}
+		providers = append(providers, ui.Button{Text: label, Variant: variant, Size: controlSize(cx),
+			TestID: "new-thread-provider-" + candidate.ID, Disabled: func() bool { return !candidate.Installed },
+			OnPress: func() {
+				a.newThreadProv.Set(candidate.ID)
+				for _, model := range a.allModels() {
+					if model.Provider == candidate.ID {
+						a.newThreadModel.Set(model.ID)
+						break
+					}
+				}
+			}})
+	}
+	permission := a.newThreadPerm.Get()
+	var permissions []core.Node
+	for _, mode := range []proto.PermissionMode{proto.PermissionSupervised, proto.PermissionAcceptEdits,
+		proto.PermissionAuto, proto.PermissionFullAccess} {
+		mode := mode
+		variant := ui.ButtonGhost
+		if mode == permission {
+			variant = ui.ButtonSecondary
+		}
+		permissions = append(permissions, ui.Button{Text: string(mode), Variant: variant,
+			Size: controlSize(cx), TestID: "new-thread-perm-" + string(mode),
+			OnPress: func() { a.newThreadPerm.Set(mode) }})
+	}
+	label := func(icon func() *core.SVG, text string) core.Node {
+		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+			MinWidth: core.Pt(112), Padding: core.Edges{Right: 4}}, Children: []core.Node{
+			ui.Icon(icon, 15, colors.Muted),
+			ui.Text(text, 12, ui.Medium, colors.Muted),
+		}}
+	}
+	return core.View{Style: core.Style{Gap: 5}, Children: []core.Node{
+		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 5},
+			Children: append([]core.Node{label(lucide.Bot, "Agent")}, providers...)},
+		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 5},
+			Children: append([]core.Node{label(lucide.ShieldCheck, "Access")}, permissions...)},
+	}}
+}
+
+func (a *app) desktopNewThreadDetails(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	worktree := "Off"
+	if a.newThreadWT.Get() {
+		worktree = "On"
+	}
+	title := core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(260)},
+		Children: []core.Node{mobileInput{Scope: cx, Input: base.Input{
+			Value: a.newThreadTitle.Get, OnChange: a.newThreadTitle.Set,
+			Placeholder: "Thread title (optional)", Label: "Thread title",
+			Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)},
+		}}}}
+	row := core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 8},
+		Children: []core.Node{
+			title,
+			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
+				Padding: core.Edges{Left: 4}}, Children: []core.Node{
+				ui.Icon(lucide.GitBranch, 15, colors.Muted),
+				ui.Text("Own worktree", 12, ui.Regular, colors.Muted),
+				ui.Button{Text: worktree, Variant: ui.ButtonSecondary, Size: controlSize(cx),
+					TestID: "toggle-worktree", OnPress: func() { a.newThreadWT.Set(!a.newThreadWT.GetUntracked()) }},
+			}},
+		}}
+	children := []core.Node{row}
+	if a.newThreadWT.Get() {
+		children = append(children, core.View{
+			Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 8, Padding: core.Edges{Left: 20}},
+			Children: []core.Node{
+				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(240)},
+					Children: []core.Node{mobileInput{Scope: cx, Input: base.Input{
+						Value: a.newThreadBranch.Get, OnChange: a.newThreadBranch.Set,
+						Placeholder: "t3go/<slug>", Label: "Branch (optional)", TestID: "new-thread-branch",
+					}}}},
+				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(200)},
+					Children: []core.Node{mobileInput{Scope: cx, Input: base.Input{
+						Value: a.newThreadBase.Get, OnChange: a.newThreadBase.Set,
+						Placeholder: "origin/main", Label: "Base ref (optional)", TestID: "new-thread-base",
+					}}}},
+			},
+		})
+	}
+	return core.View{Style: core.Style{Gap: 7}, Children: children}
+}
+
+func (a *app) desktopNewThreadError(cx *core.Scope) core.Node {
+	message := a.connErr.Get()
+	if message == "" {
+		return core.Group{}
+	}
+	return ui.Text(message, 12, ui.Regular, ui.ColorsOf(cx).Danger)
 }
 
 // newThreadBody reads the dialog's signals in its own scope, so changing a
