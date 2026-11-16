@@ -94,6 +94,7 @@ func TestRunStreamsAndFinishes(t *testing.T) {
 	}
 
 	var text string
+	var textParts []string
 	var reasoning bool
 	var tool *proto.Message
 	for i := range detail.Messages {
@@ -102,6 +103,9 @@ func TestRunStreamsAndFinishes(t *testing.T) {
 		case proto.KindText:
 			if m.Role == proto.RoleAssistant {
 				text += m.Content
+				if strings.TrimSpace(m.Content) != "" {
+					textParts = append(textParts, m.Content)
+				}
 			}
 		case proto.KindReasoning:
 			reasoning = true
@@ -111,6 +115,9 @@ func TestRunStreamsAndFinishes(t *testing.T) {
 	}
 	if text != "Hello world" {
 		t.Fatalf("assistant text = %q", text)
+	}
+	if len(textParts) != 2 || textParts[0] != "Hello " || textParts[1] != "world" {
+		t.Fatalf("assistant text parts = %#v", textParts)
 	}
 	if !reasoning {
 		t.Fatal("no reasoning message")

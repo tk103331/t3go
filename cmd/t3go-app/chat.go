@@ -25,6 +25,19 @@ type turnGroup struct {
 	Day string
 }
 
+// turnContent is one run arranged the way its transcript presents it. While
+// a run is active every process entry stays in order. Once it finishes, the
+// final answer stands alone and earlier reasoning, tools and narration fold
+// behind a summary.
+type turnContent struct {
+	Users    []proto.Message
+	Process  []proto.Message
+	Final    *proto.Message
+	Retained []proto.Message
+	Thoughts int
+	Tools    int
+}
+
 func groupMessages(messages []proto.Message) []turnGroup {
 	var out []turnGroup
 	index := map[string]int{}
@@ -50,6 +63,60 @@ func groupMessages(messages []proto.Message) []turnGroup {
 	return out
 }
 
+func splitTurn(messages []proto.Message, running bool) turnContent {
+	var content turnContent
+	finalIndex := -1
+	for i, m := range messages {
+		switch {
+		case m.Role == proto.RoleUser:
+			content.Users = append(content.Users, m)
+		case m.Kind == proto.KindNotice || m.Kind == proto.KindError:
+			content.Retained = append(content.Retained, m)
+		case m.Role == proto.RoleAssistant:
+			if !running && m.Kind == proto.KindText && strings.TrimSpace(m.Content) != "" {
+				finalIndex = i
+			}
+		}
+	}
+	for i, m := range messages {
+		if m.Role != proto.RoleAssistant || m.Kind == proto.KindNotice || m.Kind == proto.KindError {
+			continue
+		}
+		if !running && i == finalIndex {
+			final := m
+			content.Final = &final
+			continue
+		}
+		if !running && m.Kind == proto.KindText && strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+		content.Process = append(content.Process, m)
+		switch m.Kind {
+		case proto.KindReasoning:
+			content.Thoughts++
+		case proto.KindTool:
+			content.Tools++
+		}
+	}
+	return content
+}
+
+func (a *app) turnRunning(group turnGroup) bool {
+	if group.ID != "" {
+		for _, run := range a.detail.Get().Runs {
+			if run.ID == group.ID {
+				return run.Status == proto.RunRunning
+			}
+		}
+	}
+	for _, m := range group.Messages {
+		if m.Status == "running" {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *app) threadPane(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	touch := ui.Touch(cx) && cx.Env().Window().Width < 520
@@ -63,9 +130,7 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 				if g.Day != "" {
 					rows = append(rows, a.daySeparator(cx, g.Day))
 				}
-				for _, m := range g.Messages {
-					rows = append(rows, a.renderMessage(cx, m))
-				}
+				rows = append(rows, a.renderTurnContent(cx, g)...)
 				if footer := a.runFooter(cx, g.ID); footer != nil {
 					rows = append(rows, footer)
 				}
@@ -152,6 +217,98 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 				core.View{TestID: "composer-drop", OnFileDrop: a.attachPaths, Children: []core.Node{composer}},
 			}},
 		}},
+	}}
+}
+
+func (a *app) renderTurnContent(cx *core.Scope, group turnGroup) []core.Node {
+	running := a.turnRunning(group)
+	content := splitTurn(group.Messages, running)
+	var rows []core.Node
+	for _, m := range content.Users {
+		rows = append(rows, a.renderMessage(cx, m))
+	}
+
+	process := func() core.Node {
+		if len(content.Process) == 0 {
+			return core.View{}
+		}
+		children := make([]core.Node, 0, len(content.Process))
+		for _, m := range content.Process {
+			children = append(children, a.renderMessage(cx, m))
+		}
+		return core.View{TestID: "turn-process-" + group.ID,
+			Style: core.Style{Direction: core.Column, Gap: 8, MinWidth: core.Pt(0)}, Children: children}
+	}
+
+	if running {
+		rows = append(rows, process())
+	} else if len(content.Process) > 0 {
+		key := "turn:" + group.ID
+		open := func() bool { return a.isExpanded(key, false) }
+		summary := turnSummary(content.Thoughts, content.Tools, len(content.Process))
+		rows = append(rows, core.View{Style: core.Style{Direction: core.Column, Gap: 8, MinWidth: core.Pt(0)}, Children: []core.Node{
+			turnFoldRow(cx, summary, open, func() { a.setExpanded(key, !open()) }, "turn-summary-"+group.ID),
+			core.Show{When: open, Then: func(*core.Scope) core.Node { return process() }},
+		}})
+	}
+
+	if content.Final != nil {
+		rows = append(rows, a.renderMessage(cx, *content.Final))
+	}
+	for _, m := range content.Retained {
+		rows = append(rows, a.renderMessage(cx, m))
+	}
+	return rows
+}
+
+func turnSummary(thoughts, tools, steps int) string {
+	var parts []string
+	if thoughts > 0 {
+		if thoughts == 1 {
+			parts = append(parts, "Thought once")
+		} else {
+			parts = append(parts, fmt.Sprintf("Thought %d times", thoughts))
+		}
+	}
+	if tools > 0 {
+		if tools == 1 {
+			parts = append(parts, "1 tool call")
+		} else {
+			parts = append(parts, fmt.Sprintf("%d tool calls", tools))
+		}
+	}
+	if len(parts) == 0 {
+		if steps == 1 {
+			return "1 message"
+		}
+		return fmt.Sprintf("%d messages", steps)
+	}
+	return strings.Join(parts, " · ")
+}
+
+// turnFoldRow is the divider-centered summary of a finished turn.
+func turnFoldRow(cx *core.Scope, summary string, open func() bool, toggle func(), testID string) core.Node {
+	colors := ui.ColorsOf(cx)
+	divider := func() core.Node {
+		return core.View{Style: core.Style{FlexGrow: 1, Height: core.Pt(1)}, StyleFunc: ui.Filled(colors.Border)}
+	}
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Height: core.Pt(26), Gap: 10}, Children: []core.Node{
+		divider(),
+		base.Button{Expanded: open, OnPress: func(core.PressEvent) { toggle() }, Label: summary,
+			TestID: testID,
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Height: core.Pt(24), Padding: core.Symmetric(0, 3), Gap: 5,
+				CornerRadius: ui.RadiusControl},
+			StyleFunc: func() core.Style { return core.Style{Focus: ui.FocusRing(cx, 2)} },
+			Children: []core.Node{
+				ui.Text(summary, 12, ui.Medium, colors.Muted),
+				ui.IconOf(func() *core.SVG {
+					if open() {
+						return lucide.ChevronDown()
+					}
+					return lucide.ChevronRight()
+				}, 11, colors.Faint),
+			}},
+		divider(),
 	}}
 }
 
@@ -531,9 +688,9 @@ func (a *app) renderMessage(cx *core.Scope, m proto.Message) core.Node {
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 3, MinWidth: core.Pt(0)}, Children: []core.Node{identity, body, footer}}
 }
 
-// reasoningCard folds a thinking stream into a disclosure. It opens while
-// the model thinks and folds away when the answer starts; once the reader
-// opens or closes it, their choice wins.
+// reasoningCard folds a thinking stream into a disclosure. Process details
+// start closed; the turn remains legible from the labels and status marks,
+// and a reader can inspect any step on demand.
 func (a *app) reasoningCard(cx *core.Scope, m proto.Message) core.Node {
 	colors := ui.ColorsOf(cx)
 	key := "reasoning:" + m.ID
@@ -546,7 +703,7 @@ func (a *app) reasoningCard(cx *core.Scope, m proto.Message) core.Node {
 	if running {
 		trigger = append(trigger, ui.Spinner{Size: 11, Label: "Thinking"})
 	} else {
-		trigger = append(trigger, core.Show{When: func() bool { return !a.isExpanded(key, running) }, Then: func(*core.Scope) core.Node {
+		trigger = append(trigger, core.Show{When: func() bool { return !a.isExpanded(key, false) }, Then: func(*core.Scope) core.Node {
 			preview := oneLine(m.Content, 90)
 			if preview == "" {
 				return core.View{}
@@ -558,7 +715,7 @@ func (a *app) reasoningCard(cx *core.Scope, m proto.Message) core.Node {
 	return core.View{Style: core.Style{MinWidth: core.Pt(0), Padding: core.Symmetric(7, 9),
 		Background: colors.Inset(), BorderWidth: 1, BorderColor: ui.Alpha(colors.Muted(), 0.13), CornerRadius: 9}, Children: []core.Node{
 		ui.Collapsible{Variant: ui.CollapsibleArrowLeft, Text: title, Trigger: trigger,
-			Open:         func() bool { return a.isExpanded(key, running) },
+			Open:         func() bool { return a.isExpanded(key, false) },
 			OnOpenChange: func(open bool) { a.setExpanded(key, open) },
 			TestID:       "reasoning-" + m.ID,
 			Content: core.Text{Content: m.Content, Selectable: core.SelectableOn, Style: core.Style{FontSize: 12, LineHeight: 18},
@@ -575,7 +732,6 @@ func (a *app) toolCard(cx *core.Scope, m proto.Message) core.Node {
 	if head == "" {
 		head = "Tool"
 	}
-	failed := m.Status == "failed"
 	trigger := []core.Node{ui.Icon(toolIcon(head), 13, colors.Muted), ui.Text(head, 12, ui.Semibold, colors.Text)}
 	if summary := toolSummary(m.Detail); summary != "" {
 		trigger = append(trigger, core.Text{Content: summary, MaxLines: 1, Style: core.Style{FontSize: 11.5, FontFamily: "Menlo, monospace"},
@@ -614,7 +770,7 @@ func (a *app) toolCard(cx *core.Scope, m proto.Message) core.Node {
 	return core.View{Style: core.Style{MinWidth: core.Pt(0), Padding: core.Symmetric(6, 9),
 		Background: ui.Alpha(colors.Inset(), 0.72), BorderWidth: 1, BorderColor: ui.Alpha(colors.Muted(), 0.1), CornerRadius: 8}, Children: []core.Node{
 		ui.Collapsible{Variant: ui.CollapsibleArrowLeft, Text: head, Trigger: trigger,
-			Open:         func() bool { return a.isExpanded(key, failed) },
+			Open:         func() bool { return a.isExpanded(key, false) },
 			OnOpenChange: func(open bool) { a.setExpanded(key, open) },
 			TestID:       "tool-" + m.ID,
 			Content:      core.View{Style: core.Style{Direction: core.Column, Gap: 6, MinWidth: core.Pt(0)}, Children: blocks}},

@@ -290,7 +290,17 @@ type runSink struct {
 	session        string
 	lastTextFlush  time.Time
 	lastThinkFlush time.Time
+	// part separates the provider stream into transcript steps. Providers
+	// may alternate reasoning, text and tools, and each contiguous part is
+	// saved independently so a finished turn can hide all but its answer.
+	part string
 }
+
+const (
+	streamPartReasoning = "reasoning"
+	streamPartText      = "text"
+	streamPartTool      = "tool"
+)
 
 func (s *runSink) dbCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 10*time.Second)
@@ -325,6 +335,28 @@ func (s *runSink) Text(delta string) {
 		return
 	}
 	s.mu.Lock()
+	if s.part != streamPartText {
+		if previous := s.endReasoningLocked(); previous != nil {
+			s.saveAndPublish(*previous)
+		}
+		// The initial assistant row was accepted before the provider started.
+		// Keep it when text is the first thing the provider emits; otherwise
+		// this is another answer segment after reasoning or a tool.
+		if s.part != "" || strings.TrimSpace(s.text.Content) != "" || s.text.Status != "running" {
+			if previous := s.endTextLocked(); previous != nil {
+				s.saveAndPublish(*previous)
+			}
+			s.text = proto.Message{ID: id.New("msg"), ThreadID: s.thread.ID, RunID: s.run.ID, Role: proto.RoleAssistant,
+				Kind: proto.KindText, Status: "running", CreatedAt: time.Now()}
+			ctx, cancel := s.dbCtx()
+			if _, err := s.svc.Store.AppendMessage(ctx, s.text); err != nil {
+				s.svc.Log.Printf("t3go: append text part: %v", err)
+			}
+			cancel()
+			s.svc.publish(context.Background(), proto.Event{Type: proto.EventMessage, ThreadID: s.thread.ID, Data: s.text})
+		}
+		s.part = streamPartText
+	}
 	s.text.Content += delta
 	msgID := s.text.ID
 	flush := time.Since(s.lastTextFlush) > 200*time.Millisecond
@@ -344,10 +376,20 @@ func (s *runSink) Reasoning(delta string) {
 		return
 	}
 	s.mu.Lock()
-	if s.reasoning == nil {
+	if s.part != streamPartReasoning {
+		if previous := s.endTextLocked(); previous != nil {
+			s.saveAndPublish(*previous)
+		}
+		if s.reasoning != nil {
+			if previous := s.endReasoningLocked(); previous != nil {
+				s.saveAndPublish(*previous)
+			}
+		}
 		msg := proto.Message{ID: id.New("msg"), ThreadID: s.thread.ID, RunID: s.run.ID, Role: proto.RoleAssistant,
 			Kind: proto.KindReasoning, Status: "running", CreatedAt: time.Now()}
 		s.reasoning = &msg
+		s.reasonText.Reset()
+		s.part = streamPartReasoning
 		ctx, cancel := s.dbCtx()
 		if _, err := s.svc.Store.AppendMessage(ctx, msg); err != nil {
 			s.svc.Log.Printf("t3go: append reasoning: %v", err)
@@ -379,6 +421,13 @@ func (s *runSink) ToolStart(toolID, name, detail string) {
 	msg := proto.Message{ID: id.New("msg"), ThreadID: s.thread.ID, RunID: s.run.ID, Role: proto.RoleAssistant,
 		Kind: proto.KindTool, Title: name, Detail: detail, Status: "running", CreatedAt: time.Now()}
 	s.mu.Lock()
+	if previous := s.endTextLocked(); previous != nil {
+		s.saveAndPublish(*previous)
+	}
+	if previous := s.endReasoningLocked(); previous != nil {
+		s.saveAndPublish(*previous)
+	}
+	s.part = streamPartTool
 	s.tools[toolID] = &msg
 	s.mu.Unlock()
 	ctx, cancel := s.dbCtx()
@@ -448,19 +497,57 @@ func (s *runSink) flushMessage(publish bool) {
 	}
 }
 
+// endTextLocked closes the current answer segment. The caller holds s.mu.
+func (s *runSink) endTextLocked() *proto.Message {
+	if s.text.Status != "running" || strings.TrimSpace(s.text.Content) == "" {
+		return nil
+	}
+	s.text.Status = "completed"
+	msg := s.text
+	return &msg
+}
+
+// endReasoningLocked closes the current reasoning segment. The caller holds
+// s.mu.
+func (s *runSink) endReasoningLocked() *proto.Message {
+	if s.reasoning == nil {
+		return nil
+	}
+	s.reasoning.Content = s.reasonText.String()
+	s.reasoning.Status = "completed"
+	msg := *s.reasoning
+	s.reasoning = nil
+	s.reasonText.Reset()
+	return &msg
+}
+
+// saveAndPublish persists a completed stream part. It may run while s.mu is
+// held; it uses an independent database deadline and never takes s.mu.
+func (s *runSink) saveAndPublish(msg proto.Message) {
+	ctx, cancel := s.dbCtx()
+	defer cancel()
+	if err := s.svc.Store.UpdateMessage(ctx, msg); err == nil {
+		s.svc.publish(context.Background(), proto.Event{Type: proto.EventMessage, ThreadID: s.thread.ID, Data: msg})
+	}
+}
+
 func (s *runSink) finish(runErr error) {
 	s.mu.Lock()
+	var finishedReasoning *proto.Message
 	if s.reasoning != nil {
-		s.reasoning.Content = s.reasonText.String()
-		s.reasoning.Status = "completed"
-		if ctx, cancel := s.dbCtx(); true {
-			_ = s.svc.Store.UpdateMessage(ctx, *s.reasoning)
+		if previous := s.endReasoningLocked(); previous != nil {
+			ctx, cancel := s.dbCtx()
+			_ = s.svc.Store.UpdateMessage(ctx, *previous)
 			cancel()
+			finishedReasoning = previous
 		}
 	}
 	text := s.text
 	usage := s.usage
 	s.mu.Unlock()
+	if finishedReasoning != nil {
+		s.svc.publish(context.Background(), proto.Event{Type: proto.EventMessage, ThreadID: s.thread.ID, Data: *finishedReasoning})
+	}
 
 	cancelled := errors.Is(runErr, context.Canceled) || errors.Is(s.ctx.Err(), context.Canceled)
 	now := time.Now()
