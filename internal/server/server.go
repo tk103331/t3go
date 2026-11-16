@@ -450,11 +450,16 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	threads = visibleThreads(threads)
 	providers := s.Service.Providers.Snapshot(ctx)
 	settings := s.Service.Settings(ctx)
+	serverVersion := strings.TrimSpace(s.Config.Version)
+	if serverVersion == "" {
+		serverVersion = "0.1.0-dev"
+	}
 	writeJSON(w, 200, proto.State{
 		Version: proto.ProtocolVersion, Seq: seq, ServerID: s.ID, Name: settings.Title, Hostname: s.Hostname, System: s.System,
 		EnvironmentID: s.Identity.ID, IdentityKey: s.Identity.PublicKey(),
-		Capabilities: []string{proto.CapabilityIdempotentMessages},
-		Projects:     nonNil(projects), Threads: nonNil(threads),
+		ServerVersion: serverVersion,
+		Capabilities:  []string{proto.CapabilityIdempotentMessages},
+		Projects:      nonNil(projects), Threads: nonNil(threads),
 		Providers: providers, Models: s.Service.Providers.Models(ctx), Settings: settings, ServerTime: time.Now(),
 	})
 }

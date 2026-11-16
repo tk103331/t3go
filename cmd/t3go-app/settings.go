@@ -40,6 +40,9 @@ func (a *app) settingsBody(cx *core.Scope) core.Node {
 	var nav []core.Node
 	for _, item := range settingsNav {
 		item := item
+		if item.ID == "access" && a.localSettingsTarget() == nil {
+			continue
+		}
 		selected := item.ID == section || item.ID == "environments" && section == "environment-defaults"
 		nav = append(nav, base.Button{OnPress: func(core.PressEvent) { a.setSettingsSection(item.ID) },
 			Label: item.Label, TestID: "settings-nav-" + item.ID,
@@ -405,36 +408,63 @@ func (a *app) settingsShortcuts(cx *core.Scope) core.Node {
 	}}
 }
 
-// settingsAbout describes the environment this window is connected to.
-func (a *app) settingsAbout(cx *core.Scope, manage func()) core.Node {
+// settingsAbout describes this client and the server running on this machine.
+// It intentionally ignores the selected settings environment.
+func (a *app) settingsAbout(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
+	target := a.localSettingsTarget()
 	rows := []core.Node{
-		a.aboutRow(cx, "Server", a.serverURL.Get()),
-		a.aboutRow(cx, "Protocol", fmt.Sprintf("v%d", proto.ProtocolVersion)),
-		a.aboutRow(cx, "Environment", a.envName()),
+		a.aboutRow(cx, "Client", "T3Go "+appVersion, "settings-about-client"),
+		a.aboutRow(cx, "Build", appBuildNumber, "settings-about-build"),
+		a.aboutRow(cx, "Go", goRuntimeVersion(), "settings-about-go"),
+		a.aboutRow(cx, "NSGo", nsgoVersion(), "settings-about-nsgo"),
+		a.aboutRow(cx, "Protocol", fmt.Sprintf("API v%d", proto.ProtocolVersion), "settings-about-protocol"),
 	}
-	if a.offline.Get() {
-		rows = append(rows, ui.Text("The event stream is reconnecting.", 11.5, ui.Regular, colors.Danger))
+	if target != nil {
+		server := target.serverVersion.Get()
+		if server == "" {
+			server = "Unknown"
+		}
+		rows = append(rows,
+			a.aboutRow(cx, "Server", server, "settings-about-server"),
+			a.aboutRow(cx, "Local URL", target.serverURL.Get(), "settings-about-url"),
+			a.aboutRow(cx, "Machine", target.envName(), "settings-about-machine"),
+		)
+		if target.profile.Hostname != "" {
+			rows = append(rows, a.aboutRow(cx, "Hostname", target.profile.Hostname, "settings-about-hostname"))
+		}
+		if target.profile.System != nil {
+			system := strings.TrimSpace(target.profile.System.OS + " " + target.profile.System.OSVersion)
+			if target.profile.System.Arch != "" {
+				system = strings.TrimSpace(system + " · " + target.profile.System.Arch)
+			}
+			rows = append(rows, a.aboutRow(cx, "System", system, "settings-about-system"))
+		}
+		if target.offline.Get() {
+			rows = append(rows, ui.Text("The local event stream is reconnecting.", 11.5, ui.Regular, colors.Danger))
+		}
+	} else {
+		rows = append(rows, ui.Text("No local T3Go environment is connected on this machine.", 11.5, ui.Regular, colors.Muted))
 	}
 	body := []core.Node{
-		settingsSectionTitle(cx, "About T3Go", "A Go environment and native client for T3 Code's protocol."),
+		settingsSectionTitle(cx, "About T3Go", "Client and local environment build information."),
 		core.View{Style: core.Style{Direction: core.Column, Gap: 4}, Children: rows},
-		core.Text{Content: "Agent CLIs run locally on the environment machine. The client never sees a provider's tokens or process output beyond the thread.",
+		core.Text{Content: "Remote environments are managed under Environments. This page reports only the client and the T3Go server running on this machine.",
 			MaxLines: 4, Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 	}
 	if a.manager != nil {
 		body = append(body, ui.Button{Text: "Manage environments", Variant: ui.ButtonGhost, Size: controlSize(cx),
-			TestID: "settings-manage-environments", OnPress: manage})
+			TestID: "settings-manage-environments", OnPress: func() { a.setSettingsSection("environments") }})
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: body}
 }
 
-func (a *app) aboutRow(cx *core.Scope, label, value string) core.Node {
+func (a *app) aboutRow(cx *core.Scope, label, value, testID string) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(4, 0)}, Children: []core.Node{
 		core.Text{Content: label, Style: core.Style{FontSize: 12, Width: core.Pt(90), FlexShrink: 0},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-		core.Text{Content: value, MaxLines: 2, Selectable: core.SelectableOn,
+		core.Text{Content: value, TestID: testID, MaxLines: 2, Selectable: core.SelectableOn,
 			Style:     core.Style{FontSize: 12, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 	}}

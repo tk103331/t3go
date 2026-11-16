@@ -89,6 +89,12 @@ func PairingProfile(address, token string) (EnvironmentProfile, error) {
 // phone can scan. A relay route is preferred for cross-network access, while
 // one direct route is carried alongside it for LAN fallback.
 func PairingLink(p EnvironmentProfile) (string, error) {
+	return PairingLinkOptions(p, true, true)
+}
+
+// PairingLinkOptions shares only the selected route kinds. When both are
+// enabled, relay remains primary and direct is carried as a LAN fallback.
+func PairingLinkOptions(p EnvironmentProfile, includeDirect, includeRelay bool) (string, error) {
 	p.Token = strings.TrimSpace(p.Token)
 	if p.Token == "" {
 		return "", errors.New("environment token is missing")
@@ -96,19 +102,16 @@ func PairingLink(p EnvironmentProfile) (string, error) {
 	if len(p.Routes) == 0 {
 		return "", errors.New("environment has no route")
 	}
-	var relay, direct, first string
+	var relay, direct string
 	for _, route := range p.Routes {
 		raw := strings.TrimRight(strings.TrimSpace(route.URL), "/")
 		if raw == "" {
 			continue
 		}
-		if first == "" {
-			first = raw
-		}
-		if route.Kind == "relay" && relay == "" {
+		if route.Kind == "relay" && includeRelay && relay == "" {
 			relay = raw
 		}
-		if route.Kind != "relay" && direct == "" {
+		if route.Kind != "relay" && includeDirect && direct == "" {
 			direct = raw
 		}
 	}
@@ -117,10 +120,7 @@ func PairingLink(p EnvironmentProfile) (string, error) {
 		primary = direct
 	}
 	if primary == "" {
-		primary = first
-	}
-	if primary == "" {
-		return "", errors.New("environment has no usable route")
+		return "", errors.New("no selected environment route is available")
 	}
 	q := url.Values{"url": {primary}, "token": {p.Token}}
 	if direct != "" && direct != primary {

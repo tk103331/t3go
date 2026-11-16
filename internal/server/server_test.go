@@ -144,6 +144,9 @@ func TestStateCarriesLastSeq(t *testing.T) {
 	if st.Seq == 0 {
 		t.Fatal("state seq is 0 after a project's event")
 	}
+	if st.ServerVersion == "" {
+		t.Fatal("state did not report the server version")
+	}
 }
 
 func TestStateReportsExecutionHostname(t *testing.T) {

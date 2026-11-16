@@ -16,7 +16,32 @@ func (a *app) settingsTarget() *app {
 	}
 	_ = a.manager.profiles.Get()
 	_ = a.manager.revision.Get()
+	if settingsUsesLocalTarget(a.settingsSection.Get()) {
+		return a.localSettingsTarget()
+	}
 	return a.manager.sessions[a.settingsEnv.Get()]
+}
+
+func settingsUsesLocalTarget(section string) bool {
+	return section == "access" || section == "about"
+}
+
+func (a *app) prepareLocalSettingsTarget(section string) {
+	if !settingsUsesLocalTarget(section) {
+		return
+	}
+	target := a.localSettingsTarget()
+	if target == nil {
+		return
+	}
+	if a.settingsVisited == nil {
+		a.settingsVisited = map[*app]bool{}
+	}
+	if !a.settingsVisited[target] {
+		target.beginSettingsDraft()
+		a.settingsVisited[target] = true
+	}
+	a.settingsEnv.Set(target.profile.ID)
 }
 
 func (a *app) settingsConnectionReady() bool {
@@ -132,15 +157,44 @@ func (a *app) settingsPage(cx *core.Scope) core.Node {
 		return ui.Text("Connect an environment to manage its routes.", 12, ui.Regular, ui.ColorsOf(cx).Muted)
 	case "shortcuts":
 		return a.settingsShortcuts(cx)
+	case "access":
+		return a.settingsTargetPage(cx, false, func(target *app) core.Node {
+			return target.settingsAccess(cx)
+		})
+	case "about":
+		return a.settingsAbout(cx)
 	}
+	return a.settingsTargetPage(cx, true, func(target *app) core.Node {
+		switch a.settingsSection.Get() {
+		case "providers":
+			return target.settingsProviders(cx, a)
+		case "usage":
+			return target.settingsUsage(cx)
+		case "worktrees":
+			return target.settingsWorktrees(cx)
+		default:
+			return target.settingsEnvironmentDefaults(cx)
+		}
+	})
+}
+
+func (a *app) settingsTargetPage(cx *core.Scope, showSelector bool, render func(*app) core.Node) core.Node {
 	return core.View{Style: core.Style{Gap: 12}, Children: []core.Node{
 		core.Show{When: func() bool { return a.settingsSaveErr.Get() != "" }, Then: func(cx *core.Scope) core.Node {
 			return ui.Text(a.settingsSaveErr.Get(), 12, ui.Regular, ui.ColorsOf(cx).Danger)
 		}},
-		core.Dynamic(a.settingsEnvironmentSelector),
+		core.Show{When: func() bool { return showSelector }, Then: func(cx *core.Scope) core.Node {
+			return core.Dynamic(a.settingsEnvironmentSelector)
+		}},
 		core.Dynamic(func(cx *core.Scope) core.Node {
 			target := a.settingsTarget()
 			if target == nil {
+				if !showSelector {
+					return core.View{TestID: "settings-local-unavailable", Style: core.Style{Gap: 6}, Children: []core.Node{
+						ui.Text("No local environment was found.", 13, ui.Semibold, ui.ColorsOf(cx).Text),
+						ui.Text("Connect to the T3Go server running on this machine, then reopen settings.", 12, ui.Regular, ui.ColorsOf(cx).Muted),
+					}}
+				}
 				return ui.Text("This environment is no longer available. Select another environment.", 12, ui.Regular, ui.ColorsOf(cx).Muted)
 			}
 			if !target.settingsConnectionReady() {
@@ -156,20 +210,7 @@ func (a *app) settingsPage(cx *core.Scope) core.Node {
 						action,
 					}}
 			}
-			switch a.settingsSection.Get() {
-			case "providers":
-				return target.settingsProviders(cx, a)
-			case "access":
-				return target.settingsAccess(cx)
-			case "usage":
-				return target.settingsUsage(cx)
-			case "worktrees":
-				return target.settingsWorktrees(cx)
-			case "about":
-				return target.settingsAbout(cx, func() { a.setSettingsSection("environments") })
-			default:
-				return target.settingsEnvironmentDefaults(cx)
-			}
+			return render(target)
 		}),
 	}}
 }

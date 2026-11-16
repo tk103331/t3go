@@ -259,3 +259,44 @@ func TestPairingLinkRequiresReachableIdentity(t *testing.T) {
 		t.Fatal("profile without routes produced a pairing link")
 	}
 }
+
+func TestPairingLinkOptionsSelectRoutes(t *testing.T) {
+	p := EnvironmentProfile{
+		ID: "env_test", PublicKey: "env_test", Token: "access-token",
+		Routes: []Route{
+			{URL: "http://192.168.1.2:4870", Kind: "direct"},
+			{URL: "https://relay.example/e/env_test", Kind: "relay"},
+		},
+	}
+	tests := []struct {
+		name          string
+		direct, relay bool
+		wantURL       string
+		wantDirect    string
+	}{
+		{name: "both", direct: true, relay: true, wantURL: "https://relay.example/e/env_test", wantDirect: "http://192.168.1.2:4870"},
+		{name: "direct", direct: true, wantURL: "http://192.168.1.2:4870"},
+		{name: "relay", relay: true, wantURL: "https://relay.example/e/env_test"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			link, err := PairingLinkOptions(p, test.direct, test.relay)
+			if err != nil {
+				t.Fatal(err)
+			}
+			u, err := url.Parse(link)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := u.Query().Get("url"); got != test.wantURL {
+				t.Fatalf("url = %q, want %q", got, test.wantURL)
+			}
+			if got := u.Query().Get("direct"); got != test.wantDirect {
+				t.Fatalf("direct = %q, want %q", got, test.wantDirect)
+			}
+		})
+	}
+	if _, err := PairingLinkOptions(p, false, false); err == nil {
+		t.Fatal("pairing link accepted no selected routes")
+	}
+}

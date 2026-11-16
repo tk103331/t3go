@@ -283,7 +283,17 @@ func TestUISettingsEnvironmentIsolation(t *testing.T) {
 		t.Fatal("worktrees leaked to Beta")
 	}
 	app.Press("id:settings-nav-about")
-	app.WaitFor("text:\""+beta.profile.Routes[0].URL+"\"", 5*time.Second)
+	app.WaitFor("id:settings-about-url", 5*time.Second)
+	app.WaitFor("id:settings-about-server", 5*time.Second)
+	if got := app.Find("id:settings-about-url").Text; got != alpha.profile.Routes[0].URL {
+		t.Fatalf("About local URL = %q, want %q", got, alpha.profile.Routes[0].URL)
+	}
+	if app.Exists("id:settings-environment") {
+		t.Fatal("About exposed the environment selector")
+	}
+	app.Press("id:settings-nav-providers")
+	app.Press("id:settings-environment-" + beta.profile.ID)
+	app.WaitFor("text:Beta CLI", 5*time.Second)
 	// Inaccessible B cannot expose cached settings or send writes to healthy A.
 	betaSession := manager.sessions[beta.profile.ID]
 	app.Post(func() {
@@ -337,6 +347,7 @@ func TestUISettingsDelayedProvidersAndSetupTarget(t *testing.T) {
 	// Remember a B thread, then return to A before opening settings for B.
 	app.Press("id:thread-" + beta.profile.ID + "/same-thread")
 	app.WaitFor("label:Message", 5*time.Second)
+	app.WaitFor("id:thread-"+alpha.profile.ID+"/same-thread", 10*time.Second)
 	app.Press("id:thread-" + alpha.profile.ID + "/same-thread")
 	app.WaitFor("label:Message", 5*time.Second)
 	app.Press("id:settings")

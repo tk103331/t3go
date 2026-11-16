@@ -29,7 +29,7 @@ func writeRegistryCache(t *testing.T, agents []proto.ACPRegistryAgent) string {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := json.Marshal(acpRegistryDocument{Version: 1, Agents: agents})
+	raw, err := json.Marshal(acpRegistryDocument{Version: "1.0.0", Agents: agents})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,6 +37,16 @@ func writeRegistryCache(t *testing.T, agents []proto.ACPRegistryAgent) string {
 		t.Fatal(err)
 	}
 	return home
+}
+
+func TestACPRegistryAcceptsSemanticDocumentVersion(t *testing.T) {
+	var document acpRegistryDocument
+	if err := json.Unmarshal([]byte(`{"version":"1.0.0","agents":[]}`), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.Version != "1.0.0" {
+		t.Fatalf("version = %q", document.Version)
+	}
 }
 
 func TestACPRegistrySearchFiltersPlatformAndPinnedPackages(t *testing.T) {

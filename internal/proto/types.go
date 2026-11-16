@@ -478,9 +478,12 @@ type Settings struct {
 	Accent string `json:"accent,omitempty"`
 	Title  string `json:"title"`
 	// AccessEnabled controls whether the desktop shows its local pairing link.
-	AccessEnabled bool                  `json:"accessEnabled,omitempty"`
-	PiProvider    PiProviderSettings    `json:"piProvider,omitempty"`
-	ACPProviders  []ACPProviderSettings `json:"acpProviders,omitempty"`
+	AccessEnabled bool `json:"accessEnabled,omitempty"`
+	// AccessRoutes selects which local environment routes are shared:
+	// both, direct, or relay. Empty preserves the original both behavior.
+	AccessRoutes string                `json:"accessRoutes,omitempty"`
+	PiProvider   PiProviderSettings    `json:"piProvider,omitempty"`
+	ACPProviders []ACPProviderSettings `json:"acpProviders,omitempty"`
 }
 
 // DefaultSettings are a new environment's defaults.
@@ -507,6 +510,7 @@ type State struct {
 	ServerID      string      `json:"serverId"`
 	EnvironmentID string      `json:"environmentId,omitempty"`
 	IdentityKey   string      `json:"identityKey,omitempty"`
+	ServerVersion string      `json:"serverVersion,omitempty"`
 	Capabilities  []string    `json:"capabilities,omitempty"`
 	Name          string      `json:"name"`
 	Hostname      string      `json:"hostname,omitempty"`

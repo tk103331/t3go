@@ -62,12 +62,13 @@ type app struct {
 	appearance           *core.Signal[clientAppearance]
 
 	// connection
-	serverURL  *core.Signal[string]
-	token      *core.Signal[string]
-	connected  *core.Signal[bool]
-	connecting *core.Signal[bool]
-	offline    *core.Signal[bool]
-	connErr    *core.Signal[string]
+	serverURL     *core.Signal[string]
+	serverVersion *core.Signal[string]
+	token         *core.Signal[string]
+	connected     *core.Signal[bool]
+	connecting    *core.Signal[bool]
+	offline       *core.Signal[bool]
+	connErr       *core.Signal[string]
 
 	// environment snapshot
 	projects  *core.Signal[[]proto.Project]
@@ -359,12 +360,13 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		credentialError:     core.NewSignal(cx, ""),
 		connectionRecovered: core.NewSignal(cx, false),
 
-		serverURL:  core.NewSignal(cx, ""),
-		token:      core.NewSignal(cx, ""),
-		connected:  core.NewSignal(cx, false),
-		connecting: core.NewSignal(cx, false),
-		offline:    core.NewSignal(cx, false),
-		connErr:    core.NewSignal(cx, ""),
+		serverURL:     core.NewSignal(cx, ""),
+		serverVersion: core.NewSignal(cx, ""),
+		token:         core.NewSignal(cx, ""),
+		connected:     core.NewSignal(cx, false),
+		connecting:    core.NewSignal(cx, false),
+		offline:       core.NewSignal(cx, false),
+		connErr:       core.NewSignal(cx, ""),
 
 		projects:            sliceSignal[proto.Project](cx),
 		threads:             sliceSignal[proto.Thread](cx),
@@ -895,6 +897,7 @@ func (a *app) applyState(st proto.State) {
 		a.providers.Set(st.Providers)
 		a.models.Set(st.Models)
 		a.settings.Set(st.Settings)
+		a.serverVersion.Set(st.ServerVersion)
 	})
 	a.rememberThreads(st.Threads)
 }
@@ -4569,6 +4572,7 @@ func (a *app) commandItems() []base.CommandItem {
 // setSettingsSection switches the settings page and remembers it.
 func (a *app) setSettingsSection(name string) {
 	a.settingsSection.Set(name)
+	a.prepareLocalSettingsTarget(name)
 	if a.mobilePage.GetUntracked() == "settings" && a.mobileSettingsDetail.GetUntracked() != "" {
 		a.mobileSettingsDetail.Set(name)
 	}
@@ -4590,6 +4594,7 @@ func (a *app) openSettings() {
 	a.settingsEnv.Set(a.profile.ID)
 	a.settingsVisited = map[*app]bool{a: true}
 	a.beginSettingsDraft()
+	a.prepareLocalSettingsTarget(a.settingsSection.GetUntracked())
 	if compactSettings(a.cx) && a.settingsSection.GetUntracked() == "usage" {
 		a.settingsSection.Set("general")
 	}

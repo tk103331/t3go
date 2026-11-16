@@ -27,7 +27,7 @@ import (
 const acpRegistryURL = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json"
 
 type acpRegistryDocument struct {
-	Version int                      `json:"version"`
+	Version string                   `json:"version"`
 	Agents  []proto.ACPRegistryAgent `json:"agents"`
 }
 
