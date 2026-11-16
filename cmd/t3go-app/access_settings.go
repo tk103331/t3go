@@ -154,6 +154,17 @@ func (a *app) refreshRelayAccess() {
 	}()
 }
 
+func (a *app) relayAccountSession() (proto.RelayUserSession, string, bool) {
+	if a.manager == nil || !a.manager.accountSessionValid() {
+		return proto.RelayUserSession{}, "", false
+	}
+	server := relayAccountServer(a.manager.accountServer.GetUntracked())
+	if server == "" {
+		return proto.RelayUserSession{}, "", false
+	}
+	return a.manager.accountSession.GetUntracked(), server, true
+}
+
 func (a *app) configureRelay() {
 	if a.relayBusy.GetUntracked() {
 		return
@@ -163,51 +174,23 @@ func (a *app) configureRelay() {
 		a.relayErr.Set("Connect the local environment before configuring Relay.")
 		return
 	}
+	session, server, ok := a.relayAccountSession()
+	if !ok {
+		a.relayErr.Set("Sign in from Account before connecting Relay.")
+		return
+	}
 	in := proto.RelayAccessConfig{
-		Server:    strings.TrimSpace(a.relayServer.GetUntracked()),
-		DirectURL: a.localLANURL(),
-		AllowHTTP: a.relayAllowHTTP.GetUntracked(),
-	}
-	if in.Server == "" {
-		a.relayErr.Set("Enter the Relay server URL.")
-		return
-	}
-	email := strings.TrimSpace(a.relayEmail.GetUntracked())
-	password := a.relayPassword.GetUntracked()
-	if email == "" {
-		a.relayErr.Set("Enter your Relay account email.")
-		return
-	}
-	if password == "" {
-		a.relayErr.Set("Enter your Relay account password.")
-		return
+		Server: server, UserToken: session.Token, DirectURL: a.localLANURL(),
+		AllowHTTP: a.manager.accountAllowHTTP.GetUntracked(),
 	}
 	a.relayBusy.Set(true)
 	a.relayErr.Set("")
-	authMode := strings.ToLower(strings.TrimSpace(a.relayAuthMode.GetUntracked()))
-	account := proto.RelayAccountRequest{
-		Server: in.Server, Email: email, Password: password,
-		Name: strings.TrimSpace(a.relayName.GetUntracked()), AllowHTTP: in.AllowHTTP,
-	}
 	a.relaySeq++
 	seq := a.relaySeq
 	go func() {
 		ctx, cancel := context.WithTimeout(a.lifetime, 45*time.Second)
 		defer cancel()
-		var session proto.RelayUserSession
-		var err error
-		if authMode == "register" {
-			session, err = c.RegisterRelayUser(ctx, account)
-		} else {
-			session, err = c.LoginRelayUser(ctx, account)
-		}
-		if err == nil {
-			in.UserToken = session.Token
-		}
-		var status proto.RelayAccessStatus
-		if err == nil {
-			status, err = c.ConfigureRelay(ctx, in)
-		}
+		status, err := c.ConfigureRelay(ctx, in)
 		a.cx.Post(func() {
 			a.relayBusy.Set(false)
 			if seq != a.relaySeq {
@@ -217,8 +200,6 @@ func (a *app) configureRelay() {
 				a.relayErr.Set(friendlyError(err))
 				return
 			}
-			a.relayPassword.Set("")
-			a.relayConfigOpen.Set(false)
 			a.settingsDraft.Update(func(settings proto.Settings) proto.Settings {
 				settings.AccessRoutes = "both"
 				return settings
@@ -360,108 +341,59 @@ func accessRouteRow(cx *core.Scope, label, detail, testID string, available bool
 
 func (a *app) relayConfigurationCard(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	open := func() bool { return a.relayConfigOpen.Get() }
-	authMode := strings.ToLower(strings.TrimSpace(a.relayAuthMode.Get()))
-	if authMode != "register" {
-		authMode = "login"
-	}
+	session, server, signedIn := a.relayAccountSession()
 	header := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Column, Gap: 2, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 			Children: []core.Node{
-				core.Text{Content: "Connect Relay", Style: core.Style{FontSize: 12.5, FontWeight: ui.Semibold},
+				core.Text{Content: "Relay access", Style: core.Style{FontSize: 12.5, FontWeight: ui.Semibold},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-				core.Text{Content: "Optional remote access for networks where direct LAN pairing is unavailable.",
+				core.Text{Content: "Use the Relay account already signed in under Account.",
 					MaxLines: 2, Style: core.Style{FontSize: 10.5},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 			}},
-		ui.Button{Text: func() string {
-			if open() {
-				return "Cancel"
-			}
-			return "Configure"
-		}(), Variant: ui.ButtonSecondary, Size: controlSize(cx), TestID: "settings-relay-config-open",
-			OnPress: func() { a.relayConfigOpen.Set(!open()) }},
 	}}
-	if !open() {
-		return core.View{TestID: "settings-relay-config", Style: core.Style{Direction: core.Column, Gap: 7,
-			Padding: core.Symmetric(9, 11), Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{header}}
+	body := []core.Node{header}
+	if signedIn {
+		name := strings.TrimSpace(session.User.Name)
+		if name == "" {
+			name = session.User.Email
+		}
+		body = append(body, core.View{TestID: "settings-relay-account",
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 9,
+				Padding: core.Symmetric(8, 10), Background: colors.Field(), CornerRadius: 7},
+			Children: []core.Node{
+				ui.Icon(lucide.UserRound, 18, colors.Accent),
+				core.View{Style: core.Style{Direction: core.Column, Gap: 1, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+					Children: []core.Node{
+						core.Text{Content: name, TestID: "settings-relay-account-name", MaxLines: 1,
+							Style:     core.Style{FontSize: 11.5, FontWeight: ui.Semibold},
+							StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+						core.Text{Content: session.User.Email + " · " + server, TestID: "settings-relay-account-server", MaxLines: 2,
+							Style:     core.Style{FontSize: 10.5},
+							StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+					}},
+			}})
+	} else {
+		body = append(body, core.Text{Content: "No Relay account is signed in. Sign in once under Account, then return here to connect this machine.",
+			TestID: "settings-relay-account-required", MaxLines: 3,
+			Style:     core.Style{FontSize: 10.5, LineHeight: 15},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }})
 	}
-	body := []core.Node{
-		header,
-		core.View{TestID: "settings-relay-auth-mode", Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
-			ui.Button{Text: "Sign in", Variant: func() ui.ButtonVariant {
-				if authMode == "login" {
-					return ui.ButtonPrimary
-				}
-				return ui.ButtonSecondary
-			}(), Size: controlSize(cx), TestID: "settings-relay-auth-login",
-				OnPress: func() {
-					a.relayAuthMode.Set("login")
-					a.relayErr.Set("")
-				}},
-			ui.Button{Text: "Create account", Variant: func() ui.ButtonVariant {
-				if authMode == "register" {
-					return ui.ButtonPrimary
-				}
-				return ui.ButtonSecondary
-			}(), Size: controlSize(cx), TestID: "settings-relay-auth-register",
-				OnPress: func() {
-					a.relayAuthMode.Set("register")
-					a.relayErr.Set("")
-				}},
-		}},
-		mobileInput{Scope: cx, Input: base.Input{Value: a.relayServer.Get, OnChange: func(value string) {
-			a.relayServer.Set(value)
-		}, Placeholder: "https://relay.example.com", Label: "Relay server URL",
-			NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone},
-			TestID: "settings-relay-server"},
-		mobileInput{Scope: cx, Input: base.Input{Value: a.relayEmail.Get, OnChange: func(value string) {
-			a.relayEmail.Set(value)
-		}, Placeholder: "you@example.com", Label: "Relay account email",
-			NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone},
-			TestID: "settings-relay-email"},
-		mobileInput{Scope: cx, Input: base.Input{Value: a.relayPassword.Get, OnChange: func(value string) {
-			a.relayPassword.Set(value)
-		}, Placeholder: "At least 8 characters", Label: "Relay account password",
-			Masked: true, NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone},
-			TestID: "settings-relay-password"},
-	}
-	if authMode == "register" {
-		body = append(body, mobileInput{Scope: cx, Input: base.Input{Value: a.relayName.Get, OnChange: func(value string) {
-			a.relayName.Set(value)
-		}, Placeholder: "Optional display name", Label: "Account display name",
-			NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeWords},
-			TestID: "settings-relay-name"})
-	}
-	body = append(body,
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}, Children: []core.Node{
-			core.View{Style: core.Style{Direction: core.Column, Gap: 1, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
-				Children: []core.Node{
-					core.Text{Content: "Allow insecure HTTP", Style: core.Style{FontSize: 11.5, FontWeight: ui.Medium},
-						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-					core.Text{Content: "Use only for a trusted private network.", MaxLines: 2,
-						Style:     core.Style{FontSize: 10.5},
-						StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-				}},
-			settingsSwitch(cx, "Allow insecure HTTP Relay", "settings-relay-allow-http", a.relayAllowHTTP.Get,
-				func(value bool) { a.relayAllowHTTP.Set(value) }),
-		}},
-	)
 	if a.relayErr.Get() != "" {
 		body = append(body, core.Text{Content: a.relayErr.Get(), TestID: "settings-relay-error", MaxLines: 4,
 			Style:     core.Style{FontSize: 10.5},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }})
 	}
 	if a.relayBusy.Get() {
-		body = append(body, ui.Spinner{Size: 14, Label: "Authenticating and registering Relay"})
+		body = append(body, ui.Spinner{Size: 14, Label: "Connecting Relay"})
+	} else if signedIn {
+		body = append(body, ui.Button{Text: "Connect Relay", Icon: lucide.Link,
+			Variant: ui.ButtonPrimary, Size: controlSize(cx), TestID: "settings-relay-submit",
+			OnPress: a.configureRelay})
 	} else {
-		body = append(body, ui.Button{Text: func() string {
-			if authMode == "register" {
-				return "Create account and connect"
-			}
-			return "Sign in and connect"
-		}(), Icon: lucide.LogIn, Variant: ui.ButtonPrimary,
-			Size: controlSize(cx), TestID: "settings-relay-submit", OnPress: a.configureRelay})
+		body = append(body, ui.Button{Text: "Open Account", Icon: lucide.UserRound,
+			Variant: ui.ButtonSecondary, Size: controlSize(cx), TestID: "settings-relay-open-account",
+			OnPress: func() { a.setSettingsSection("account") }})
 	}
 	return core.View{TestID: "settings-relay-config", Style: core.Style{Direction: core.Column, Gap: 8,
 		Padding: core.Symmetric(9, 11), Background: colors.Inset(), CornerRadius: 8,

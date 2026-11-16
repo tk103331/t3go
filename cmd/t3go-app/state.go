@@ -98,14 +98,6 @@ type app struct {
 	accessQR            *core.Signal[[]byte]
 	accessErr           *core.Signal[string]
 	relayAccess         *core.Signal[proto.RelayAccessStatus]
-	relayConfigOpen     *core.Signal[bool]
-	relayServer         *core.Signal[string]
-	relayAuthMode       *core.Signal[string]
-	relayEmail          *core.Signal[string]
-	relayPassword       *core.Signal[string]
-	relayName           *core.Signal[string]
-	relayDirectURL      *core.Signal[string]
-	relayAllowHTTP      *core.Signal[bool]
 	relayBusy           *core.Signal[bool]
 	relayErr            *core.Signal[string]
 	relaySeq            int
@@ -404,14 +396,6 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		accessQR:            sliceSignal[byte](cx),
 		accessErr:           core.NewSignal(cx, ""),
 		relayAccess:         core.NewSignalFunc(cx, proto.RelayAccessStatus{}, func(a, b proto.RelayAccessStatus) bool { return a == b }),
-		relayConfigOpen:     core.NewSignal(cx, false),
-		relayServer:         core.NewSignal(cx, ""),
-		relayAuthMode:       core.NewSignal(cx, "login"),
-		relayEmail:          core.NewSignal(cx, ""),
-		relayPassword:       core.NewSignal(cx, ""),
-		relayName:           core.NewSignal(cx, ""),
-		relayDirectURL:      core.NewSignal(cx, ""),
-		relayAllowHTTP:      core.NewSignal(cx, false),
 		relayBusy:           core.NewSignal(cx, false),
 		relayErr:            core.NewSignal(cx, ""),
 

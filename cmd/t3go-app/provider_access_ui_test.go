@@ -12,6 +12,7 @@ import (
 
 	"github.com/oneo-me/nsgo/nsgotest"
 	"github.com/tk/t3go/internal/client"
+	"github.com/tk/t3go/internal/proto"
 )
 
 func TestUIAccessGeneratesCopyablePairingQRCode(t *testing.T) {
@@ -128,7 +129,7 @@ func TestUIAccessAndAboutOnlyUseLocalEnvironment(t *testing.T) {
 	}
 }
 
-func TestUIAccessCanConfigureRelayWithoutTerminal(t *testing.T) {
+func TestUIAccessUsesSignedInAccount(t *testing.T) {
 	const userToken = "test-relay-administrator-token"
 	srv, ts, cfg := startEnv(t)
 	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -137,10 +138,6 @@ func TestUIAccessCanConfigureRelayWithoutTerminal(t *testing.T) {
 			return
 		}
 		switch r.URL.Path {
-		case "/api/v1/auth/register":
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{"user":{"id":"usr_test","email":"owner@example.com","name":"Owner","provider":"local","createdAt":"2026-11-16T10:00:00Z"},"token":"test-relay-administrator-token","expiresAt":"2026-12-16T10:00:00Z"}`))
 		case "/api/v1/relay/environments":
 			if r.Header.Get("Authorization") != "Bearer "+userToken {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -158,8 +155,19 @@ func TestUIAccessCanConfigureRelayWithoutTerminal(t *testing.T) {
 		ID: srv.Identity.ID, PublicKey: srv.Identity.PublicKey(), Token: cfg.Token,
 		Routes: []client.Route{{URL: ts.URL, Kind: "direct"}},
 	}
+	account, err := json.Marshal(savedRelayAccount{
+		Version: 1, Server: hub.URL, AllowHTTP: true,
+		Session: proto.RelayUserSession{
+			Token: userToken, ExpiresAt: time.Now().Add(time.Hour),
+			User: proto.RelayUser{ID: "usr_test", Email: "owner@example.com", Name: "Account Owner"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
-		"environments:v1": workspaceRegistry(profile),
+		"environments:v1":      workspaceRegistry(profile),
+		relayAccountStorageKey: string(account),
 	}))
 	app.WaitFor("id:settings", 15*time.Second)
 	app.Press("id:settings")
@@ -167,15 +175,19 @@ func TestUIAccessCanConfigureRelayWithoutTerminal(t *testing.T) {
 	app.Press("id:settings-nav-access")
 	app.WaitFor("id:settings-access-enabled", 5*time.Second)
 	app.Press("id:settings-access-enabled")
-	app.WaitFor("id:settings-relay-config-open", 5*time.Second)
-	app.Press("id:settings-relay-config-open")
+	app.WaitFor("id:settings-relay-account", 5*time.Second)
+	if got := app.Find("id:settings-relay-account-name").Text; got != "Account Owner" {
+		t.Fatalf("Relay account name = %q", got)
+	}
+	if got := app.Find("id:settings-relay-account-server").Text; !strings.Contains(got, hub.URL) {
+		t.Fatalf("Relay account detail = %q", got)
+	}
+	for _, id := range []string{"settings-relay-server", "settings-relay-email", "settings-relay-password"} {
+		if app.Exists("id:" + id) {
+			t.Fatalf("Access still asks for account credentials in %s", id)
+		}
+	}
 	app.WaitFor("id:settings-relay-submit", 5*time.Second)
-	app.Press("id:settings-relay-auth-register")
-	app.Type("id:settings-relay-server", hub.URL)
-	app.Type("id:settings-relay-email", "owner@example.com")
-	app.Type("id:settings-relay-password", "correct-horse-battery")
-	app.Type("id:settings-relay-name", "Owner")
-	app.Press("id:settings-relay-allow-http")
 	app.Press("id:settings-relay-submit")
 	app.WaitUntil(15*time.Second, func() bool {
 		if !app.Exists("id:settings-access-link") {
@@ -191,9 +203,30 @@ func TestUIAccessCanConfigureRelayWithoutTerminal(t *testing.T) {
 	if !strings.Contains(raw, hub.URL+"/e/"+srv.Identity.ID) {
 		t.Fatalf("saved profile is missing Relay route: %s", raw)
 	}
-	if strings.Contains(raw, userToken) {
-		t.Fatal("Relay user token was persisted by the client")
+}
+
+func TestUIAccessDirectsSignedOutUsersToAccount(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	profile := client.EnvironmentProfile{
+		ID: srv.Identity.ID, PublicKey: srv.Identity.PublicKey(), Token: cfg.Token,
+		Routes: []client.Route{{URL: ts.URL, Kind: "direct"}},
 	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"environments:v1": workspaceRegistry(profile),
+	}))
+	app.WaitFor("id:settings", 15*time.Second)
+	app.Press("id:settings")
+	app.Press("id:settings-nav-access")
+	app.WaitFor("id:settings-access-enabled", 5*time.Second)
+	app.Press("id:settings-access-enabled")
+	app.WaitFor("id:settings-relay-account-required", 5*time.Second)
+	for _, id := range []string{"settings-relay-server", "settings-relay-email", "settings-relay-password", "settings-relay-submit"} {
+		if app.Exists("id:" + id) {
+			t.Fatalf("signed-out Access exposes credential flow %s", id)
+		}
+	}
+	app.Press("id:settings-relay-open-account")
+	app.WaitFor("id:relay-account-mode-login", 5*time.Second)
 }
 
 func TestUIProviderSettingsPersistPerEnvironment(t *testing.T) {
