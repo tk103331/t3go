@@ -48,8 +48,7 @@ func (a *app) mobileThreads() []mobileThread {
 			if thread.Archived && !archived {
 				continue
 			}
-			if query != "" && !threadMatches(thread, query) &&
-				!strings.Contains(strings.ToLower(project.Name+" "+session.envName()), query) {
+			if query != "" && !threadMatches(thread, query) {
 				continue
 			}
 			rows = append(rows, mobileThread{session: session, thread: thread, project: project, pinned: pinned[thread.ID]})
@@ -84,8 +83,7 @@ func (a *app) mobileHome(cx *core.Scope) core.Node {
 						core.Dynamic(a.sidebarProjects),
 					}}
 				}
-				return core.Scroll{TestID: "mobile-thread-scroll", Style: ui.FillRest,
-					Children: []core.Node{core.Dynamic(a.mobileThreadList)}}
+				return core.Func(a.mobileThreadsPage)
 			}),
 			core.Dynamic(a.mobileNewThreadAction),
 		}},
@@ -129,18 +127,13 @@ func (a *app) mobileHeader(cx *core.Scope) core.Node {
 			}})
 	}
 	children = append(children, title, ui.Spacer{})
-	if page == "threads" || page == "projects" {
+	if page == "projects" {
 		children = append(children,
 			ui.IconButton{Icon: lucide.FolderPlus, Label: "New project", Size: 44, IconSize: 23,
 				TestID: "new-project", OnPress: a.openNewProject})
 	} else if page == "prs" {
 		children = append(children, ui.IconButton{Icon: lucide.Folder, Label: "Projects", Size: 44, IconSize: 24,
 			TestID: "mobile-tab-projects", OnPress: func() { a.mobilePage.Set("projects") }})
-	}
-	if page != "usage" {
-		children = append(children,
-			ui.IconButton{Icon: lucide.Search, Label: "Search", Size: 44, IconSize: 24,
-				TestID: "open-palette", OnPress: a.openPalette})
 	}
 	var filter core.Node
 	if page == "usage" {
@@ -169,6 +162,27 @@ func (a *app) mobileHeader(cx *core.Scope) core.Node {
 		FlexShrink: 0, Padding: core.Symmetric(10, 14), Gap: 4}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexGrow: 1, MinWidth: core.Pt(0), Gap: 4},
 			Children: children},
+	}}
+}
+
+func (a *app) mobileThreadsPage(cx *core.Scope) core.Node {
+	return core.View{TestID: "mobile-threads-page", Style: core.Style{FlexGrow: 1, FlexShrink: 1,
+		MinHeight: core.Pt(0), Gap: 6}, Children: []core.Node{
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+			Padding: core.Edges{Top: 8, Right: 14, Bottom: 4, Left: 14}, FlexShrink: 0}, Children: []core.Node{
+			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+				mobileInput{Scope: cx, TestID: "mobile-thread-search", Input: base.Input{
+					Value: a.sidebarQuery.Get, OnChange: a.sidebarQuery.Set,
+					Placeholder: "Search threads", Label: "Search threads"}},
+			}},
+			core.Show{When: func() bool { return strings.TrimSpace(a.sidebarQuery.Get()) != "" },
+				Then: func(*core.Scope) core.Node {
+					return ui.IconButton{Icon: lucide.X, Label: "Clear thread search", Size: 44, IconSize: 22,
+						TestID: "clear-thread-search", OnPress: func() { a.sidebarQuery.Set("") }}
+				}},
+		}},
+		core.Scroll{TestID: "mobile-thread-scroll", Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
+			Children: []core.Node{core.Dynamic(a.mobileThreadList)}},
 	}}
 }
 

@@ -2994,7 +2994,7 @@ func TestUIMobileDialogsFit(t *testing.T) {
 	if send.Origin.Y+send.Size.Height > 844-300 || send.Size.Height < 36 || send.Size.Height > 40 {
 		t.Fatalf("new thread send is covered by the keyboard or the wrong size: %v", send)
 	}
-	app.Press("id:new-thread-options")
+	app.Press("id:new-thread-more")
 	app.WaitFor("id:new-thread-dialog", 5*time.Second)
 	dialog := mobileScreenFrame(app.Find("id:new-thread-dialog"))
 	if dialog.Origin.X < 0 || dialog.Origin.X+dialog.Size.Width > 390 {
@@ -3019,14 +3019,12 @@ func TestUIMobileDialogsFit(t *testing.T) {
 	}
 	app.Press("id:new-thread-options-done")
 	waitSheetGone(app, "id:new-thread-dialog")
-	app.Press("id:cancel-thread")
-	app.WaitForGone("id:new-thread-page", 5*time.Second)
 
 	app.WaitUntil(10*time.Second, func() bool {
 		if app.Exists("id:new-project-dialog") {
 			return true
 		}
-		app.Press("id:new-project")
+		app.Press("id:new-thread-new-project")
 		app.Settle()
 		return app.Exists("id:new-project-dialog")
 	})
@@ -3078,9 +3076,9 @@ func TestUIMobileThreadActions(t *testing.T) {
 	app.WaitFor("id:open-diff", 5*time.Second)
 }
 
-// TestUIMobilePalette keeps the phone palette above the keyboard and
-// gives it a visible way to close when the sheet cannot be swiped.
-func TestUIMobilePalette(t *testing.T) {
+// TestUIMobileInlineThreadSearch keeps search in the thread inbox instead of
+// opening the desktop command palette.
+func TestUIMobileInlineThreadSearch(t *testing.T) {
 	_, ts, cfg := startEnv(t)
 	app := nsgotest.Start(t, Root, nsgotest.Environment(core.Environment{OS: core.OSAndroid,
 		Idiom: core.IdiomPhone, KeyboardHeight: 300, SafeArea: core.Edges{Top: 24, Bottom: 16}}),
@@ -3088,30 +3086,28 @@ func TestUIMobilePalette(t *testing.T) {
 			"serverUrl": ts.URL,
 			"token":     cfg.Token,
 		}))
-	app.WaitFor("id:open-palette", 15*time.Second)
-	for _, id := range []string{"new-project", "new-thread", "open-palette", "settings"} {
+	app.WaitFor("id:mobile-thread-search", 15*time.Second)
+	for _, id := range []string{"new-thread", "mobile-thread-search", "settings"} {
 		if frame := app.Find("id:" + id).Frame; frame.Size.Width < 34 || frame.Size.Height < 34 {
 			t.Fatalf("%s touch icon is too small: %v", id, frame)
 		}
 	}
-	app.WaitUntil(10*time.Second, func() bool {
-		if app.Exists("id:palette") {
-			return true
-		}
-		app.Press("id:open-palette")
-		app.Settle()
-		return app.Exists("id:palette")
-	})
-	app.WaitFor("id:palette-close", 5*time.Second)
-	app.Press("id:palette-close")
-	app.WaitForGone("id:palette", 5*time.Second)
-
-	// The Android back action must dismiss the palette itself, even though
-	// its search field has opened the software keyboard.
-	app.Press("id:open-palette")
-	app.WaitFor("id:palette", 5*time.Second)
+	if app.Exists("id:new-project") || app.Exists("id:open-palette") {
+		t.Fatal("thread inbox still exposes project creation or search palette")
+	}
+	app.Type("label:Search threads", "nothing here")
+	app.WaitFor("text:No threads match your search.", 5*time.Second)
+	if app.Exists("id:palette") {
+		t.Fatal("typing in the thread inbox opened the command palette")
+	}
 	app.Back()
-	app.WaitForGone("id:palette", 5*time.Second)
+	if app.Exists("id:palette") {
+		t.Fatal("Android back opened the command palette")
+	}
+	app.Press("id:clear-thread-search")
+	if app.Find("label:Search threads").Text != "" {
+		t.Fatal("clear search did not empty the field")
+	}
 }
 
 // TestUIMobileBrowseHostDirs browses the connected environment's folders
@@ -3130,12 +3126,14 @@ func TestUIMobileBrowseHostDirs(t *testing.T) {
 			"serverUrl": ts.URL,
 			"token":     cfg.Token,
 		}))
-	app.WaitFor("id:new-project", 15*time.Second)
+	app.WaitFor("id:new-thread", 15*time.Second)
+	app.Press("id:new-thread")
+	app.WaitFor("id:new-thread-new-project", 5*time.Second)
 	app.WaitUntil(10*time.Second, func() bool {
 		if app.Exists("id:new-project-dialog") {
 			return true
 		}
-		app.Press("id:new-project")
+		app.Press("id:new-thread-new-project")
 		app.Settle()
 		return app.Exists("id:new-project-dialog")
 	})

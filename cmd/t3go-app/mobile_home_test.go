@@ -75,7 +75,7 @@ func TestUIMobileUnifiedInbox(t *testing.T) {
 	// A smaller phone still has separate 44-point navigation targets.
 	app.Resize(320, 700)
 	app.Settle()
-	for _, id := range []string{"new-project", "open-palette", "mobile-filter", "mobile-tab-threads",
+	for _, id := range []string{"mobile-thread-search", "mobile-filter", "mobile-tab-threads",
 		"mobile-tab-prs", "mobile-tab-usage", "settings", "new-thread"} {
 		frame := mobileScreenFrame(app.Find("id:" + id))
 		if frame.Size.Width < 44 || frame.Size.Height < 44 ||
@@ -83,6 +83,9 @@ func TestUIMobileUnifiedInbox(t *testing.T) {
 			frame.Origin.Y < 24 || frame.Origin.Y+frame.Size.Height > 700-16 {
 			t.Fatalf("%s is too small or outside the safe area: %+v", id, frame)
 		}
+	}
+	if app.Exists("id:new-project") || app.Exists("id:open-palette") {
+		t.Fatal("thread inbox still exposes project creation or the command palette")
 	}
 	for _, label := range []string{"Chats", "Pulls", "Usage", "Settings"} {
 		app.WaitFor("id:mobile-navigation >> text:"+label, 5*time.Second)
@@ -96,12 +99,14 @@ func TestUIMobileUnifiedInbox(t *testing.T) {
 	app.WaitFor("id:project-"+beta.profile.ID+"/same-project", 5*time.Second)
 	app.Press("id:mobile-tab-threads")
 	app.WaitFor("id:mobile-group-working", 5*time.Second)
-	app.Press("id:open-palette")
-	app.WaitFor("id:palette-command", 5*time.Second)
-	app.Type("label:Search commands", "Beta thread")
-	app.WaitFor("id:palette-command >> role:option >> text:\"Beta thread\"", 5*time.Second)
-	app.Press("id:palette-command >> role:option >> text:\"Beta thread\"")
-	waitSheetGone(app, "id:palette")
+	app.Type("label:Search threads", "Alpha project")
+	app.WaitFor("text:No threads match your search.", 5*time.Second)
+	app.Press("id:clear-thread-search")
+	app.WaitFor("id:thread-"+betaID, 5*time.Second)
+	app.Type("label:Search threads", "Beta thread")
+	app.WaitFor("id:thread-"+betaID, 5*time.Second)
+	app.WaitForGone("id:thread-"+alphaID, 5*time.Second)
+	app.Press("id:thread-" + betaID)
 	app.WaitFor("label:Message", 5*time.Second)
 	app.WaitUntil(5*time.Second, func() bool {
 		return strings.Contains(app.Find("id:current-environment-name").Text, "Beta")

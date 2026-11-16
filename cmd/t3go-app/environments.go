@@ -32,7 +32,7 @@ type environmentStorage struct {
 func scopedKey(key string) bool {
 	switch key {
 	case "serverUrl", "token", "customModels", "attachmentDrafts", "drafts", "pinnedThreads",
-		"sidebarCollapsed", "selectedThread", "pendingMessages", "editorChoice":
+		"sidebarCollapsed", "selectedThread", "pendingMessages", "editorChoice", "lastThreadProject":
 		return true
 	}
 	return false

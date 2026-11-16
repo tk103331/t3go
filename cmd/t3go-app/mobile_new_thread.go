@@ -49,8 +49,8 @@ func (a *app) mobileNewThread(cx *core.Scope) core.Node {
 			ui.Text("New thread", 22, ui.Medium, colors.Text), ui.Spacer{},
 			ui.IconButton{Icon: lucide.Folder, Label: "Choose project", TestID: "new-thread-choose-project", Size: 44,
 				OnPress: func() { a.newThreadOptions.Set(true) }},
-			ui.IconButton{Icon: lucide.GitBranch, Label: "Thread options", TestID: "new-thread-options", Size: 44,
-				OnPress: func() { a.newThreadOptions.Set(true) }},
+			ui.IconButton{Icon: lucide.FolderPlus, Label: "New project", TestID: "new-thread-new-project", Size: 44,
+				OnPress: a.openNewProjectForThread},
 		}},
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Background: colors.Surface(),
 			CornerRadius: 24, Overflow: core.Hidden}, Children: []core.Node{
@@ -140,18 +140,41 @@ func (a *app) mobileNewThreadEnvironment(cx *core.Scope) core.Node {
 	if target != nil {
 		name = target.envName()
 	}
+	var children []core.Node
+	if target != nil {
+		projectName := "Choose project"
+		var projectItems []core.Node
+		for _, project := range target.projects.Get() {
+			project := project
+			if project.ID == target.newThreadProj.Get() {
+				projectName = project.Name
+			}
+			projectItems = append(projectItems, ui.MenuItem{Text: project.Name,
+				TestID:  "new-thread-project-choice-" + project.ID,
+				Checked: func() bool { return target.newThreadProj.Get() == project.ID },
+				OnSelect: func() {
+					target.selectNewThreadProject(project.ID)
+				}})
+		}
+		children = append(children, ui.Menu{TestID: "new-thread-project-menu",
+			Trigger: ui.Button{Text: "in " + projectName, Icon: lucide.Folder, Flex: 1,
+				Size: controlSize(cx), Variant: ui.ButtonGhost},
+			Face:     mobileMenuFace(cx, "in "+projectName, lucide.Folder),
+			Children: projectItems, MaxHeight: 360})
+	}
 	var items []core.Node
 	for _, session := range a.mobileSessions("") {
 		session := session
 		items = append(items, ui.MenuItem{Text: session.envName(), TestID: "new-thread-environment-" + session.profile.ID,
 			OnSelect: func() { a.selectThreadEnvironment(session.profile.ID) }})
 	}
-	return core.View{Style: core.Style{Width: core.Pct(100), MinWidth: core.Pt(0), Direction: core.Row},
-		Children: []core.Node{
-			ui.Menu{TestID: "new-thread-environment", Trigger: ui.Button{Text: "on " + name, Icon: lucide.Laptop,
-				Flex: 1, Size: controlSize(cx), Variant: ui.ButtonGhost}, Face: mobileMenuFace(cx, "on "+name, lucide.Laptop),
-				Children: items, MaxHeight: 360},
-		}}
+	children = append(children, ui.Menu{TestID: "new-thread-environment",
+		Trigger: ui.Button{Text: "on " + name, Icon: lucide.Laptop, Flex: 1,
+			Size: controlSize(cx), Variant: ui.ButtonGhost},
+		Face: mobileMenuFace(cx, "on "+name, lucide.Laptop), Children: items, MaxHeight: 360})
+	return core.View{Style: core.Style{Width: core.Pct(100), MinWidth: core.Pt(0), Direction: core.Row,
+		AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 6},
+		Children: children}
 }
 
 func (a *app) mobileNewThreadOptions(cx *core.Scope) core.Node {

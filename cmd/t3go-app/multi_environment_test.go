@@ -198,9 +198,13 @@ func TestUINewProjectUsesSelectedEnvironment(t *testing.T) {
 			app.WaitUntil(5*time.Second, func() bool { return app.Find("label:Message").Text == "Keep Alpha draft" })
 			if width < 760 {
 				app.Press("label:Back to threads")
-				app.WaitFor("id:new-project", 5*time.Second)
+				app.Press("id:mobile-tab-threads")
+				app.Press("id:new-thread")
+				app.WaitFor("id:new-thread-new-project", 5*time.Second)
+				app.Press("id:new-thread-new-project")
+			} else {
+				app.Press("id:new-project")
 			}
-			app.Press("id:new-project")
 			app.WaitFor("id:project-environment-"+pb.ID, 5*time.Second)
 			app.Type("label:Project path", "/old-environment-path")
 			app.Press("id:project-environment-" + pb.ID)
@@ -226,7 +230,11 @@ func TestUINewProjectUsesSelectedEnvironment(t *testing.T) {
 			waitSheetGone(app, "id:dirs-dialog")
 			app.Press("id:create-project")
 			waitSheetGone(app, "id:new-project-dialog")
-			app.WaitFor("text:new-project", 5*time.Second)
+			if width < 760 {
+				app.WaitFor(`text:"in new-project"`, 5*time.Second)
+			} else {
+				app.WaitFor("text:new-project", 5*time.Second)
+			}
 			if alphaDirs.Load() != 0 || alphaWrites.Load() != 0 || betaDirs.Load() < 2 ||
 				betaMkdir.Load() != 1 || betaProjects.Load() != 1 {
 				t.Fatalf("wrong target: alpha dirs=%d writes=%d; beta dirs=%d mkdir=%d projects=%d",
@@ -242,6 +250,8 @@ func TestUINewProjectUsesSelectedEnvironment(t *testing.T) {
 			})
 			app.Settle()
 			if width < 760 {
+				app.Press("id:cancel-thread")
+				app.WaitForGone("id:new-thread-page", 5*time.Second)
 				app.Press("id:thread-" + pa.ID + "/" + thread.ID)
 			}
 			app.WaitUntil(5*time.Second, func() bool {

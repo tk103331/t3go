@@ -878,7 +878,7 @@ func (a *app) newThreadBody(cx *core.Scope) core.Node {
 			variant = ui.ButtonPrimary
 		}
 		projectButtons = append(projectButtons, ui.Button{Text: pr.Name, Variant: variant, Size: controlSize(cx),
-			TestID: "new-thread-project-" + pr.ID, OnPress: func() { a.newThreadProj.Set(pr.ID) }})
+			TestID: "new-thread-project-" + pr.ID, OnPress: func() { a.selectNewThreadProject(pr.ID) }})
 	}
 	projectPath := ""
 	for _, project := range projects {

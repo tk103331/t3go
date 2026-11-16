@@ -3915,8 +3915,10 @@ func (a *app) createProject() {
 	}
 	a.connErr.Set("")
 	a.projectBusy.Set(true)
+	var created proto.Project
 	a.callProjectTarget(func(ctx context.Context, c *client.Client) error {
-		_, err := c.CreateProject(ctx, name, path)
+		var err error
+		created, err = c.CreateProject(ctx, name, path)
 		return err
 	}, func(err error) {
 		a.projectBusy.Set(false)
@@ -3929,6 +3931,16 @@ func (a *app) createProject() {
 		a.newProjectPath.Set("")
 		a.newProjectRemote.Set(false)
 		target.reload()
+		if created.ID != "" {
+			if a.showNewThread.GetUntracked() {
+				a.selectThreadEnvironment(target.profile.ID)
+				if session := a.newThreadTarget(); session != nil {
+					session.selectNewThreadProject(created.ID)
+				}
+			} else {
+				target.selectNewThreadProject(created.ID)
+			}
+		}
 	})
 }
 
@@ -4118,6 +4130,7 @@ func (a *app) createThreadThen(after func(proto.Thread)) {
 		a.showNewThread.Set(false)
 		a.newThreadTitle.Set("")
 		a.newThreadBranch.Set("")
+		a.selectNewThreadProject(projectID)
 		a.reload()
 		if created.ID != "" {
 			if after != nil {
@@ -4143,6 +4156,29 @@ func (a *app) currentProject() string {
 	return ""
 }
 
+// preferredNewThreadProject returns the last project explicitly selected for
+// a new thread, provided it still belongs to this environment.
+func (a *app) preferredNewThreadProject() string {
+	if id, ok := a.store.GetItem("lastThreadProject"); ok {
+		id = strings.TrimSpace(id)
+		for _, project := range a.projects.GetUntracked() {
+			if project.ID == id {
+				return id
+			}
+		}
+	}
+	return a.currentProject()
+}
+
+func (a *app) selectNewThreadProject(id string) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return
+	}
+	a.newThreadProj.Set(id)
+	_ = a.store.SetItem("lastThreadProject", id)
+}
+
 func (a *app) openNewProject() {
 	a.connErr.Set("")
 	id := a.profile.ID
@@ -4150,6 +4186,18 @@ func (a *app) openNewProject() {
 		id = a.manager.defaultID
 	}
 	a.selectProjectEnvironment(id)
+	a.newProjectRemote.Set(a.manager != nil)
+	a.showNewProject.Set(true)
+}
+
+func (a *app) openNewProjectForThread() {
+	target := a.newThreadTarget()
+	if target == nil {
+		a.openNewProject()
+		return
+	}
+	a.connErr.Set("")
+	a.selectProjectEnvironment(target.profile.ID)
 	a.newProjectRemote.Set(a.manager != nil)
 	a.showNewProject.Set(true)
 }
@@ -4163,7 +4211,7 @@ func (a *app) openNewThreadIn(projectID string) {
 		a.newThreadVisited = map[*app]bool{a: true}
 	}
 	if projectID != "" {
-		a.newThreadProj.Set(projectID)
+		a.selectNewThreadProject(projectID)
 	}
 }
 
@@ -4191,7 +4239,7 @@ func (a *app) prepareNewThread() {
 	a.newThreadBranch.Set("")
 	a.newThreadBase.Set("")
 	a.newThreadWT.Set(false)
-	a.newThreadProj.Set(a.currentProject())
+	a.newThreadProj.Set(a.preferredNewThreadProject())
 	settings := a.settings.GetUntracked()
 	provider := settings.DefaultProvider
 	model := settings.DefaultModel

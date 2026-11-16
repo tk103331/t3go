@@ -161,6 +161,37 @@ func TestUIMobileNewThreadTargetsEnvironment(t *testing.T) {
 	}
 }
 
+func TestUIMobileNewThreadRemembersProject(t *testing.T) {
+	fixture := newSettingsFixture(t, "Alpha")
+	project, err := fixture.server.Service.CreateProject(context.Background(), "Secondary", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, manager := startMobilePages(t, fixture)
+	if app.Exists("id:new-project") {
+		t.Fatal("thread inbox still exposes new project creation")
+	}
+	app.Press("id:new-thread")
+	app.WaitFor("id:new-thread-new-project", 5*time.Second)
+	app.Press("id:new-thread-project-menu")
+	app.WaitFor("id:new-thread-project-choice-"+project.ID, 5*time.Second)
+	app.Press("id:new-thread-project-choice-" + project.ID)
+	app.WaitFor("id:new-thread-project-menu >> text:\"in Secondary\"", 5*time.Second)
+	app.Post(func() {
+		if got := manager.app.newThreadProj.GetUntracked(); got != project.ID {
+			t.Errorf("selected project = %q, want %q", got, project.ID)
+		}
+	})
+	app.Settle()
+	if got, ok := app.Storage().GetItem("env:" + fixture.profile.ID + ":lastThreadProject"); !ok || got != project.ID {
+		t.Fatalf("remembered project = %q, %v", got, ok)
+	}
+	app.Back()
+	app.WaitForGone("id:new-thread-page", 5*time.Second)
+	app.Press("id:new-thread")
+	app.WaitFor("id:new-thread-project-menu >> text:\"in Secondary\"", 5*time.Second)
+}
+
 func TestUIMobileUsageMetricsAndEnvironment(t *testing.T) {
 	alpha, beta := newSettingsFixture(t, "Alpha"), newSettingsFixture(t, "Beta")
 	var failBeta atomic.Bool
