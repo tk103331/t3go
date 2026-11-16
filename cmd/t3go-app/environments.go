@@ -143,9 +143,22 @@ type environmentManager struct {
 	// pairing uses the environment token and needs no Relay account.
 	lan   *core.Signal[bool]
 	local *localServer
+
+	accountOpen      *core.Signal[bool]
+	accountBusy      *core.Signal[bool]
+	accountErr       *core.Signal[string]
+	accountSession   *core.Signal[proto.RelayUserSession]
+	accountEnvs      *core.Signal[[]client.RelayEnvironment]
+	accountServer    *core.Signal[string]
+	accountEmail     *core.Signal[string]
+	accountPassword  *core.Signal[string]
+	accountName      *core.Signal[string]
+	accountMode      *core.Signal[string]
+	accountAllowHTTP *core.Signal[bool]
 }
 
 func newEnvironmentManager(cx *core.Scope) *environmentManager {
+	account := loadRelayAccount(cx.Storage())
 	m := &environmentManager{cx: cx, store: cx.Storage(), sessions: map[string]*app{},
 		appearance: core.NewSignal(cx, loadClientAppearance(cx.Storage())),
 		inboxCollapsed: core.NewSignalFunc(cx, storedValue(cx.Storage(), "inboxCollapsed", map[string]bool{}),
@@ -155,7 +168,20 @@ func newEnvironmentManager(cx *core.Scope) *environmentManager {
 		localErr:      core.NewSignal(cx, ""),
 		background:    core.NewSignal(cx, loadBackgroundServer(cx.Storage())),
 		lan:           core.NewSignal(cx, loadLANAccess(cx.Storage())),
-		active:        core.NewSignal[*app](cx, nil), pending: core.NewSignal[*app](cx, nil), profiles: core.NewSignalFunc(cx,
+		accountOpen:   core.NewSignal(cx, false),
+		accountBusy:   core.NewSignal(cx, false),
+		accountErr:    core.NewSignal(cx, ""),
+		accountSession: core.NewSignalFunc(cx, account.Session,
+			func(a, b proto.RelayUserSession) bool { return a.Token == b.Token }),
+		accountEnvs: core.NewSignalFunc(cx, []client.RelayEnvironment{},
+			func(a, b []client.RelayEnvironment) bool { return false }),
+		accountServer:    core.NewSignal(cx, account.Server),
+		accountEmail:     core.NewSignal(cx, account.Session.User.Email),
+		accountPassword:  core.NewSignal(cx, ""),
+		accountName:      core.NewSignal(cx, account.Session.User.Name),
+		accountMode:      core.NewSignal(cx, "login"),
+		accountAllowHTTP: core.NewSignal(cx, account.AllowHTTP),
+		active:           core.NewSignal[*app](cx, nil), pending: core.NewSignal[*app](cx, nil), profiles: core.NewSignalFunc(cx,
 			[]client.EnvironmentProfile{}, func([]client.EnvironmentProfile, []client.EnvironmentProfile) bool { return false }),
 		revision: core.NewSignal(cx, 0)}
 	var saved savedEnvironments
@@ -258,6 +284,7 @@ func (m *environmentManager) start() {
 	// The desktop package ships an environment server: start it so the
 	// client works on a fresh install without one installed separately.
 	m.startLocalEnvironment()
+	m.startSavedRelayAccount()
 }
 
 func (m *environmentManager) addEnvironment() {

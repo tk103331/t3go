@@ -56,6 +56,8 @@ func (a *app) mobileSettings(cx *core.Scope) core.Node {
 	return core.Scroll{TestID: "mobile-settings-index", Style: ui.FillRest, Children: []core.Node{
 		core.View{Style: core.Style{Padding: core.All(18), Gap: 22}, Children: []core.Node{
 			core.View{Style: core.Style{CornerRadius: 24, Background: colors.Inset(), Overflow: core.Hidden}, Children: []core.Node{
+				row("Account", "Sign in once to discover your Relay environments", "settings-nav-account", lucide.UserRound,
+					func() { a.openMobileSettingsSection("account") }),
 				row("Environments", fmt.Sprintf("%d saved · manage connections and names", count), "settings-nav-environments", lucide.Monitor,
 					func() { a.openMobileSettingsSection("environments") }),
 				row("Appearance", "Theme and accent on this client", "settings-nav-general", lucide.Settings,

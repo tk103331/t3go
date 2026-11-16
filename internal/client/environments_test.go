@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -196,6 +198,91 @@ func TestEnvironmentClientThroughReverseTunnel(t *testing.T) {
 	remote.Token = admin
 	if _, err := remote.State(ctx); err != ErrUnauthorized {
 		t.Fatalf("hub administrator obtained environment access: %v", err)
+	}
+}
+
+func TestRelayAccountDiscoversAndConnectsOwnedEnvironment(t *testing.T) {
+	local, srv := newTestClient(t)
+	const admin = "relay-account-test-administrator"
+	hub, err := relay.New(t.TempDir(), admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	hub.Mount(mux)
+	cloud := httptest.NewServer(mux)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	t.Cleanup(func() {
+		cancel()
+		hub.Close()
+		cloud.Close()
+	})
+
+	account, err := RegisterRelayAccount(ctx, cloud.URL, true, proto.RelayAccountRequest{
+		Server: cloud.URL, Email: "owner@example.com", Password: "account-" + "password", AllowHTTP: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registration := relay.Registration{
+		ID: srv.Identity.ID, PublicKey: srv.Identity.PublicKey(), Token: local.Token, Name: "Owner's Mac",
+	}
+	if err := registration.Sign(srv.Identity.PrivateKey); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(registration)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+		cloud.URL+"/api/v1/relay/environments", bytes.NewReader(raw))
+	req.Header.Set("Authorization", "Bearer "+account.Token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var registered relay.Registered
+	if resp.StatusCode != http.StatusCreated ||
+		json.NewDecoder(resp.Body).Decode(&registered) != nil || registered.RelayKey == "" {
+		resp.Body.Close()
+		t.Fatalf("registration = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	relayConfig, _ := json.Marshal(map[string]string{
+		"server": cloud.URL, "environmentId": srv.Identity.ID,
+		"connectToken": registered.ConnectToken, "relayKey": registered.RelayKey,
+	})
+	if err := os.WriteFile(filepath.Join(srv.Config.Home, "relay.json"), relayConfig, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	connector := relay.Connector{Server: cloud.URL, EnvironmentID: srv.Identity.ID,
+		Token: registered.ConnectToken, Target: strings.TrimPrefix(local.BaseURL, "http://")}
+	go connector.Run(ctx)
+
+	environments, err := RelayAccountEnvironments(ctx, cloud.URL, account.Token, true)
+	if err != nil || len(environments) != 1 || environments[0].EnvironmentID != srv.Identity.ID {
+		t.Fatalf("account environments = %#v, %v", environments, err)
+	}
+	profile := RelayAccountProfile(cloud.URL, account.Token, environments[0])
+	if profile.AccountServer != cloud.URL || profile.Preference != "relay-only" ||
+		len(profile.Routes) != 1 || profile.Routes[0].Kind != "relay" {
+		t.Fatalf("account profile = %#v", profile)
+	}
+	var c *Client
+	var st proto.State
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		attempt, attemptState, connectErr := ConnectEnvironment(ctx, profile)
+		if connectErr == nil {
+			c, st = attempt, attemptState
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if c == nil || st.EnvironmentID != srv.Identity.ID {
+		t.Fatal("account-discovered environment did not connect through Relay")
+	}
+	if _, err := c.Projects(ctx); err != nil {
+		t.Fatalf("account-authenticated business request: %v", err)
 	}
 }
 

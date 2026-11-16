@@ -22,6 +22,9 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
   新建项目可选目标环境；持久化身份、环境别名与默认环境、按环境隔离草稿和排队消息；
   局域网直连优先、中继回退、出站反向隧道，使用说明见
   [docs/environments-and-relay.md](docs/environments-and-relay.md)
+- Relay 账号：移动端、桌面端和 Web 端可注册或登录，登录后自动发现该账号拥有的
+  环境并保存 Relay 路线。账号访问由 Relay 验证环境归属后生成短时 HMAC 签名，
+  用户 Token 不转发给电脑；局域网直连和本机使用仍可完全脱离账号。
 - 设置支持独立选择目标环境：Providers 显示各环境检测状态，可切换或单独检测，
   CLI、登录状态与模型、General 默认值、Usage、Worktrees、About 和自定义模型均跟随所选环境，
   不切换当前会话。编辑器选择按环境保存，快捷键和连接管理由客户端共享。
@@ -120,6 +123,16 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
 
 此时鉴权保持开启。`--no-auth` 只允许配合 loopback 地址使用。
 
+访问方式按网络位置区分：
+
+- 本机桌面端：直接连接内置的本机环境，不需要账号。
+- 同一 Wi-Fi：扫描桌面端生成的配对链接，使用环境 Token 直连，不需要账号。
+- 跨网络：电脑在 Access 中登记到 Relay；移动端或 Web 端登录同一账号后自动
+  发现并打开该电脑。Relay 不接收环境 Token，而是签发短时 HMAC 请求签名。
+
+完整账号、环境、Relay 与电脑的信任边界见
+[docs/environments-and-relay.md](docs/environments-and-relay.md)。
+
 ## CLI
 
 | 命令 | 说明 |
@@ -138,6 +151,7 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
   worktrees/     # 线程独立 worktree
   uploads/       # 随消息发送的附件
   logs/t3go.log   # 服务日志
+  relay.json     # 可选，Relay 地址、环境 ID 和本机隧道凭证
 ```
 
 ## API
@@ -244,6 +258,7 @@ internal/git/        status、checkpoint、diff、worktree
 internal/orchestrator/ 项目/线程/run 生命周期
 internal/server/     HTTP、SSE、WebSocket、鉴权
 internal/client/     Go 客户端（REST + SSE 重连）
+internal/relay/      用户账号、环境登记、反向隧道与 HMAC 请求授权
 internal/config/     数据目录、token、监听地址
 ```
 

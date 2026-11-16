@@ -37,6 +37,9 @@ type EnvironmentProfile struct {
 	Routes     []Route           `json:"routes"`
 	Preference string            `json:"preference,omitempty"` // auto, direct-only, relay-only
 	Legacy     bool              `json:"legacy,omitempty"`
+	// AccountServer marks a profile whose Token is a Relay user token
+	// discovered through account sign-in rather than an environment token.
+	AccountServer string `json:"accountServer,omitempty"`
 }
 
 // PairingProfile accepts existing links and identity-pinned multi-route links.

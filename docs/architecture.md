@@ -17,6 +17,21 @@ CLI（`cmd/t3go`）只是环境的启动器；它和客户端可以在同一台�
 使用方式、当前边界与后续设计见
 [environments-and-relay.md](environments-and-relay.md)。
 
+Relay 账号、环境发现和请求授权使用两套分离的凭证：
+
+1. 客户端用 Relay 用户 Token 登录并调用 `GET /api/v1/relay/environments`，
+   只获得当前账号拥有的环境。
+2. 客户端请求 `/e/{environmentId}/...`。Relay 验证用户 Token 和环境归属后，
+   删除客户端 `Authorization`，用环境专属 `RelayKey` 生成包含方法、环境 ID、
+   时间戳和请求 URI 的 HMAC-SHA256 签名。
+3. 电脑从本机 `relay.json` 取得同一 `RelayKey`，验证签名和时间窗口后，把请求
+   当作正常环境 API 处理。
+
+`RelayKey` 只保存在 Relay 的私有绑定文件和电脑私有配置中；用户 Token 不转发
+给电脑。环境 Token 仍可直连或通过旧入口访问，因此局域网配对保持兼容。
+客户端由账号发现的环境保存 Relay 路线；已有直连路线只追加 Relay 回退，不把
+本机或局域网的强环境 Token 替换成账号 Token。
+
 ## 数据模型
 
 ```
@@ -181,4 +196,5 @@ orchestrator 仍然只有环境服务里的那一份，agent CLI（claude/codex/
 
 访问边界分为三层：本机桌面使用无需账号；同一局域网的手机通过携带环境 Token
 的直连配对链接访问，同样无需账号；只有跨网络访问才需要 Relay 登录。
-Relay 用户身份不等于环境执行身份，环境业务请求仍使用独立的环境 Token。
+Relay 用户身份不等于环境执行身份：账号路线由 Relay 验证归属并签名，直连路线
+仍验证环境 Token。两种凭证不互相替代，登出账号不会删除独立的局域网配对。

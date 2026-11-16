@@ -1,7 +1,7 @@
 # 多环境、局域网直连与云端中继
 
-状态：第一版已实现（2026-11-15）。先阅读以下使用说明和实现边界；
-后半部分保留完整设计目标，其中标明的设备授权、云端账户等仍属于后续工作。
+状态：账号发现与 Relay 访问已实现（2026-11-17）。先阅读以下使用说明和
+实现边界；后半部分保留仍待实现的设备授权与安全增强目标。
 原有单地址直连与配对方式继续兼容，见 [README](../README.md)。
 
 ## 三种访问方式
@@ -20,6 +20,20 @@
 Relay 是可选的远程访问通道，不应成为本机或同一 Wi-Fi 使用的前置条件。
 登录、注册和用户 Token 只在配置 Relay 时出现。
 
+跨网络的标准流程是：
+
+```text
+移动端/桌面/Web 登录 Relay
+  → Relay 按账号列出已登记的电脑
+  → 客户端把选中环境保存为 Relay 路线
+  → Relay 验证用户 Token 与环境归属
+  → Relay 用该环境的 RelayKey 对请求做 HMAC 签名
+  → 电脑验证签名后执行原有环境 API
+```
+
+用户 Token 不会转发给电脑，环境 Token 也不会交给 Relay 客户端。账号只负责
+发现和云端入口授权，环境自身仍保留独立的执行权限边界。
+
 ## 当前可用功能
 
 - SQLite 中保存 Ed25519 环境身份。`environmentId` 是公钥的 base64url 表示，
@@ -29,6 +43,9 @@ Relay 是可选的远程访问通道，不应成为本机或同一 Wi-Fi 使用�
 - 各环境保持独立连接，侧栏同时按环境展示所有项目和会话。选择会话时自动使用
   它所属环境的连接，保存原会话的输入，不中断其他环境的事件订阅。
   重启客户端后，保存的排队消息需要手动恢复。
+- Relay 账号可注册或登录。登录后客户端立即列出该账号拥有的环境；新环境自动
+  保存并连接，重启客户端会静默刷新，账号会话失效时要求重新登录。已有局域网
+  直连或本机 loopback 配置不会被覆盖，只追加 Relay 回退路线。
 - 新建项目可以选择目标环境。目录浏览、新建文件夹和项目创建均在所选环境执行；
   更换目标会清空原目录选择，过期的目录响应不会覆盖新目标。
 - 设置中的 General、Providers、Usage、Worktrees、About 可以独立选择目标环境，
@@ -70,16 +87,18 @@ t3go serve --home /srv/t3go --listen 0.0.0.0:4870 --relay --web web
 已有的 `token` 文件；通过可信方式取得，仅用于运维和兼容旧的登记流程。
 
 只有在需要跨网络远程访问时才配置 Relay。普通用户不需要管理员 Token。
-在桌面端打开 **Settings → Access**，选择
-**Create account** 注册，之后可以选择 **Sign in** 登录。Relay 为注册和登录
-签发独立的用户 Token，桌面端立即使用该 Token 登记当前电脑并启动隧道；
-用户 Token 不会写入 `relay.json`。密码使用 bcrypt 哈希，Relay 只保存用户
+移动端、桌面端和 Web 端可以在 **Settings → Account** 注册或登录；首次连接页
+也提供 **Sign in to Relay**。桌面端在 **Settings → Access** 把当前电脑登记到
+Relay，然后启动反向隧道。Relay 为注册和登录签发独立的用户 Token；
+客户端用它发现环境并访问 Relay 入口。密码使用 bcrypt 哈希，Relay 只保存用户
 Token 的 SHA-256 摘要，默认会话有效期为 30 天。
 
 每个环境绑定到登记它的用户。用户只能列出和撤销自己的环境；管理员仍可查看
-全部环境。用户 Token 只用于账户认证、环境登记和管理，环境业务接口继续使用
-独立的环境访问 Token。普通用户登记环境时必须提交环境 Ed25519 私钥签名，
-因此仅有环境 ID 或公钥不能抢注别人的环境。
+全部环境。普通用户登记环境时必须提交环境 Ed25519 私钥签名，因此仅有环境 ID
+或公钥不能抢注别人的环境。账号访问时，Relay 验证用户对环境的归属后删除用户
+`Authorization`，改用环境专属 `RelayKey` 生成短时 HMAC 请求签名；电脑本地
+使用同一个 `RelayKey` 验证方法、环境 ID、时间和请求 URI。环境 Token 仍可
+直接访问旧入口，所以已有配对链接和局域网直连保持兼容。
 
 也可以用 CLI 使用已经取得的用户 Token 登记本地环境（这里的 `--home`
 是电脑自己的数据目录）：
@@ -169,8 +188,9 @@ t3go relay --home /path/to/local-data \
 | 环境 SQLite `environment_identity` | 单例 ID 与 Ed25519 私钥 |
 | 环境 SQLite `message_receipts` | 线程内 Request ID、请求摘要、原 run ID 和接收时间 |
 | 电脑 `relay.json`（0600） | 中继地址、环境 ID、连接凭证和可选直连地址 |
-| 中继 `relay-bindings.json`（0600） | 环境公钥、名称、地址及连接/访问 Token 的 SHA-256 摘要 |
+| 中继 `relay-bindings.json`（0600） | 环境公钥、名称、地址、连接/访问 Token 摘要及环境专属 RelayKey |
 | 中继 `relay-users.json`（0600） | 用户公开资料、bcrypt 密码哈希和用户 Token 的 SHA-256 摘要 |
+| 客户端 `relayAccount:v1` | Relay 地址、用户 Token、账号资料和会话有效期 |
 | 客户端 `environments:v1` | 版本、环境配置、活动/默认环境、路线及共享 Token |
 | 客户端 `env:<id>:<key>` | 每个环境的草稿、队列和 UI 状态 |
 
@@ -181,30 +201,35 @@ t3go relay --home /path/to/local-data \
 | `POST /api/v1/auth/login` | 登录并签发新的用户 Token |
 | `GET /api/v1/auth/me` | 用户 Token 查询当前账号 |
 | `POST /api/v1/auth/logout` | 撤销当前用户 Token |
-| `POST /api/v1/relay/environments` | 用户或管理员登记环境，返回独立连接凭证 |
+| `POST /api/v1/relay/environments` | 用户或管理员登记环境；同一环境可用自身环境 Token 迁移并轮换凭证 |
 | `GET /api/v1/relay/environments` | 用户列出自己的环境；管理员列出全部 |
 | `DELETE /api/v1/relay/environments/{id}` | 用户撤销自己的环境；管理员可撤销任意环境 |
 | `GET /relay/connect/{id}` | 电脑连接凭证建立 WebSocket + yamux 隧道 |
-| `/e/{id}/{path...}` | 环境 Token 鉴权后代理到电脑原有接口 |
+| `/e/{id}/{path...}` | 环境 Token 或账号归属鉴权后代理；账号路线使用 HMAC 签名 |
 | `POST /api/v1/threads/{id}/messages` | 环境 Token；可选 `requestId` 对同线程消息去重 |
 | `GET /api/v1/threads/{id}/receipts/{requestId}` | 环境 Token；查询接收回执，不触发执行 |
 
 电脑连接器只连接当前环境固定的本地 TCP 端口。中继不能通过请求参数指定
-任意内网主机。每个环境有独立隧道与 HTTP 连接池；重复登记或重复活动隧道
-均拒绝，避免悄悄替换已有连接。中继状态当前是单进程，不支持多副本。
+任意内网主机。每个环境有独立隧道与 HTTP 连接池。重复活动隧道会拒绝；同一
+环境身份的凭证迁移是显式轮换，不同账号不能借此抢占已有绑定。
+
+旧版本生成的 `relay.json` 可能没有 `RelayKey`。电脑启动隧道时会用已有环境
+Token 和 Ed25519 签名向原 Relay 安全重登记，轮换连接凭证并补发 `RelayKey`；
+已有账号归属保持不变。由管理员登记但没有账号归属的旧绑定仍不会出现在用户
+账号下，需要管理员撤销后通过账号重新登记。
 
 ## 尚未实现的设计目标
 
-当前环境中继入口仍使用原有的**共享环境 Token**，本地 API 会再次检查它。
-电脑连接凭证独立生成，仅允许建立对应隧道。Relay 已有本地账号、用户级环境
-归属和可撤销用户会话；Google/GitHub OAuth、一次性设备配对和单客户端设备撤销
-尚未接入。用户模型已包含 `provider` 和 `providerSubject` 字段，可作为后续
-OAuth 身份映射基础；
-配对链接授予完整环境权限，应该按密码管理。Token 变更后需撤销并重新登记。
+环境中继入口现已同时支持环境 Token 和账号归属授权。账号路线由 Relay 签名，
+用户 Token 不会到达电脑；电脑连接凭证独立生成，仅允许建立对应隧道。Relay
+已支持本地账号、用户级环境归属和可撤销用户会话。Google/GitHub OAuth、
+一次性设备配对和单客户端设备撤销尚未接入；用户模型已包含 `provider` 和
+`providerSubject` 字段，可作为后续 OAuth 身份映射基础。
 
-客户端凭证目前保存在 NSGo Storage 中，没有接入系统安全存储；
-现有终端/资源 URL 的 `?token=` 兼容方式仍保留，短期票据尚未统一。
-第一版信任中继运营者读取业务内容，未提供端到端加密。
+配对链接仍授予完整环境权限，应该按密码管理。客户端把 Relay 用户 Token 和
+环境凭证保存在 NSGo Storage；Web 端使用 `localStorage`，尚未接入 Keychain/
+Keystore。现有终端/资源 URL 的 `?token=` 兼容方式仍保留，短期票据尚未统一。
+Relay 运营者仍能读取经过中转的业务内容，没有端到端加密。
 没有 mDNS、自动发现网卡、自签证书固定、跨中继优先级、数据库恢复代次、
 创建线程等其他写操作的幂等保证。复制整个环境数据库会复制身份，
 当前没有“作为新环境导入”的重置命令。

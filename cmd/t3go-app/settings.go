@@ -19,6 +19,7 @@ type settingsNavItem struct {
 
 var settingsNav = []settingsNavItem{
 	{ID: "general", Label: "Appearance", Icon: lucide.Settings},
+	{ID: "account", Label: "Account", Icon: lucide.UserRound},
 	{ID: "environments", Label: "Environments", Icon: lucide.Network},
 	{ID: "providers", Label: "Providers", Icon: lucide.Bot},
 	{ID: "access", Label: "Access", Icon: lucide.Smartphone},

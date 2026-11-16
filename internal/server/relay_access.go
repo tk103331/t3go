@@ -22,6 +22,7 @@ type relayCredentials struct {
 	Server        string `json:"server"`
 	EnvironmentID string `json:"environmentId"`
 	ConnectToken  string `json:"connectToken"`
+	RelayKey      string `json:"relayKey,omitempty"`
 	DirectURL     string `json:"directUrl,omitempty"`
 }
 
@@ -204,6 +205,7 @@ func (s *Server) handleConfigureRelayAccess(w http.ResponseWriter, r *http.Reque
 		Server:        base.String(),
 		EnvironmentID: s.Identity.ID,
 		ConnectToken:  registered.ConnectToken,
+		RelayKey:      registered.RelayKey,
 		DirectURL:     in.DirectURL,
 	}
 	if err := saveRelayCredentials(s.Config.Home, credentials); err != nil {
@@ -319,15 +321,114 @@ func (s *Server) StartRelayConnector(ctx context.Context, listen string) error {
 // StartSavedRelayConnector restores a Relay tunnel after the environment
 // restarts. Missing configuration is normal and does not prevent startup.
 func (s *Server) StartSavedRelayConnector(ctx context.Context, listen string) (bool, error) {
-	if _, err := loadRelayCredentials(s.Config.Home); errors.Is(err, os.ErrNotExist) {
+	credentials, err := loadRelayCredentials(s.Config.Home)
+	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	} else if err != nil {
 		return false, err
+	}
+	if credentials.RelayKey == "" {
+		// Start with the existing connection token first. The Relay may be
+		// hosted by this same process, in which case Serve starts immediately
+		// after this method returns. Blocking here would deadlock the upgrade
+		// request against a listener that has no HTTP server yet.
+		if err := s.StartRelayConnector(ctx, listen); err != nil {
+			return false, err
+		}
+		go s.upgradeSavedRelayConnector(ctx, listen, credentials)
+		return true, nil
 	}
 	if err := s.StartRelayConnector(ctx, listen); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+func (s *Server) upgradeSavedRelayConnector(ctx context.Context, listen string,
+	credentials relayCredentials) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return
+		}
+		upgradeCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		_, err := s.upgradeSavedRelayCredentials(upgradeCtx, credentials)
+		cancel()
+		if err == nil {
+			if startErr := s.StartRelayConnector(ctx, listen); startErr != nil {
+				s.Log.Printf("relay: upgraded credentials could not restart the tunnel: %v", startErr)
+			}
+			return
+		}
+		s.Log.Printf("relay: saved credentials upgrade failed, retrying: %v", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+// upgradeSavedRelayCredentials migrates Relay bindings created before
+// account-protected access existed. The environment proves possession of its
+// existing access token to the Relay, which rotates both connection secrets
+// without changing the binding's account owner.
+func (s *Server) upgradeSavedRelayCredentials(ctx context.Context,
+	credentials relayCredentials) (relayCredentials, error) {
+	base, err := relay.ValidateURL(credentials.Server)
+	if err != nil {
+		return credentials, err
+	}
+	if credentials.EnvironmentID != s.Identity.ID {
+		return credentials, errors.New("saved Relay credentials belong to another environment")
+	}
+	registration := relay.Registration{
+		ID: s.Identity.ID, PublicKey: s.Identity.PublicKey(), Name: s.Hostname, Token: s.Config.Token,
+	}
+	if credentials.DirectURL != "" {
+		registration.DirectURLs = []string{credentials.DirectURL}
+	}
+	if err := registration.Sign(s.Identity.PrivateKey); err != nil {
+		return credentials, err
+	}
+	raw, err := json.Marshal(registration)
+	if err != nil {
+		return credentials, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		strings.TrimRight(base.String(), "/")+"/api/v1/relay/environments", bytes.NewReader(raw))
+	if err != nil {
+		return credentials, err
+	}
+	// The saved access token is also the environment's bearer token. It is
+	// used only to authenticate this self-rotation, never forwarded by Relay.
+	req.Header.Set("Authorization", "Bearer "+s.Config.Token)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := client.Do(req)
+	if err != nil {
+		return credentials, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		message := strings.TrimSpace(readErrorBody(resp.Body))
+		if message == "" {
+			message = fmt.Sprintf("Relay rejected credential upgrade (%d)", resp.StatusCode)
+		}
+		return credentials, errors.New(message)
+	}
+	var registered relay.Registered
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&registered); err != nil ||
+		len(registered.ConnectToken) < 20 || registered.RelayKey == "" {
+		return credentials, errors.New("Relay returned an invalid credential upgrade response")
+	}
+	credentials.ConnectToken = registered.ConnectToken
+	credentials.RelayKey = registered.RelayKey
+	if err := saveRelayCredentials(s.Config.Home, credentials); err != nil {
+		return credentials, err
+	}
+	return credentials, nil
 }
 
 func (s *Server) stopRelayConnector() {

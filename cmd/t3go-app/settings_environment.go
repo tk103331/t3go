@@ -151,6 +151,11 @@ func (a *app) settingsPage(cx *core.Scope) core.Node {
 	switch a.settingsSection.Get() {
 	case "general":
 		return a.settingsAppearance(cx)
+	case "account":
+		if a.manager != nil {
+			return a.manager.relayAccountPanel(cx)
+		}
+		return ui.Text("Relay account sign-in is unavailable in this client.", 12, ui.Regular, ui.ColorsOf(cx).Muted)
 	case "environments":
 		if a.manager != nil {
 			return a.environmentManagement(cx)

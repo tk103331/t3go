@@ -24,6 +24,7 @@ type relayCredentials struct {
 	Server        string `json:"server"`
 	EnvironmentID string `json:"environmentId"`
 	ConnectToken  string `json:"connectToken"`
+	RelayKey      string `json:"relayKey,omitempty"`
 	DirectURL     string `json:"directUrl,omitempty"`
 }
 
@@ -171,7 +172,8 @@ func cmdRelay(args []string) int {
 		fmt.Fprintln(os.Stderr, "t3go relay: invalid registration response")
 		return 1
 	}
-	credentials := relayCredentials{Server: u.String(), EnvironmentID: environmentID, ConnectToken: registered.ConnectToken, DirectURL: *direct}
+	credentials := relayCredentials{Server: u.String(), EnvironmentID: environmentID,
+		ConnectToken: registered.ConnectToken, RelayKey: registered.RelayKey, DirectURL: *direct}
 	data, _ := json.MarshalIndent(credentials, "", "  ")
 	// Exclusive creation avoids silently overwriting another local hub binding.
 	f, err := os.OpenFile(filepath.Join(cfg.Home, "relay.json"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)

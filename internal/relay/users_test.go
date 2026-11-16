@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -125,7 +126,23 @@ func TestUserAccountsOwnEnvironmentsAndAuthorizeRelayAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var registered Registered
 	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if authorization := r.Header.Get("Authorization"); authorization != "" {
+			if authorization == "Bearer "+environmentToken {
+				_, _ = io.WriteString(w, "legacy environment token")
+				return
+			}
+			http.Error(w, "user token reached the environment", http.StatusBadRequest)
+			return
+		}
+		timestamp, err := strconv.ParseInt(r.Header.Get(HeaderRelayTimestamp), 10, 64)
+		if err != nil || !VerifyRelayRequest(registered.RelayKey, r.Method,
+			r.Header.Get(HeaderRelayEnvironment), timestamp, r.URL.RequestURI(),
+			r.Header.Get(HeaderRelaySignature)) {
+			http.Error(w, "invalid relay signature", http.StatusUnauthorized)
+			return
+		}
 		_, _ = io.WriteString(w, "registered through user token")
 	}))
 	t.Cleanup(local.Close)
@@ -147,11 +164,53 @@ func TestUserAccountsOwnEnvironmentsAndAuthorizeRelayAccess(t *testing.T) {
 		resp.Body.Close()
 		t.Fatalf("user environment registration = %d: %s", resp.StatusCode, raw)
 	}
-	var registered Registered
 	if err := json.NewDecoder(resp.Body).Decode(&registered); err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
+
+	// A different account cannot take over a registration even if it has a
+	// signed environment descriptor. The environment token holder can rotate
+	// its Relay credentials in place, which migrates bindings created before
+	// RelayKey existed without losing account ownership.
+	resp = request(http.MethodPost, "/api/v1/relay/environments", bob.Token, unsigned)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("non-owner re-registration = %d", resp.StatusCode)
+	}
+	hub.mu.Lock()
+	legacy := hub.bindings[identity.ID]
+	legacy.RelayKey = ""
+	hub.bindings[identity.ID] = legacy
+	err = hub.save()
+	hub.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := unsigned.Sign(identity.PrivateKey); err != nil {
+		t.Fatal(err)
+	}
+	resp = request(http.MethodPost, "/api/v1/relay/environments", environmentToken, unsigned)
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("environment self re-registration = %d: %s", resp.StatusCode, raw)
+	}
+	var upgraded Registered
+	if err := json.NewDecoder(resp.Body).Decode(&upgraded); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if upgraded.ConnectToken == registered.ConnectToken || upgraded.RelayKey == "" {
+		t.Fatal("self re-registration did not rotate Relay credentials")
+	}
+	hub.mu.Lock()
+	ownerPreserved := hub.bindings[identity.ID].OwnerID == alice.User.ID
+	hub.mu.Unlock()
+	if !ownerPreserved {
+		t.Fatal("self re-registration did not preserve account ownership")
+	}
+	registered = upgraded
 
 	resp = request(http.MethodGet, "/api/v1/relay/environments", bob.Token, nil)
 	var bobList struct {
@@ -196,12 +255,18 @@ func TestUserAccountsOwnEnvironmentsAndAuthorizeRelayAccess(t *testing.T) {
 	resp = request(http.MethodGet, "/e/"+identity.ID+"/hello", bob.Token, nil)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("relay user token unexpectedly accessed an environment API = %d", resp.StatusCode)
+		t.Fatalf("another user's account accessed the environment API = %d", resp.StatusCode)
 	}
-	resp = request(http.MethodGet, "/e/"+identity.ID+"/hello", environmentToken, nil)
+	resp = request(http.MethodGet, "/e/"+identity.ID+"/hello", login.Token, nil)
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK || string(body) != "registered through user token" {
+		t.Fatalf("owner account proxy access = %d %q", resp.StatusCode, body)
+	}
+	resp = request(http.MethodGet, "/e/"+identity.ID+"/hello", environmentToken, nil)
+	body, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || string(body) != "legacy environment token" {
 		t.Fatalf("environment token proxy access = %d %q", resp.StatusCode, body)
 	}
 	resp = request(http.MethodDelete, "/api/v1/relay/environments/"+identity.ID, bob.Token, nil)

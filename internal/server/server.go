@@ -334,6 +334,10 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 			next(w, r)
 			return
 		}
+		if s.relayRequestAuthorized(r) {
+			next(w, r)
+			return
+		}
 		token := ""
 		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 			token = strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
@@ -353,6 +357,32 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+// relayRequestAuthorized accepts a request signed by this environment's
+// Relay after the hub verified that the caller owns the environment.
+func (s *Server) relayRequestAuthorized(r *http.Request) bool {
+	environmentID := strings.TrimSpace(r.Header.Get(relay.HeaderRelayEnvironment))
+	timestampRaw := strings.TrimSpace(r.Header.Get(relay.HeaderRelayTimestamp))
+	signature := strings.TrimSpace(r.Header.Get(relay.HeaderRelaySignature))
+	if environmentID == "" || timestampRaw == "" || signature == "" {
+		return false
+	}
+	credentials, err := loadRelayCredentials(s.Config.Home)
+	if err != nil || credentials.RelayKey == "" ||
+		credentials.EnvironmentID != s.Identity.ID || environmentID != s.Identity.ID {
+		return false
+	}
+	timestamp, err := strconv.ParseInt(timestampRaw, 10, 64)
+	if err != nil {
+		return false
+	}
+	now := time.Now().UTC().Unix()
+	if timestamp < now-120 || timestamp > now+120 {
+		return false
+	}
+	return relay.VerifyRelayRequest(credentials.RelayKey, r.Method, environmentID,
+		timestamp, r.URL.RequestURI(), signature)
 }
 
 func constantTimeEqual(a, b string) bool {

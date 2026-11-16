@@ -262,6 +262,19 @@ func (h *Hub) registrationAuth(r *http.Request) (userID string, admin, ok bool) 
 	return "", false, false
 }
 
+// validUserSessionLocked checks an ordinary account token. h.mu must be held.
+func (h *Hub) validUserSessionLocked(secret string) bool {
+	if secret == "" || matches(h.admin, secret) {
+		return false
+	}
+	session, exists := h.sessions[digest(secret)]
+	if !exists || !session.ExpiresAt.After(time.Now()) {
+		return false
+	}
+	_, userExists := h.users[session.UserID]
+	return userExists
+}
+
 func (h *Hub) registerUser(w http.ResponseWriter, r *http.Request) {
 	var in UserCredentials
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&in); err != nil {

@@ -186,6 +186,17 @@ func TestSavedRelayConfigurationReconnectsOnRestart(t *testing.T) {
 	if err != nil || !started {
 		t.Fatalf("restore saved relay = %v, err = %v", started, err)
 	}
+	upgradeDeadline := time.Now().Add(10 * time.Second)
+	for {
+		saved, err := loadRelayCredentials(e.server.Config.Home)
+		if err == nil && saved.RelayKey != "" {
+			break
+		}
+		if time.Now().After(upgradeDeadline) {
+			t.Fatalf("saved Relay credentials were not upgraded: %#v, %v", saved, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		e.server.relayConnMu.Lock()
@@ -198,5 +209,25 @@ func TestSavedRelayConfigurationReconnectsOnRestart(t *testing.T) {
 			t.Fatalf("saved relay state = %q, want active", state)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestSavedRelayUpgradeDoesNotBlockStartup(t *testing.T) {
+	e := newTestEnv(t)
+	if err := saveRelayCredentials(e.server.Config.Home, relayCredentials{
+		Server: "http://127.0.0.1:1", EnvironmentID: e.server.Identity.ID,
+		ConnectToken: strings.Repeat("connect-", 4),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	startedAt := time.Now()
+	started, err := e.server.StartSavedRelayConnector(ctx, strings.TrimPrefix(e.http.URL, "http://"))
+	if err != nil || !started {
+		t.Fatalf("saved Relay startup = %v, %v", started, err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > 2*time.Second {
+		t.Fatalf("saved Relay upgrade blocked startup for %s", elapsed)
 	}
 }

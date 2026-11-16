@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +37,9 @@ type Binding struct {
 	DirectURLs  []string `json:"directUrls,omitempty"`
 	ConnectHash string   `json:"connectHash"`
 	AccessHash  string   `json:"accessHash"`
+	// RelayKey signs requests from the hub to the environment after a
+	// signed-in owner is authorized. It never leaves the hub and host.
+	RelayKey string `json:"relayKey,omitempty"`
 }
 
 type Registration struct {
@@ -51,6 +55,7 @@ type Registration struct {
 
 type Registered struct {
 	ConnectToken string `json:"connectToken"`
+	RelayKey     string `json:"relayKey,omitempty"`
 }
 
 func (r *Registration) Sign(privateKey ed25519.PrivateKey) error {
@@ -188,10 +193,6 @@ func fail(w http.ResponseWriter, status int, code, message string) {
 
 func (h *Hub) register(w http.ResponseWriter, r *http.Request) {
 	ownerID, admin, authorized := h.registrationAuth(r)
-	if !authorized {
-		fail(w, 401, "unauthorized", "relay user token required")
-		return
-	}
 	var in Registration
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&in); err != nil {
 		fail(w, 400, "registration", "invalid registration")
@@ -220,25 +221,67 @@ func (h *Hub) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
+	relayRaw := make([]byte, 32)
+	if _, err := rand.Read(relayRaw); err != nil {
+		fail(w, 500, "random", "could not generate relay access secret")
+		return
+	}
+	relayKey := base64.RawURLEncoding.EncodeToString(relayRaw)
 	binding := Binding{ID: in.ID, OwnerID: ownerID, Name: in.Name, PublicKey: in.PublicKey,
-		DirectURLs: in.DirectURLs, ConnectHash: digest(token), AccessHash: digest(in.Token)}
+		DirectURLs: in.DirectURLs, ConnectHash: digest(token), AccessHash: digest(in.Token),
+		RelayKey: relayKey}
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if h.closed {
+		h.mu.Unlock()
 		fail(w, 503, "closed", "relay is shutting down")
 		return
 	}
-	if _, exists := h.bindings[in.ID]; exists {
-		fail(w, 409, "exists", "environment already registered; explicitly revoke before registering again")
+	existing, exists := h.bindings[in.ID]
+	selfRotation := false
+	if exists && existing.PublicKey == in.PublicKey && matches(existing.AccessHash, in.Token) {
+		selfRotation = !authorized
+	}
+	if !authorized && !selfRotation {
+		h.mu.Unlock()
+		fail(w, 401, "unauthorized", "relay user token required")
+		return
+	}
+	if exists {
+		if !admin && !selfRotation && (ownerID == "" || existing.OwnerID != ownerID) {
+			h.mu.Unlock()
+			fail(w, 409, "exists", "environment is owned by another account")
+			return
+		}
+		if existing.PublicKey != in.PublicKey {
+			h.mu.Unlock()
+			fail(w, 409, "exists", "environment identity does not match the registered binding")
+			return
+		}
+		// A host can rotate its Relay key with its existing environment
+		// token. The signed registration proves that the same environment
+		// identity requested the upgrade, while the old binding retains its
+		// account owner and therefore its discovery visibility.
+		binding.OwnerID = existing.OwnerID
+		h.bindings[in.ID] = binding
+		if err := h.save(); err != nil {
+			h.bindings[in.ID] = existing
+			h.mu.Unlock()
+			fail(w, 500, "store", "could not persist binding")
+			return
+		}
+		h.mu.Unlock()
+		reply(w, http.StatusOK, Registered{ConnectToken: token, RelayKey: relayKey})
 		return
 	}
 	h.bindings[in.ID] = binding
 	if err := h.save(); err != nil {
 		delete(h.bindings, in.ID)
+		h.mu.Unlock()
 		fail(w, 500, "store", "could not persist binding")
 		return
 	}
-	reply(w, 201, Registered{ConnectToken: token})
+	h.mu.Unlock()
+	reply(w, 201, Registered{ConnectToken: token, RelayKey: relayKey})
 }
 
 func (h *Hub) list(w http.ResponseWriter, r *http.Request) {
@@ -311,7 +354,10 @@ func (h *Hub) save() error {
 		return err
 	}
 	defer os.Remove(f.Name())
-	if _, err = f.Write(raw); err == nil {
+	if err = f.Chmod(0o600); err == nil {
+		_, err = f.Write(raw)
+	}
+	if err == nil {
 		err = f.Sync()
 	}
 	if closeErr := f.Close(); err == nil {
@@ -411,19 +457,36 @@ func (h *Hub) proxy(w http.ResponseWriter, r *http.Request) {
 	path := "/" + r.PathValue("rest")
 	// Only the signed, nonce-bound descriptor is exposed without an API token.
 	publicProbe := r.Method == http.MethodGet && path == "/api/v1/environment"
+	secret := bearer(r)
 	h.mu.Lock()
 	binding, exists := h.bindings[id]
 	p := h.peers[id]
-	authorized := exists && (publicProbe || matches(binding.AccessHash, bearer(r)))
+	authorized := exists && publicProbe
+	viaUser := false
+	if exists && !authorized && matches(binding.AccessHash, secret) {
+		authorized = true
+	}
+	if exists && !authorized && h.validUserSessionLocked(secret) {
+		if binding.OwnerID != "" && binding.OwnerID == h.sessions[digest(secret)].UserID {
+			authorized, viaUser = true, true
+		}
+	}
+	relayKey := binding.RelayKey
 	h.mu.Unlock()
 	if !authorized {
 		fail(w, 401, "unauthorized", "environment token required")
+		return
+	}
+	if viaUser && relayKey == "" {
+		fail(w, http.StatusConflict, "account_access_not_configured",
+			"environment must be re-registered by its desktop before account access can use it")
 		return
 	}
 	if p == nil || p.session.IsClosed() {
 		fail(w, 503, "environment_offline", "environment tunnel is offline")
 		return
 	}
+	signedAt := time.Now().UTC().Unix()
 	proxy := &httputil.ReverseProxy{
 		Transport: p.transport, FlushInterval: -1,
 		Rewrite: func(pr *httputil.ProxyRequest) {
@@ -436,6 +499,17 @@ func (h *Hub) proxy(w http.ResponseWriter, r *http.Request) {
 			pr.Out.Header.Del("X-Forwarded-For")
 			pr.Out.Header.Del("X-Forwarded-Host")
 			pr.Out.Header.Del("X-Forwarded-Proto")
+			if viaUser {
+				query := pr.Out.URL.Query()
+				query.Del("token")
+				pr.Out.URL.RawQuery = query.Encode()
+				uri := pr.Out.URL.RequestURI()
+				pr.Out.Header.Del("Authorization")
+				pr.Out.Header.Set(HeaderRelayEnvironment, id)
+				pr.Out.Header.Set(HeaderRelayTimestamp, strconv.FormatInt(signedAt, 10))
+				pr.Out.Header.Set(HeaderRelaySignature,
+					SignRelayRequest(relayKey, pr.Out.Method, id, signedAt, uri))
+			}
 		},
 		ErrorLog: nil,
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) {

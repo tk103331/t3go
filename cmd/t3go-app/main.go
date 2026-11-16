@@ -69,6 +69,7 @@ func (manager *environmentManager) view(cx *core.Scope) core.Node {
 			return core.Group{core.Func(session.credentialsDialog), core.Dynamic(session.customModelDialog)}
 		}),
 		core.Dynamic(manager.addEnvironmentDialog),
+		core.Dynamic(manager.relayAccountDialog),
 	}
 }
 
@@ -92,6 +93,11 @@ func (a *app) connectView(cx *core.Scope) core.Node {
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 			core.Text{Content: "Enter the server address and access token to open your projects and threads.", Style: core.Style{FontSize: 12.5, LineHeight: 18},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+			core.Show{When: func() bool { return a.manager != nil }, Then: func(cx *core.Scope) core.Node {
+				return ui.Button{Text: "Sign in to Relay", Icon: lucide.UserRound, Variant: ui.ButtonSecondary,
+					Size: controlSize(cx), TestID: "relay-account-open",
+					OnPress: func() { a.manager.accountOpen.Set(true) }}
+			}},
 			core.Show{When: func() bool { return a.manager != nil && a.manager.localStarting.Get() }, Then: func(*core.Scope) core.Node {
 				return ui.Text("Starting the local environment…", 12, ui.Regular, colors.Muted)
 			}},
