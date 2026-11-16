@@ -123,7 +123,7 @@ func TestUIMobileIOSNewThreadParity(t *testing.T) {
 	app.Press("id:new-thread-project-menu")
 	app.WaitFor("id:new-thread-project-choice-"+project.ID, 5*time.Second)
 	app.Press("id:new-thread-project-choice-" + project.ID)
-	app.WaitFor("id:new-thread-project-menu >> text:\"in Secondary\"", 5*time.Second)
+	app.WaitFor("id:new-thread-project-menu >> text:Secondary", 5*time.Second)
 
 	app.Type("label:New thread message", "iOS keyboard parity")
 	send := mobileScreenFrame(app.Find("id:composer-send"))
@@ -251,7 +251,7 @@ func TestUIMobileNewThreadRemembersProject(t *testing.T) {
 	app.Press("id:new-thread-project-menu")
 	app.WaitFor("id:new-thread-project-choice-"+project.ID, 5*time.Second)
 	app.Press("id:new-thread-project-choice-" + project.ID)
-	app.WaitFor("id:new-thread-project-menu >> text:\"in Secondary\"", 5*time.Second)
+	app.WaitFor("id:new-thread-project-menu >> text:Secondary", 5*time.Second)
 	app.Post(func() {
 		if got := manager.app.newThreadProj.GetUntracked(); got != project.ID {
 			t.Errorf("selected project = %q, want %q", got, project.ID)
@@ -264,7 +264,7 @@ func TestUIMobileNewThreadRemembersProject(t *testing.T) {
 	app.Back()
 	app.WaitForGone("id:new-thread-page", 5*time.Second)
 	app.Press("id:new-thread")
-	app.WaitFor("id:new-thread-project-menu >> text:\"in Secondary\"", 5*time.Second)
+	app.WaitFor("id:new-thread-project-menu >> text:Secondary", 5*time.Second)
 }
 
 func TestUIMobileUsageMetricsAndEnvironment(t *testing.T) {

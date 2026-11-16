@@ -123,7 +123,7 @@ func TestUIMultipleEnvironmentsKeepDraftsAndThreadsSeparate(t *testing.T) {
 	app.WaitFor("text:Received while disconnected", 5*time.Second)
 }
 
-func TestUILocalEnvironmentIsDirectOnlyAndCanBeForgotten(t *testing.T) {
+func TestUILocalEnvironmentIsDirectOnlyAndCannotBeForgotten(t *testing.T) {
 	srv, ts, cfg := startEnv(t)
 	profile := client.EnvironmentProfile{
 		ID: srv.Identity.ID, Name: "This Mac", PublicKey: srv.Identity.PublicKey(),
@@ -148,6 +148,9 @@ func TestUILocalEnvironmentIsDirectOnlyAndCanBeForgotten(t *testing.T) {
 			t.Fatalf("local environment exposes the %s connection mode", mode)
 		}
 	}
+	if app.Exists("id:environment-forget-" + profile.ID) {
+		t.Fatal("local environment exposes Forget")
+	}
 	raw, _ := app.Storage().GetItem("environments:v1")
 	var saved savedEnvironments
 	if err := json.Unmarshal([]byte(raw), &saved); err != nil {
@@ -157,32 +160,21 @@ func TestUILocalEnvironmentIsDirectOnlyAndCanBeForgotten(t *testing.T) {
 		t.Fatalf("local profile = %#v, want direct-only", saved.Profiles)
 	}
 
-	app.Press("id:environment-forget-" + profile.ID)
-	app.WaitFor("id:environment-confirm-forget", 5*time.Second)
-	app.Press("id:environment-confirm-forget")
-	app.WaitForGone("id:environment-"+profile.ID, 5*time.Second)
-	app.WaitUntil(5*time.Second, func() bool {
-		removed, _ := app.Storage().GetItem(localEnvironmentRemoved)
-		raw, _ := app.Storage().GetItem("environments:v1")
-		var registry savedEnvironments
-		return removed == profile.ID && json.Unmarshal([]byte(raw), &registry) == nil &&
-			len(registry.Profiles) == 0
-	})
-
-	// A later client start keeps the environment out of the list instead of
-	// adding the bundled server back.
+	// The client also clears a removal marker left by an older release, so a
+	// restart restores this machine.
 	registry, _ := app.Storage().GetItem("environments:v1")
-	removed, _ := app.Storage().GetItem(localEnvironmentRemoved)
 	restored := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
 		"environments:v1":       registry,
 		localEnvironmentID:      profile.ID,
-		localEnvironmentRemoved: removed,
+		localEnvironmentRemoved: profile.ID,
 	}))
-	restored.WaitFor("id:environments", 10*time.Second)
-	restored.Press("id:environments")
-	restored.WaitFor("id:environment-add", 5*time.Second)
-	if restored.Exists("id:environment-" + profile.ID) {
-		t.Fatal("forgotten local environment returned after restart")
+	restored.WaitFor("id:settings", 10*time.Second)
+	restored.Press("id:settings")
+	restored.WaitFor("id:settings-nav-environments", 5*time.Second)
+	restored.Press("id:settings-nav-environments")
+	restored.WaitFor("id:environment-"+profile.ID, 5*time.Second)
+	if removed, _ := restored.Storage().GetItem(localEnvironmentRemoved); removed != "" {
+		t.Fatal("startup did not clear the old local-environment removal marker")
 	}
 }
 

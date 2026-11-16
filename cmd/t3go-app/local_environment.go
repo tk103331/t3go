@@ -11,12 +11,14 @@ import (
 	"github.com/tk/t3go/internal/client"
 )
 
-// localEnvironmentRemoved remembers the environment the user removed from
-// the list, so this machine does not come back on the next start.
+// localEnvironmentRemoved is a legacy marker from releases that allowed the
+// bundled environment to be forgotten. Startup clears it so that environment
+// is restored, but keeping the key lets that migration be tested directly.
 const localEnvironmentRemoved = "localEnvironmentRemoved"
 
 // localEnvironmentID names the environment server bundled with this client.
-// Persist it so Forget can keep working even before the server answers again.
+// Persist it so the client can recognize this machine before the server
+// answers again.
 const localEnvironmentID = "localEnvironmentID"
 
 // backgroundServerKey remembers whether this machine's environment server
@@ -126,9 +128,9 @@ func (m *environmentManager) useLocalEnvironment(srv *localServer) {
 	m.localErr.Set("")
 	localID := desc.ID
 	m.rememberLocalEnvironment(localID)
-	if removed, _ := m.store.GetItem(localEnvironmentRemoved); removed == localID {
-		return // the user removed this machine from the list
-	}
+	// This machine's bundled environment is permanent. Clear an old removal
+	// marker so clients that previously allowed forgetting recover it now.
+	m.store.RemoveItem(localEnvironmentRemoved)
 	profile := client.EnvironmentProfile{
 		ID:        localID,
 		Name:      desc.Name,
@@ -152,9 +154,6 @@ func (m *environmentManager) useLocalEnvironment(srv *localServer) {
 	}
 	profile.Routes = applyLANRoute(profile.Routes, srv)
 	profile.Preference = "direct-only"
-	if removed, _ := m.store.GetItem(localEnvironmentRemoved); removed != "" {
-		m.store.RemoveItem(localEnvironmentRemoved)
-	}
 	session := m.sessions[localID]
 	if session == nil {
 		session = m.newSession(profile)
@@ -197,9 +196,8 @@ func (m *environmentManager) useLocalEnvironment(srv *localServer) {
 	session.refreshAccess()
 }
 
-// rememberLocalEnvironment records this machine's stable identity. The
-// server can still be starting when the saved profile is already visible,
-// so Forget cannot rely only on the in-memory localID.
+// rememberLocalEnvironment records this machine's stable identity so the
+// bundle remains recognizable before the server finishes starting.
 func (m *environmentManager) rememberLocalEnvironment(id string) {
 	id = strings.TrimSpace(id)
 	if id == "" {

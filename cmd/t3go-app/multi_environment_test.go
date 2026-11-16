@@ -227,7 +227,7 @@ func TestUINewProjectUsesSelectedEnvironment(t *testing.T) {
 			app.Press("id:create-project")
 			waitSheetGone(app, "id:new-project-dialog")
 			if width < 760 {
-				app.WaitFor(`text:"in new-project"`, 5*time.Second)
+				app.WaitFor("id:new-thread-project-menu >> text:new-project", 5*time.Second)
 			} else {
 				app.WaitFor("text:new-project", 5*time.Second)
 			}

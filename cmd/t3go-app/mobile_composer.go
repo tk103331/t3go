@@ -201,7 +201,12 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 		Children: row,
 	})
 
+	cardTestID := ""
+	if m.TestID != "" {
+		cardTestID = m.TestID + "-drop"
+	}
 	card := core.View{
+		TestID: cardTestID,
 		Style: core.Style{
 			MinWidth: core.Pt(0), Padding: core.Symmetric(10, 0),
 			CornerRadius: 24, BorderWidth: 1,

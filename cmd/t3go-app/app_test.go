@@ -99,9 +99,11 @@ func TestUICreateThreadInProject(t *testing.T) {
 	}))
 	app.WaitFor("id:project-"+beta.ID, 15*time.Second)
 	app.Press("id:new-thread")
-	app.WaitFor("id:new-thread-project-"+beta.ID, 5*time.Second)
-	app.Press("id:new-thread-project-" + beta.ID)
-	app.Type("label:Thread title", "Second project thread")
+	app.WaitFor("id:new-thread-project-menu", 5*time.Second)
+	app.Press("id:new-thread-project-menu")
+	app.WaitFor("id:new-thread-project-choice-"+beta.ID, 5*time.Second)
+	app.Press("id:new-thread-project-choice-" + beta.ID)
+	app.Type("label:New thread message", "Second project thread")
 	app.Press("id:create-thread")
 	app.WaitFor("id:content-header >> text:Second project thread", 10*time.Second)
 
@@ -172,7 +174,7 @@ func TestUISettingsDefaults(t *testing.T) {
 	// The new thread inherits the saved permission.
 	app.Press("id:new-thread")
 	app.WaitFor("id:create-thread", 5*time.Second)
-	app.Type("label:Thread title", "Inherits defaults")
+	app.Type("label:New thread message", "Inherits defaults")
 	app.Press("id:create-thread")
 	app.WaitFor("id:content-header >> text:Inherits defaults", 10*time.Second)
 	app.WaitUntil(10*time.Second, func() bool {
@@ -226,7 +228,7 @@ func TestUICreateThreadInWorktree(t *testing.T) {
 	app.WaitFor("id:create-thread", 5*time.Second)
 	app.Press("id:toggle-worktree") // Own worktree: on
 	app.WaitUntil(8*time.Second, func() bool {
-		if app.Exists("label:Branch (optional)") {
+		if app.Exists("id:new-thread-branch") && app.Enabled("id:new-thread-branch") {
 			return true
 		}
 		// A press can land while the dialog settles. While it still reads
@@ -237,8 +239,8 @@ func TestUICreateThreadInWorktree(t *testing.T) {
 		}
 		return false
 	})
-	app.Type("label:Thread title", "Worktree thread")
-	app.Type("label:Branch (optional)", "t3go/ui-test")
+	app.Type("label:New thread message", "Worktree thread")
+	app.Type("label:Branch", "t3go/ui-test")
 	app.Press("id:create-thread")
 	app.WaitFor("id:content-header >> text:Worktree thread", 10*time.Second)
 
@@ -702,7 +704,7 @@ func TestUINewThreadInProject(t *testing.T) {
 	app.WaitFor("id:new-thread-in-"+beta.ID, 5*time.Second)
 	app.Press("id:new-thread-in-" + beta.ID)
 	app.WaitFor("id:create-thread", 5*time.Second)
-	app.Type("label:Thread title", "From the menu")
+	app.Type("label:New thread message", "From the menu")
 	app.Press("id:create-thread")
 	app.WaitFor("id:content-header >> text:From the menu", 10*time.Second)
 
@@ -861,6 +863,71 @@ func TestUIComposerAttachment(t *testing.T) {
 	}
 	if _, err := os.Stat(srv.Service.UploadPath(sent.Attachments[0].ID)); err != nil {
 		t.Fatalf("upload: %v", err)
+	}
+}
+
+// TestUINewThreadAttachment stages a file before the thread exists and sends
+// it with the first message after creation.
+func TestUINewThreadAttachment(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	srv.Service.Providers.Register(uiRunner{started: make(chan struct{}, 1)})
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Files", t.TempDir())
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "first-note.txt")
+	if err := os.WriteFile(path, []byte("staged before creation"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	app := nsgotest.Start(t, Root, nsgotest.Environment(core.Environment{OS: core.OSAndroid,
+		Idiom: core.IdiomPhone, SafeArea: core.Edges{Top: 24, Bottom: 16}}),
+		nsgotest.Size(390, 844), nsgotest.Storage(map[string]string{
+			"serverUrl": ts.URL,
+			"token":     cfg.Token,
+		}))
+	app.WaitFor("id:new-thread", 15*time.Second)
+	app.Press("id:new-thread")
+	app.WaitFor("id:new-thread-page", 5*time.Second)
+	app.Press("id:new-thread-agent-menu")
+	app.WaitFor("id:new-thread-provider-ui-fake", 5*time.Second)
+	app.Press("id:new-thread-provider-ui-fake")
+
+	uri := (&url.URL{Scheme: "file", Path: path}).String()
+	app.DropFiles("id:new-thread-composer-drop", uri)
+	app.WaitFor("text:first-note.txt", 10*time.Second)
+	app.Type("label:New thread message", "Read the attached note")
+	app.Press("id:composer-send")
+
+	app.WaitForGone("id:new-thread-page", 15*time.Second)
+	var created proto.Thread
+	app.WaitUntil(10*time.Second, func() bool {
+		threads, err := srv.Store.Threads(ctx, project.ID, false)
+		if err != nil || len(threads) != 1 {
+			return false
+		}
+		created = threads[0]
+		return true
+	})
+	var sent proto.Message
+	app.WaitUntil(10*time.Second, func() bool {
+		if detail, err := srv.Service.Detail(ctx, created.ID); err == nil {
+			for _, message := range detail.Messages {
+				if message.Role == proto.RoleUser && message.Content == "Read the attached note" {
+					sent = message
+					return true
+				}
+			}
+		}
+		return false
+	})
+	defer srv.Service.Stop(created.ID)
+	if created.Title != "Read the attached note" {
+		t.Fatalf("title = %q", created.Title)
+	}
+	if len(sent.Attachments) != 1 || sent.Attachments[0].Name != "first-note.txt" {
+		t.Fatalf("first message attachments = %#v", sent.Attachments)
 	}
 }
 
@@ -1089,7 +1156,9 @@ func TestUIDialogsFit(t *testing.T) {
 		t.Fatal("desktop new thread still opens as a dialog")
 	}
 	create := app.Find("id:create-thread")
-	app.Press(`text:"supervised"`)
+	app.Press("id:new-thread-mode-menu")
+	app.WaitFor("id:new-thread-perm-supervised", 5*time.Second)
+	app.Press("id:new-thread-perm-supervised")
 	app.Settle()
 	if after := app.Find("id:create-thread"); after.ID != create.ID {
 		t.Fatal("pressing a new-thread option rebuilt the dialog")
@@ -2538,18 +2607,24 @@ func TestUINewThreadOptions(t *testing.T) {
 	app.WaitFor("id:new-thread", 15*time.Second)
 	app.Press("id:new-thread")
 	app.WaitFor("id:new-thread-page", 5*time.Second)
-	app.Press("id:new-thread-project-" + project.ID)
+	app.Press("id:new-thread-project-menu")
+	app.WaitFor("id:new-thread-project-choice-"+project.ID, 5*time.Second)
+	app.Press("id:new-thread-project-choice-" + project.ID)
+	app.Press("id:new-thread-agent-menu")
+	app.WaitFor("id:new-thread-provider-side-fake", 5*time.Second)
 	app.Press("id:new-thread-provider-side-fake")
+	app.Press("id:new-thread-mode-menu")
+	app.WaitFor("id:new-thread-perm-auto", 5*time.Second)
 	app.Press("id:new-thread-perm-auto")
 	app.WaitUntil(10*time.Second, func() bool {
-		if app.Exists("id:new-thread-branch") {
+		if app.Exists("id:new-thread-branch") && app.Enabled("id:new-thread-branch") {
 			return true
 		}
 		if app.Exists("id:toggle-worktree") {
 			app.Press("id:toggle-worktree")
 			app.Settle()
 		}
-		return app.Exists("id:new-thread-branch")
+		return app.Exists("id:new-thread-branch") && app.Enabled("id:new-thread-branch")
 	})
 	app.WaitUntil(10*time.Second, func() bool {
 		if app.Find("id:new-thread-branch").Text == "t3go/test" {
@@ -2559,15 +2634,6 @@ func TestUINewThreadOptions(t *testing.T) {
 		app.Type("id:new-thread-branch", "t3go/test")
 		app.Settle()
 		return app.Find("id:new-thread-branch").Text == "t3go/test"
-	})
-	app.WaitUntil(10*time.Second, func() bool {
-		if app.Find("id:new-thread-base").Text == "HEAD" {
-			return true
-		}
-		app.Clear("id:new-thread-base")
-		app.Type("id:new-thread-base", "HEAD")
-		app.Settle()
-		return app.Find("id:new-thread-base").Text == "HEAD"
 	})
 	app.Press("id:create-thread")
 	app.WaitUntil(15*time.Second, func() bool {
@@ -3092,31 +3158,21 @@ func TestUIMobileDialogsFit(t *testing.T) {
 	if send.Origin.Y+send.Size.Height > 844-300 || send.Size.Height < 36 || send.Size.Height > 40 {
 		t.Fatalf("new thread send is covered by the keyboard or the wrong size: %v", send)
 	}
-	app.Press("id:new-thread-more")
-	app.WaitFor("id:new-thread-dialog", 5*time.Second)
-	dialog := mobileScreenFrame(app.Find("id:new-thread-dialog"))
-	if dialog.Origin.X < 0 || dialog.Origin.X+dialog.Size.Width > 390 {
-		t.Fatalf("new thread dialog overflows: %v", dialog)
+	app.Find("id:new-thread-composer >> id:new-thread-attach")
+	app.Find("id:new-thread-composer >> id:new-thread-agent-menu")
+	app.Find("id:new-thread-composer >> id:new-thread-model")
+	app.Find("id:new-thread-composer >> id:new-thread-mode-menu")
+	if app.Exists("id:new-thread-dialog") || app.Exists("id:new-thread-more") {
+		t.Fatal("new thread still exposes the old options dialog")
 	}
-	create := mobileScreenFrame(app.Find("id:create-thread"))
-	if create.Origin.X < 0 || create.Origin.X+create.Size.Width > 390 {
-		t.Fatalf("create button overflows: %v", create)
+	context := mobileScreenFrame(app.Find("id:new-thread-context"))
+	composer := mobileScreenFrame(app.Find("id:new-thread-composer"))
+	if context.Origin.Y < composer.Origin.Y+composer.Size.Height {
+		t.Fatalf("project context should sit below the composer: composer=%v context=%v", composer, context)
 	}
-	if create.Size.Height < 32 {
-		t.Fatalf("create button is still using a dense touch size: %v", create)
+	if context.Origin.X < 0 || context.Origin.X+context.Size.Width > 390 {
+		t.Fatalf("new thread project context overflows: %v", context)
 	}
-	if create.Origin.Y+create.Size.Height > 844-300 {
-		t.Fatalf("create button is covered by the keyboard: %v", create)
-	}
-	if dialog.Origin.Y+dialog.Size.Height > 844-300 {
-		t.Fatalf("new thread dialog is covered by the keyboard: %v", dialog)
-	}
-	threadTitle := app.Find("label:Thread title").Frame
-	if threadTitle.Size.Height < 44 {
-		t.Fatalf("thread title input is still using a dense touch size: %v", threadTitle)
-	}
-	app.Press("id:new-thread-options-done")
-	waitSheetGone(app, "id:new-thread-dialog")
 
 	app.WaitUntil(10*time.Second, func() bool {
 		if app.Exists("id:new-project-dialog") {

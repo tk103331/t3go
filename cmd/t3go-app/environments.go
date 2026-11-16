@@ -230,6 +230,9 @@ func newEnvironmentManager(cx *core.Scope) *environmentManager {
 	if localID != "" {
 		m.localID = localID
 		_ = m.store.SetItem(localEnvironmentID, localID)
+		if removed, _ := m.store.GetItem(localEnvironmentRemoved); removed == localID {
+			m.store.RemoveItem(localEnvironmentRemoved)
+		}
 		profiles := m.profiles.GetUntracked()
 		next := append([]client.EnvironmentProfile(nil), profiles...)
 		changed := false
@@ -620,8 +623,10 @@ func (a *app) environmentList(cx *core.Scope) core.Node {
 						_ = a.manager.save()
 						a.manager.profiles.Set(append([]client.EnvironmentProfile(nil), a.manager.profiles.GetUntracked()...))
 					}},
-					ui.Button{Text: "Forget", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "environment-forget-" + p.ID, OnPress: func() {
-						a.forgetEnvironment.Set(p.ID)
+					core.Show{When: func() bool { return !a.manager.isLocalEnvironment(p.ID) }, Then: func(*core.Scope) core.Node {
+						return ui.Button{Text: "Forget", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "environment-forget-" + p.ID, OnPress: func() {
+							a.forgetEnvironment.Set(p.ID)
+						}}
 					}},
 					ui.Button{Text: "Edit alias", Icon: lucide.Pencil, Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "environment-rename-" + p.ID, OnPress: func() {
 						a.environmentAlias.Set(p.Alias)
@@ -690,14 +695,12 @@ func (m *environmentManager) addEnvironmentDialog(cx *core.Scope) core.Node {
 }
 
 func (m *environmentManager) forget(id string) {
+	if m.isLocalEnvironment(id) {
+		return
+	}
 	session := m.sessions[id]
 	if session != nil {
 		session.persistView()
-	}
-	if m.isLocalEnvironment(id) {
-		// This machine stays out of the list until the user adds it back.
-		m.rememberLocalEnvironment(id)
-		_ = m.store.SetItem(localEnvironmentRemoved, id)
 	}
 	var next []client.EnvironmentProfile
 	for _, p := range m.profiles.GetUntracked() {

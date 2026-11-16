@@ -3,7 +3,6 @@ package main
 import (
 	"strings"
 
-	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
@@ -47,15 +46,11 @@ func (a *app) mobileNewThread(cx *core.Scope) core.Node {
 				Disabled: func() bool { target := a.newThreadTarget(); return target != nil && target.threadBusy.Get() },
 				OnPress:  func() { a.showNewThread.Set(false) }},
 			ui.Text("New thread", 22, ui.Medium, colors.Text), ui.Spacer{},
-			ui.IconButton{Icon: lucide.Folder, Label: "Choose project", TestID: "new-thread-choose-project", Size: 44,
-				OnPress: func() { a.newThreadOptions.Set(true) }},
-			ui.IconButton{Icon: lucide.FolderPlus, Label: "New project", TestID: "new-thread-new-project", Size: 44,
-				OnPress: a.openNewProjectForThread},
 		}},
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Background: colors.Surface(),
 			CornerRadius: 24, Overflow: core.Hidden}, Children: []core.Node{
 			core.Scroll{Style: ui.FillRest, Children: []core.Node{
-				core.View{Style: core.Style{Padding: core.Symmetric(56, 22), Gap: 18, AlignItems: core.AlignCenter},
+				core.View{Style: core.Style{Padding: core.Symmetric(24, 16), Gap: 10, AlignItems: core.AlignCenter},
 					Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 						target := a.newThreadTarget()
 						project := "your project"
@@ -81,24 +76,6 @@ func (a *app) mobileNewThread(cx *core.Scope) core.Node {
 					}),
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						target := a.newThreadTarget()
-						label := "Choose a project"
-						if target != nil {
-							label = "Current checkout"
-							if target.newThreadWT.Get() {
-								label = "New worktree"
-							}
-							if branch := target.newThreadBranch.Get(); branch != "" {
-								label += " · " + branch
-							} else {
-								label += " · Current HEAD"
-							}
-						}
-						return base.Button{Label: label, TestID: "new-thread-checkout",
-							OnPress:  func(core.PressEvent) { a.newThreadOptions.Set(true) },
-							Children: []core.Node{mobileMenuFace(cx, label, lucide.GitBranch)}}
-					}),
-					core.Dynamic(func(cx *core.Scope) core.Node {
-						target := a.newThreadTarget()
 						if target == nil {
 							return ui.Text("Select an available environment.", 14, ui.Regular, colors.Danger)
 						}
@@ -108,26 +85,26 @@ func (a *app) mobileNewThread(cx *core.Scope) core.Node {
 						// The target is the only dependency here. Draft/keyboard updates
 						// belong to the composer, so they never replace its input node.
 						return mobileComposer{Draft: target.newThreadPrompt.Get, OnDraftChange: target.newThreadPrompt.Set,
-							Label: "New thread message", Placeholder: "Ask anything", TestID: "new-thread-composer",
-							Disabled: target.threadBusy.Get,
-							OnSend:   func() { a.createMobileThread(true) },
+							Label: "New thread message", Placeholder: "Ask anything. @ files, $ skills, / commands",
+							TestID: "new-thread-composer", SendTestID: "composer-send",
+							Disabled: target.threadBusy.Get, AllowEmptySend: true, SendIcon: lucide.ArrowUp,
+							OnSend: func() { a.createMobileThread(strings.TrimSpace(target.newThreadPrompt.GetUntracked()) != "") },
 							Accessory: func(cx *core.Scope) core.Node {
-								return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
-									FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-									ui.IconButton{Icon: lucide.Plus, Label: "Thread options", TestID: "new-thread-more", Size: 40,
-										OnPress: func() { a.newThreadOptions.Set(true) }},
-									core.Dynamic(func(cx *core.Scope) core.Node {
-										label := target.newThreadModel.Get()
-										if label == "" {
-											label = "Choose model"
-										}
-										return base.Button{Label: label, TestID: "new-thread-model-options",
-											Style:    core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
-											OnPress:  func(core.PressEvent) { a.newThreadOptions.Set(true) },
-											Children: []core.Node{mobileMenuFace(cx, label, nil)}}
-									}),
-								}}
-							}}
+								return ui.IconButton{Icon: lucide.Paperclip, Label: "Attach files",
+									TestID: "new-thread-attach", Size: 40, IconSize: 20,
+									OnPress: target.pickNewThreadAttachments}
+							},
+							Controls:       target.desktopNewThreadComposerControls,
+							Attachments:    target.newThreadAttachmentChips,
+							HasAttachments: func() bool { return len(target.newThreadFiles.Get()) > 0 },
+							OnDropFiles:    target.attachNewThreadPaths,
+						}
+					}),
+					core.Dynamic(func(cx *core.Scope) core.Node {
+						if target := a.newThreadTarget(); target != nil {
+							return target.desktopNewThreadContext(cx)
+						}
+						return core.Group{}
 					}),
 				}},
 		}},
@@ -142,25 +119,8 @@ func (a *app) mobileNewThreadEnvironment(cx *core.Scope) core.Node {
 	}
 	var children []core.Node
 	if target != nil {
-		projectName := "Choose project"
-		var projectItems []core.Node
-		for _, project := range target.projects.Get() {
-			project := project
-			if project.ID == target.newThreadProj.Get() {
-				projectName = project.Name
-			}
-			projectItems = append(projectItems, ui.MenuItem{Text: project.Name,
-				TestID:  "new-thread-project-choice-" + project.ID,
-				Checked: func() bool { return target.newThreadProj.Get() == project.ID },
-				OnSelect: func() {
-					target.selectNewThreadProject(project.ID)
-				}})
-		}
-		children = append(children, ui.Menu{TestID: "new-thread-project-menu",
-			Trigger: ui.Button{Text: "in " + projectName, Icon: lucide.Folder, Flex: 1,
-				Size: controlSize(cx), Variant: ui.ButtonGhost},
-			Face:     mobileMenuFace(cx, "in "+projectName, lucide.Folder),
-			Children: projectItems, MaxHeight: 360})
+		children = append(children, core.Text{Content: target.envName(), Style: core.Style{FontSize: 12},
+			StyleFunc: func() core.Style { return core.Style{Color: ui.ColorsOf(cx).Muted()} }})
 	}
 	var items []core.Node
 	for _, session := range a.mobileSessions("") {
@@ -170,35 +130,11 @@ func (a *app) mobileNewThreadEnvironment(cx *core.Scope) core.Node {
 	}
 	children = append(children, ui.Menu{TestID: "new-thread-environment",
 		Trigger: ui.Button{Text: "on " + name, Icon: lucide.Laptop, Flex: 1,
-			Size: controlSize(cx), Variant: ui.ButtonGhost},
+			Size: controlSize(cx), Variant: ui.ButtonGhost, Label: "Environment: " + name},
 		Face: mobileMenuFace(cx, "on "+name, lucide.Laptop), Children: items, MaxHeight: 360})
 	return core.View{Style: core.Style{Width: core.Pct(100), MinWidth: core.Pt(0), Direction: core.Row,
 		AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 6},
 		Children: children}
-}
-
-func (a *app) mobileNewThreadOptions(cx *core.Scope) core.Node {
-	if !compactSettings(cx) {
-		return core.Group{}
-	}
-	return ui.Dialog{Open: a.newThreadOptions.Get, OnOpenChange: closeDialog(a.newThreadOptions),
-		Title: "Thread options", TestID: "new-thread-dialog", Style: dialogWidth(cx, 540),
-		Children: []core.Node{
-			core.Dynamic(a.mobileNewThreadEnvironment),
-			core.Dynamic(func(cx *core.Scope) core.Node {
-				if target := a.newThreadTarget(); target != nil {
-					return core.Dynamic(target.newThreadBody)
-				}
-				return ui.Text("Choose an environment.", 14, ui.Regular, ui.ColorsOf(cx).Muted)
-			}),
-		},
-		Footer: []core.Node{
-			ui.Button{Text: "Done", TestID: "new-thread-options-done", Variant: ui.ButtonGhost, Size: controlSize(cx),
-				OnPress: func() { a.newThreadOptions.Set(false) }},
-			ui.Button{Text: "Create thread", Icon: lucide.MessageSquarePlus, TestID: "create-thread", Size: controlSize(cx),
-				Disabled: func() bool { target := a.newThreadTarget(); return target == nil || target.threadBusy.Get() },
-				OnPress:  func() { a.createMobileThread(false) }},
-		}}
 }
 
 func (a *app) createMobileThread(send bool) {
@@ -219,12 +155,12 @@ func (a *app) createPreparedThread(send bool) {
 	}
 	draft := target.newThreadPrompt.GetUntracked()
 	prompt := strings.TrimSpace(draft)
+	attachments := append([]proto.Attachment(nil), target.newThreadFiles.GetUntracked()...)
 	if send && prompt == "" {
 		return
 	}
 	if target.newThreadProj.GetUntracked() == "" {
 		target.connErr.Set("Choose a project first.")
-		a.newThreadOptions.Set(true)
 		return
 	}
 	if target.newThreadTitle.GetUntracked() == "" && prompt != "" {
@@ -232,9 +168,12 @@ func (a *app) createPreparedThread(send bool) {
 	}
 	target.createThreadThen(func(created proto.Thread) {
 		a.showNewThread.Set(false)
-		a.newThreadOptions.Set(false)
+		target.newThreadFiles.Set(nil)
 		if a.manager != nil {
 			a.manager.activate(target.profile.ID)
+		}
+		if !send {
+			target.saveAttachmentDraftFor(created.ID, attachments)
 		}
 		target.selectThread(created.ID)
 		if send {
@@ -242,8 +181,7 @@ func (a *app) createPreparedThread(send bool) {
 			if target.newThreadPrompt.GetUntracked() == draft {
 				target.newThreadPrompt.Set("")
 			}
-			target.setDraft(prompt)
-			target.send()
+			target.sendPrompt(created.ID, prompt, attachments)
 		} else if target.newThreadPrompt.GetUntracked() == draft {
 			target.newThreadPrompt.Set("")
 		}

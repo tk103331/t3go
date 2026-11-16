@@ -209,7 +209,6 @@ type app struct {
 	mobilePRSeq           int
 	newThreadEnv          *core.Signal[string]
 	newThreadPrompt       *core.Signal[string]
-	newThreadOptions      *core.Signal[bool]
 	newThreadVisited      map[*app]bool
 	showDiff              *core.Signal[bool]
 	mobileDiffMode        *core.Signal[string]
@@ -287,6 +286,7 @@ type app struct {
 	threadBusy      *core.Signal[bool]
 	newThreadProj   *core.Signal[string]
 	newThreadBranch *core.Signal[string]
+	newThreadFiles  *core.Signal[[]proto.Attachment]
 
 	sidebarOpen      *core.Signal[bool]
 	sidebarWidth     *core.Signal[core.Points]
@@ -493,7 +493,6 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		mobilePRErr:           core.NewSignal(cx, ""),
 		newThreadEnv:          core.NewSignal(cx, profile.ID),
 		newThreadPrompt:       core.NewSignal(cx, ""),
-		newThreadOptions:      core.NewSignal(cx, false),
 		showDiff:              core.NewSignal(cx, false),
 		mobileDiffMode:        core.NewSignal(cx, "review"),
 		mobileCommitOpen:      core.NewSignal(cx, false),
@@ -570,6 +569,7 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		threadBusy:      core.NewSignal(cx, false),
 		newThreadProj:   core.NewSignal(cx, ""),
 		newThreadBranch: core.NewSignal(cx, ""),
+		newThreadFiles:  sliceSignal[proto.Attachment](cx),
 
 		sidebarOpen:         core.NewSignal(cx, true),
 		sidebarWidth:        core.NewSignal(cx, core.Points(260)),
@@ -2229,6 +2229,109 @@ func (a *app) attachFiles(files []core.File) {
 				a.addAttachmentDraft(threadID, attachment)
 			})
 		}()
+	}
+}
+
+// pickNewThreadAttachments stages files before the thread exists. The files
+// belong to the environment, not to an existing thread, and move onto the new
+// thread after creation.
+func (a *app) pickNewThreadAttachments() {
+	if a.client() == nil {
+		return
+	}
+	a.connErr.Set("")
+	a.cx.PickFiles(core.PickFilesOptions{Multiple: true}, func(files []core.File, err error) {
+		if err != nil {
+			a.connErr.Set(err.Error())
+			return
+		}
+		a.attachNewThreadFiles(files)
+	})
+}
+
+func (a *app) attachNewThreadPaths(uris []string) {
+	files := make([]core.File, 0, len(uris))
+	for _, uri := range uris {
+		path := uri
+		if u, err := url.Parse(uri); err == nil {
+			if u.Scheme == "file" {
+				path = u.Path
+			} else if u.Scheme != "" {
+				continue
+			}
+		}
+		if unescaped, err := url.PathUnescape(path); err == nil {
+			path = unescaped
+		}
+		st, err := os.Stat(path)
+		if err != nil || st.IsDir() {
+			continue
+		}
+		files = append(files, core.File{Name: filepath.Base(path), MIME: mime.TypeByExtension(filepath.Ext(path)),
+			Size: st.Size(), Path: path})
+	}
+	a.attachNewThreadFiles(files)
+}
+
+func (a *app) attachNewThreadFiles(files []core.File) {
+	c := a.client()
+	if c == nil || len(files) == 0 {
+		return
+	}
+	a.connErr.Set("")
+	for _, f := range files {
+		f := f
+		go func() {
+			ctx, cancel := context.WithTimeout(a.lifetime, 60*time.Second)
+			defer cancel()
+			src, err := f.Open()
+			if err != nil {
+				a.cx.Post(func() { a.connErr.Set("Could not read " + f.Name + ": " + err.Error()) })
+				return
+			}
+			attachment, uploadErr := c.Upload(ctx, f.Name, f.MIME, src)
+			_ = src.Close()
+			if f.Temporary && f.Path != "" {
+				_ = os.Remove(f.Path)
+			}
+			a.cx.Post(func() {
+				if uploadErr != nil {
+					a.connErr.Set(friendlyError(uploadErr))
+					return
+				}
+				a.newThreadFiles.Set(append(a.newThreadFiles.GetUntracked(), attachment))
+			})
+		}()
+	}
+}
+
+func (a *app) removeNewThreadAttachment(id string) {
+	files := a.newThreadFiles.GetUntracked()
+	next := make([]proto.Attachment, 0, len(files))
+	for _, attachment := range files {
+		if attachment.ID != id {
+			next = append(next, attachment)
+		}
+	}
+	a.newThreadFiles.Set(next)
+	a.discardAttachments([]proto.Attachment{{ID: id}})
+}
+
+func (a *app) saveAttachmentDraftFor(threadID string, attachments []proto.Attachment) {
+	drafts := a.attachmentDrafts.GetUntracked()
+	next := make(map[string][]proto.Attachment, len(drafts)+1)
+	for id, files := range drafts {
+		next[id] = files
+	}
+	if len(attachments) == 0 {
+		delete(next, threadID)
+	} else {
+		next[threadID] = append([]proto.Attachment(nil), attachments...)
+	}
+	a.attachmentDrafts.Set(next)
+	raw, _ := json.Marshal(next)
+	if a.store != nil {
+		_ = a.store.SetItem("attachmentDrafts", string(raw))
 	}
 }
 

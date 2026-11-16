@@ -504,8 +504,16 @@ func contextUsage(model string, runs []proto.Run, models []proto.Model) (used, l
 
 // attachmentChips are the files the next message carries.
 func (a *app) attachmentChips(cx *core.Scope) core.Node {
+	return a.attachmentChipsFor(cx, a.attachments.Get(), "remove-attachment-", a.removeAttachment)
+}
+
+func (a *app) newThreadAttachmentChips(cx *core.Scope) core.Node {
+	return a.attachmentChipsFor(cx, a.newThreadFiles.Get(), "remove-new-thread-attachment-", a.removeNewThreadAttachment)
+}
+
+func (a *app) attachmentChipsFor(cx *core.Scope, files []proto.Attachment,
+	testPrefix string, remove func(string)) core.Node {
 	colors := ui.ColorsOf(cx)
-	files := a.attachments.Get()
 	rows := make([]core.Node, 0, len(files))
 	for _, f := range files {
 		f := f
@@ -518,7 +526,7 @@ func (a *app) attachmentChips(cx *core.Scope) core.Node {
 			core.Text{Content: f.Name + " · " + humanSize(f.Size), MaxLines: 1, Style: core.Style{FontSize: 11.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 			ui.Button{Text: "×", Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Remove attachment",
-				TestID: "remove-attachment-" + f.ID, OnPress: func() { a.removeAttachment(f.ID) }},
+				TestID: testPrefix + f.ID, OnPress: func() { remove(f.ID) }},
 		)
 		rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
 			Padding: core.Symmetric(4, 8), Background: colors.Field(), CornerRadius: 8, MaxWidth: core.Pt(280)}, Children: children})
