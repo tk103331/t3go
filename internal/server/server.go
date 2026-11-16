@@ -2395,6 +2395,9 @@ func (s *Server) handleWeb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-cache")
+	if strings.HasSuffix(path, ".wasm") {
+		w.Header().Set("Content-Type", "application/wasm")
+	}
 	full := filepath.Join(s.Config.WebDir, filepath.FromSlash(path))
 	st, err := os.Stat(full)
 	if err != nil || st.IsDir() {

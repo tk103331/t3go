@@ -1,7 +1,7 @@
 # T3Go
 
 用 Go 重写的 [T3 Code](https://github.com/pingdotgg/t3code) 服务端，以及基于
-[NSGo](https://github.com/oneo-me/nsgo) 的多端原生客户端。
+[Asuka](https://github.com/egoist/asuka) 的多端原生客户端。
 
 一个 T3Go 环境（environment）管理项目目录、线程、运行记录，并把 Claude Code、
 Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP 取快照、发动作，
@@ -16,29 +16,42 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - Provider CLI 适配：`claude`、`codex`、`opencode`，含模型列表与版本探测
 - Git：工作区状态、每个 run 的 checkpoint（`git stash create` + 隐藏 ref）、run diff、worktree、提交/推送、经本机 `gh` 创建或复用 PR、分支列表与切换
 - HTTP REST API、SSE 事件流、WebSocket 事件流、Bearer token 鉴权、CORS
-- Web 客户端：同一份 NSGo 代码用 `GOOS=js GOARCH=wasm` 构建，由 `t3go serve --web` 直接提供
+- Web 客户端：同一份 Asuka 代码由 `asuka build --platform web` 构建成静态站点，
+  由 `t3go serve --web` 同源提供
 - `t3go` CLI：`serve`、`pair`、`relay`、`doctor`、`version`
-- 多环境管理：在设置中管理连接，侧栏同时展示多个环境的项目与会话，
-  新建项目可选目标环境；持久化身份、环境别名与默认环境、按环境隔离草稿和排队消息；
-  局域网直连优先、中继回退、出站反向隧道，使用说明见
+- 环境连接：持久化环境身份、直连/中继路由、局域网直连优先与中继回退、出站反向隧道，
+  使用说明见
   [docs/environments-and-relay.md](docs/environments-and-relay.md)
-- 设置支持独立选择目标环境：Providers 显示各环境检测状态，可切换或单独检测，
-  CLI、登录状态与模型、General 默认值、Usage、Worktrees、About 和自定义模型均跟随所选环境，
-  不切换当前会话。编辑器选择按环境保存，快捷键和连接管理由客户端共享。
-- 安卓端首页聚合各环境会话：Completed 置顶且无标题，Working 与显式 Settled 分组，
-  展示项目缩写、所属机器和更新时间；Settle 仅由用户手动触发。底部可进入会话、PR、用量、设置，
-  项目管理从文件夹或筛选菜单进入；新建会话为独立页面，可选择环境、项目与 checkout，
-  输入首条消息后创建并发送，各环境的待发送草稿独立保留。
-- 手机端 PR 页汇总项目会话当前 checkout 关联的 PR，支持环境和状态筛选；
-  用量页按环境汇总 Cost / Tokens、每日图表和 provider 占比（服务端尚不提供账号配额）；
-  设置为分组列表与详情页；会话顶部提供文件、分支和终端入口，支持系统返回。
 - 交互式权限审批：supervised 模式下 Claude Code 通过本地 MCP 询问 T3Go 客户端，允许/拒绝工具调用
-- NSGo 客户端：连接页、项目/线程侧栏（线程预览与相对时间、运行/失败/未读状态、每线程草稿与 Draft 标记、固定线程、搜索、可折叠项目并记住状态）、右侧 Surfaces 面板（可拖动宽度、多 Tab；Browser 内嵌网页；Preview 列出本机开发服务器并一键打开；Linked pull requests；Device 列出 iOS 模拟器与 Android 模拟器、启动/关闭并自动刷新截图（可暂停）；Side chat 隐藏线程继承主线程近况、独立问答，支持模型/权限选择、附件与拖放；文件浏览与预览：Markdown 渲染、图片、JSON/文本、代码语法高亮（Chroma）、二进制外开；文件列表、文件内容、终端与 Git graph 均有可拖动滚动条；带行号和颜色标记的代码 Diff（文件列表、stage/discard、split view）、Git graph、Pull request；内置终端（PTY/ConPTY + xterm.js，无额外工具栏、明暗主题跟随、滚动条、退出提示与一键重启、重开回放））、聊天流（日期分隔、消息时间与复制、代码块复制、编辑/重试/分叉、run 用量页脚、思考/工具卡片与工具变更文件摘要、聊天内相对图片）、Composer 上下文（`@file` 提及与文件 chip、工作区 Skills/自定义命令、MCP prompts（含参数输入）与斜杠命令、粘贴图片/文件、图片附件缩略图、每线程附件草稿、内联 model/permission/plan 选择、plan 完成提示、上下文余量（provider 报告的窗口优先，其次模型目录））、新建/重命名/删除项目与线程（新建项目校验目录并自动命名；移动端浏览连接主机的目录）、新建线程可选项目、provider、模型、权限、worktree 分支与 base ref、线程归档与筛选、命令面板（线程、消息全文搜索、动作）与快捷键、记住侧栏宽度与显隐、设置（加宽布局；General/Providers/Usage/Worktrees/Shortcuts/About 分区；环境名、默认 provider/model/权限、主题与强调色、provider 状态、登录状态与模型、自定义模型、一键安装/登录命令（在终端中执行）、worktree 列表、按天与 provider 的 token/成本统计）、运行历史、逐次 diff 与回滚到 checkpoint（先自动备份当前文件）、顶部分支工具栏（切换/新建/pull）、Open in editor（Zed/VS Code/Cursor/Finder）、Changes 对话框（提交/推送/PR/切分支）、运行中排队发送、附件（选择或拖入文件并随消息发送）、语音听写、审批对话框、断线重连提示、窄屏布局、错误提示条
-- 测试：store、orchestrator（fake provider）、provider 流解析、HTTP/SSE/WS、Go 客户端、NSGo UI 集成
+- **Asuka 客户端（NSGo 功能已迁移）**：
+  - 连接：服务器地址、token 或 `t3go://pair` 链接；保存多个环境，可切换、删除；
+    启动时自动重连当前环境，桌面端接受 `T3GO_SERVER` / `T3GO_TOKEN`；
+    支持默认环境、别名、Token 更新、路线偏好（自动/仅直连/仅中继）和
+    连接诊断；侧栏聚合已保存环境的线程，可跨环境直接打开
+  - 侧栏：项目分组、线程列表、运行/失败状态、归档筛选、新建项目与新建线程
+    （项目、provider/model、权限、worktree、分支）；置顶、未读、settled 分组与折叠、
+    线程与项目变化由事件实时更新
+  - 会话：按日期分组的 transcript、Markdown 流式渲染（代码块、表格、链接）、
+    reasoning 与 tool 卡片、修改文件快捷跳转、错误提示、审批卡片（允许/拒绝）；
+    线程重命名、Agent/权限/Plan 调整、归档、删除、Fork、Retry、恢复 checkpoint、侧聊
+  - Composer：多行输入、发送、运行中排队并在结束后自动发送、队列可移除、
+    停止运行、每线程草稿、`Cmd/Ctrl+Enter` 发送；文件/照片/剪贴板图片附件上传、
+    音频文件转写、附件打开/删除；`/command` 与 `@file` 建议
+  - 连接状态：SSE 自动重连、心跳超时、事件游标缺口时重新取快照、离线提示
+  - Surfaces：Files、Changes（分支切换、stage/discard/commit/push/PR/pull）、
+    Pull request（checks、reviews、comments、merge、approve、request changes、close）、
+    Git graph、Terminal、Preview、Devices、Side chat、Browser
+  - 设置：General 保存、主题、Providers 探测与安装/登录命令、自定义模型、
+    Usage（当前或全部环境聚合）、Worktrees、Shortcuts、About；消息搜索与命令面板
+  - 全环境 Pull request 收件箱，按环境和状态筛选
+  - 布局：宽屏侧栏 + 会话 + 右侧 Surfaces；窄屏单栏，线程页带返回按钮，Surfaces 使用 Sheet
+- 测试：store、orchestrator（fake provider）、provider 流解析、HTTP/SSE/WS、Go 客户端、
+  Asuka `uitest` UI 集成（连接、列表、transcript、发送/排队/停止、窄屏导航）
 
 尚未实现（有意留到后续）：
 
-- 非 Apple 平台的语音听写（NSGo 目前只在 macOS/iOS 识别）
+- 实时麦克风听写（Asuka 当前无实时语音 API，客户端改用音频文件转写）
+- xterm.js 级终端仿真（当前是基础交互 shell）
 - 上游 T3 Code 协议的完整兼容：已实现发现、配置、生命周期和线程列表，线程
   详情/发送/事件投影尚未完成，见 [docs/upstream-compat.md](docs/upstream-compat.md)
 - Codex / OpenCode 的交互式审批（两者目前按各自的沙箱/自动策略运行）
@@ -76,9 +89,12 @@ go build -o bin/t3go-app ./cmd/t3go-app
 构建网页版并让服务同时提供它：
 
 ```sh
-./scripts/build-web.sh        # 生成 web/app.wasm、web/wasm_exec.js
+./scripts/build-web.sh        # 用 asuka build 生成 web/ 静态站点
 ./bin/t3go serve --web web    # 浏览器打开 http://127.0.0.1:4870/
 ```
+
+Android APK 的构建、universal APK、relay 上传和配对链接见
+[docs/android-relay.md](docs/android-relay.md)。
 
 启动时会打印 token 文件和一条配对链接：
 
@@ -97,11 +113,7 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
 
 快捷键（非 Apple 平台把 `⌘` 换成 `Ctrl`）：
 
-- `⌘K`：搜索线程和命令
-- `⌘N`：新建线程
-- `⌘⇧N`：新建项目
-- `⌘,`：设置
-- `⌘B`：显示或隐藏侧栏
+- `⌘Enter`：发送（运行中则排队）
 
 再次获取配对信息：
 
@@ -172,7 +184,7 @@ t3go://pair?url=http://127.0.0.1:4870&token=...
 | `GET/POST /api/v1/threads/{id}/terminals` | 列出 / 新建线程的终端会话 |
 | `DELETE /api/v1/terminals/{id}` | 结束一个终端会话 |
 | `GET /api/v1/terminals/{id}/ws` | 终端输入/输出 WebSocket（`resize`、`input`） |
-| `POST /api/v1/terminals/{id}/input` | 向终端写入命令（设置页的安装/登录） |
+| `POST /api/v1/terminals/{id}/input` | 向终端写入命令（安装/登录流程） |
 | `GET /api/v1/threads/{id}/pull-request` | 读取当前分支打开的 PR（经 `gh`） |
 | `POST /api/v1/threads/{id}/open-editor` | 在环境机器上用选定编辑器打开 checkout |
 | `POST /api/v1/threads/{id}/side-chat` | 创建或复用线程的隐藏 side chat |
@@ -235,7 +247,7 @@ OpenCode 没有等价的非交互审批入口，按上表的沙箱/自动策略�
 
 ```
 cmd/t3go/            CLI（serve/pair/doctor/version）
-cmd/t3go-app/        NSGo 客户端
+cmd/t3go-app/        Asuka 客户端（核心链路）
 internal/proto/      客户端与服务端共享类型
 internal/store/      SQLite schema、查询
 internal/events/     事件总线、重放、剪枝
@@ -285,9 +297,9 @@ IDE 调试配置。
 iOS 模拟器：
 
 ```sh
-export SIMCTL_CHILD_T3GO_SERVER=http://127.0.0.1:4870
-export SIMCTL_CHILD_T3GO_TOKEN=$(cat .dev/t3go/token)
-go tool nsgo dev -target ios_simulator ./cmd/t3go-app
+export T3GO_SERVER=http://127.0.0.1:4870
+export T3GO_TOKEN=$(cat .dev/t3go/token)
+go tool asuka dev --platform ios ./cmd/t3go-app
 ```
 
 Android 模拟器（Apple Silicon）：
@@ -303,7 +315,9 @@ yes | sdkmanager "platform-tools" "emulator" "platforms;android-35" \
 echo no | avdmanager create avd -n t3go \
   -k "system-images;android-35;google_apis;arm64-v8a"
 emulator -avd t3go &
-go tool nsgo dev -target android ./cmd/t3go-app
+export T3GO_SERVER=http://10.0.2.2:4870
+export T3GO_TOKEN=$(cat .dev/t3go/token)
+go tool asuka dev --platform android ./cmd/t3go-app
 ```
 
 Android 模拟器通过 `http://10.0.2.2:4870` 访问本机环境，token 在
@@ -317,11 +331,9 @@ go vet ./...
 gofmt -l .
 ```
 
-UI 集成测试用 `nsgotest` 在无头环境里启动真实 server，验证连接、侧栏、线程
-transcript 的渲染，命令面板（线程、消息全文搜索、动作）与快捷键，运行中排队并自动发送，运行历史里某次 run
-的 diff，附件随消息发送，断线后的重连提示，新建线程时选项目与 worktree 分支，
-设置默认 provider/model/权限后新线程继承，以及重命名、归档、删除线程和项目
-后服务端状态的变化。
+UI 集成测试用 Asuka `uitest` 在无头环境里挂载真实界面、连接真实 server，
+验证连接与侧栏、线程 transcript、发送与流式回复、运行中排队后自动发送、
+切换线程时排队保持原会话、审批按线程隔离，以及手机窄屏下进入线程并返回列表。
 
 ## 已知限制
 
@@ -332,9 +344,10 @@ transcript 的渲染，命令面板（线程、消息全文搜索、动作）与
 - 流式文本每 200ms 落一次库；token 级 delta 也会写事件表，长回复会产生较多写入。
 - checkpoint 使用 `git stash create`，只覆盖 Git 项目；非 Git 项目没有 diff。
 - 删除项目会删除其线程记录和 worktree 引用，不会删除用户目录本身。
-- NSGo 仍处于早期，API 可能随版本变化；本仓库锁定了一个伪版本。
-- 网页版由服务端同源提供，使用浏览器 `localStorage` 保存地址和 token；附件用系统文件选择器添加。
-- 语音听写只在系统提供识别器时显示（macOS/iOS），其他平台不出现麦克风按钮。
+- Asuka 仍处于 alpha，API 可能随版本变化；本仓库锁定了 `v0.1.1`。
+- 网页版由 `scripts/build-web.sh`（内部调用 `asuka build --platform web`）生成，
+  由服务端同源提供；地址、环境与草稿保存在 Asuka 的应用数据目录
+  （浏览器中持久化到 IndexedDB）。
+- Asuka 客户端支持文件/照片选择与剪贴板图片上传，尚未提供桌面拖放。
 - 审批目前只覆盖 Claude Code；一次 run 结束时未回答的审批自动拒绝。
 - 终端在 macOS/Linux/BSD 使用 PTY，Windows 使用 ConPTY；Windows 优先 `pwsh.exe`，其次 `powershell.exe`，最后 `cmd.exe`。
-- 终端前端使用 `@xterm/xterm` 与 `@xterm/addon-fit`（MIT），资源内嵌在客户端二进制中。

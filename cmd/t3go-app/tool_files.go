@@ -4,6 +4,11 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"strings"
+
+	"github.com/egoist/asuka/colors"
+	"github.com/egoist/asuka/fonts"
+	"github.com/egoist/asuka/ui"
+	"github.com/tk/t3go/internal/proto"
 )
 
 // toolChangedFiles is the set of files a file-editing tool names in its
@@ -13,7 +18,7 @@ func toolChangedFiles(title, detail string) []string {
 	if !toolEditsFiles(title) || strings.TrimSpace(detail) == "" {
 		return nil
 	}
-	var seen = map[string]bool{}
+	seen := map[string]bool{}
 	var paths []string
 	add := func(path string) {
 		path = strings.TrimSpace(strings.Trim(path, `"`))
@@ -87,4 +92,43 @@ func toolFileRelative(root, path string) string {
 		return ""
 	}
 	return clean
+}
+
+func (a *app) toolFileChips(m proto.Message) ui.Node {
+	files := toolChangedFiles(m.Title, m.Detail)
+	if len(files) == 0 {
+		return ui.View(ui.ViewProps{})
+	}
+	thread := a.threadByID(m.ThreadID)
+	root := thread.WorktreePath
+	if root == "" {
+		for _, project := range a.projects.Peek() {
+			if project.ID == thread.ProjectID {
+				root = project.Path
+				break
+			}
+		}
+	}
+	var rows []ui.Node
+	for _, path := range files {
+		path := path
+		rel := toolFileRelative(root, path)
+		label := path
+		if rel != "" {
+			label = rel
+		}
+		rows = append(rows, ui.Button(ui.ButtonProps{
+			Title: ui.Val(label), Icon: ui.IconDocument,
+			Style: ui.Style{Padding: ui.Symmetric(2, 6), CornerRadius: 7,
+				Background: colors.Background, Font: fonts.Custom("monospace", fonts.Caption2)},
+			OnPress: func() {
+				if rel == "" {
+					a.notice.Set("That file is outside this thread's checkout.")
+					return
+				}
+				a.openFileSurface(rel)
+			},
+		}))
+	}
+	return ui.Row(ui.Style{Wrap: true, Gap: 4}, rows...)
 }

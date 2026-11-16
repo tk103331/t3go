@@ -5,7 +5,7 @@ T3Go 由三部分组成：
 1. **环境服务**（`internal/server`）：一个进程内的 HTTP 服务，拥有 SQLite、
    事件总线和 orchestrator。
 2. **orchestrator**（`internal/orchestrator`）：项目、线程和 run 的业务逻辑。
-3. **客户端**（`cmd/t3go-app` + `internal/client`）：NSGo UI 通过 REST 发动作，
+3. **客户端**（`cmd/t3go-app` + `internal/client`）：Asuka UI 通过 REST 发动作，
    通过 SSE 接收更新。
 
 CLI（`cmd/t3go`）只是环境的启动器；它和客户端可以在同一台机器，也可以分离部署。
@@ -98,19 +98,21 @@ supervised 的 Claude 运行时，适配器写一份临时 MCP 配置并传
 
 ## Web 客户端
 
-`scripts/build-web.sh` 用 `GOOS=js GOARCH=wasm` 构建 `cmd/t3go-app`，生成
-`app.wasm`、`wasm_exec.js` 和 `index.html`。`t3go serve --web DIR` 在 `/` 下
-只提供该目录里的文件（不列目录、不需要鉴权）；页面与 API 同源，Go 的 js
-`net/http` 走浏览器 fetch，SSE 因此也能流式读取。地址和 token 保存在
-`localStorage`（键前缀 `nsgo:default:`），所以刷新后会自动重连。
+`scripts/build-web.sh` 调用 `go tool asuka build --platform web ./cmd/t3go-app`，
+生成带内容摘要的 `app.<digest>.wasm`、Asuka 宿主的 JavaScript、`index.html`
+和 `manifest.webmanifest`。`t3go serve --web DIR` 在 `/` 下只提供该目录里的
+文件（不列目录、不需要鉴权，`.wasm` 使用 `application/wasm`）；页面与 API
+同源，Go 的 js `net/http` 走浏览器 fetch，SSE 因此也能流式读取。环境配置与
+草稿经 `asuka/sdk/store` 保存（浏览器中落到 IndexedDB），刷新后自动重连。
 
 ## 附件
 
-客户端把文件上传到 `POST /api/v1/uploads`，环境把内容存到 `$T3GO_HOME/uploads/<id>`，
+服务端保留 `POST /api/v1/uploads`：环境把内容存到 `$T3GO_HOME/uploads/<id>`，
 元数据写入 `uploads` 表。发送消息时只传 `attachmentIds`；orchestrator 校验后把
 用户消息的内容与附件元数据一起落库，并在给 provider 的 prompt 末尾追加一行
 `- /abs/path (name, mime)`，让 CLI 用自己的文件读取工具打开。删除线程或项目时，
-其消息引用的上传文件与元数据一并清理。
+其消息引用的上传文件与元数据一并清理。Asuka 客户端支持文件/照片选择与剪贴板
+图片上传，桌面拖放仍留到后续版本。
 
 ## Provider 适配
 
@@ -140,10 +142,15 @@ CLI 的原始 JSON 差异被限制在各自的适配器内；orchestrator 只看
 - `Stream` 在断线后按 1s→15s 退避重连，并用收到的 `seq` 继续。
 - `ParsePairing` 支持 `t3go://pair?url=...&token=...`。
 
-NSGo UI（`cmd/t3go-app`）把信号和事件分开：
+Asuka UI（`cmd/t3go-app`）把模型和视图分开：
 
-- HTTP 结果和事件都通过 `cx.Post` 回到 UI 循环再改信号。
-- `core.Dynamic` 负责在连接状态/选中线程变化时重建视图；列表用 `core.Each`
-  按消息/线程 ID 保持行身份。
-- transcript 按 `runId` 分组，组内消息间距小，组间使用聊天气泡的节奏。
-- 宽度 ≥ 760pt 时使用 `ui.SidebarShell`；窄屏在“列表 ↔ 线程”两个页面间切换。
+- `app` 持有连接、事件游标、快照、草稿和队列；HTTP 结果与 SSE 事件都经
+  `ui.Post` 回到主线程，再写 `signal`。
+- 组件只构建一次；标题、流式文本、状态和排队消息通过 `signal.Accessor`
+  局部更新，`ui.List` 按线程/消息 ID 保持行身份。
+- transcript 使用 `ui.List` 的底部锚点，Markdown 通过 `asuka/sdk/markdown`
+  增量解析；day 分组复用列表 section 的可访问性语义。
+- 事件序号有缺口时重新取 `/state`，再用新的 `seq` 重开 SSE；断线期间保留
+  当前快照并显示重连提示。
+- 宽度来自 `ui.UseEnvironment()`：宽屏侧栏与会话并排，窄屏在“列表 ↔ 线程”
+  之间切换，线程页提供返回按钮。

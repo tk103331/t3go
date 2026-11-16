@@ -2,9 +2,7 @@
 
 package main
 
-import (
-	"syscall/js"
-)
+import "syscall/js"
 
 // pageOrigin is the web client's own address, which serves the
 // environment too.

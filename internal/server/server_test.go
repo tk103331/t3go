@@ -421,6 +421,9 @@ func TestWebClientServed(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<html>t3go web</html>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(webDir, "app.wasm"), []byte("\x00asm"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	cfg.WebDir = webDir
 	srv, err := New(cfg, log.New(io.Discard, "", 0))
 	if err != nil {
@@ -441,6 +444,14 @@ func TestWebClientServed(t *testing.T) {
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(raw), "t3go web") {
 		t.Fatalf("get / = %d %q", resp.StatusCode, raw)
+	}
+	wasm, err := http.Get(ts.URL + "/app.wasm")
+	if err != nil {
+		t.Fatalf("get wasm: %v", err)
+	}
+	wasm.Body.Close()
+	if got := wasm.Header.Get("Content-Type"); got != "application/wasm" {
+		t.Fatalf("wasm content type = %q", got)
 	}
 	if code := status(t, http.MethodGet, ts.URL+"/missing.js"); code != http.StatusNotFound {
 		t.Fatalf("missing = %d", code)

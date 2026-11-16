@@ -1,0 +1,10 @@
+{
+  "name": "T3Go",
+  "id": "dev.t3go.app",
+  "version": "0.1.0",
+  "scheme": "t3go",
+  "icon": "assets/Icon.png",
+  "web": {
+    "base": "/"
+  }
+}
