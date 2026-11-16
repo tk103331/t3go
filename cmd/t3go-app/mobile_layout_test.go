@@ -64,58 +64,83 @@ func TestUIMobileLayoutMatrix(t *testing.T) {
 		owner.openSettings()
 		owner.openEnvironmentSettings(owner.profile.ID)
 	}})
-	for _, size := range []struct{ width, height, keyboard core.Points }{
-		{320, 740, 0}, {390, 844, 0}, {320, 740, 300}, {390, 844, 300},
-	} {
-		for _, dark := range []bool{false, true} {
-			rendered.Resize(size.width, size.height)
-			rendered.SetEnvironment(core.Environment{
-				OS: core.OSAndroid, Idiom: core.IdiomPhone, Dark: dark, KeyboardHeight: size.keyboard,
-				SafeArea: core.Edges{Top: 24, Bottom: 16},
-			})
-			for _, screen := range screens {
-				t.Run(fmt.Sprintf("%g/%g/dark=%t/%s", size.width, size.keyboard, dark, screen.name), func(t *testing.T) {
-					rendered.Post(func() {
-						owner.selected.Set("")
-						owner.showNewThread.Set(false)
-						owner.showSettings.Set(false)
-						owner.mobileSettingsDetail.Set("")
-						screen.open()
-					})
-					switch screen.name {
-					case "new-thread":
-						rendered.WaitFor("id:new-thread-page", 5*time.Second)
-					case "conversation":
-						rendered.WaitFor("id:composer", 5*time.Second)
-					default:
-						rendered.WaitFor("id:mobile-home", 5*time.Second)
-					}
-					rendered.Settle()
-					checkMobileControlWidths(t, rendered, size.width)
-					if screen.name == "settings" && rendered.Exists("id:settings-nav-shortcuts") {
-						t.Error("mobile settings includes shortcuts")
-					}
-					if rendered.Exists("id:settings-close") {
-						t.Error("mobile settings includes a Close button")
-					}
-					if screen.name == "new-thread" || screen.name == "conversation" {
-						cardID := "composer-card"
-						if screen.name == "new-thread" {
-							cardID = "new-thread-composer"
-						}
-						card := mobileScreenFrame(rendered.Find("id:" + cardID))
-						send := mobileScreenFrame(rendered.Find("id:composer-send"))
-						if send.Size.Width != 38 || send.Size.Height != 38 {
-							t.Errorf("send button has inconsistent size: %v", send)
-						}
-						if gap := card.Origin.X + card.Size.Width - send.Origin.X - send.Size.Width; gap < 0 || gap > 16 {
-							t.Errorf("send button is not right aligned: card=%v send=%v", card, send)
-						}
-						if send.Origin.Y+send.Size.Height > size.height-size.keyboard {
-							t.Errorf("send button is below the keyboard: %v", send)
-						}
-					}
+	if nsgotest.Target() != "" {
+		t.Skip("the phone's real size is fixed; live iOS flows run in the target tests")
+	}
+	platforms := []struct {
+		name string
+		os   core.OS
+		safe core.Edges
+	}{
+		{"android", core.OSAndroid, core.Edges{Top: 24, Bottom: 16}},
+		{"ios", core.OSIOS, core.Edges{Top: 47, Bottom: 34}},
+	}
+	for _, platform := range platforms {
+		for _, size := range []struct{ width, height, keyboard core.Points }{
+			{320, 740, 0}, {390, 844, 0}, {320, 740, 300}, {390, 844, 300},
+		} {
+			for _, dark := range []bool{false, true} {
+				rendered.Resize(size.width, size.height)
+				rendered.SetEnvironment(core.Environment{
+					OS: platform.os, Idiom: core.IdiomPhone, Dark: dark, KeyboardHeight: size.keyboard,
+					SafeArea: platform.safe,
 				})
+				for _, screen := range screens {
+					t.Run(fmt.Sprintf("%s/%g/%g/dark=%t/%s", platform.name, size.width, size.keyboard, dark, screen.name), func(t *testing.T) {
+						rendered.Post(func() {
+							owner.closeMobileThreadSearch()
+							owner.selected.Set("")
+							owner.showNewThread.Set(false)
+							owner.showSettings.Set(false)
+							owner.mobileSettingsDetail.Set("")
+							owner.mobilePage.Set("threads")
+							screen.open()
+						})
+						switch screen.name {
+						case "new-thread":
+							rendered.WaitFor("id:new-thread-page", 5*time.Second)
+						case "conversation":
+							rendered.WaitFor("id:composer", 5*time.Second)
+						default:
+							rendered.WaitFor("id:mobile-home", 5*time.Second)
+						}
+						rendered.Settle()
+						checkMobileControlWidths(t, rendered, size.width)
+						if screen.name == "settings" && rendered.Exists("id:settings-nav-shortcuts") {
+							t.Error("mobile settings includes shortcuts")
+						}
+						if rendered.Exists("id:settings-close") {
+							t.Error("mobile settings includes a Close button")
+						}
+						if screen.name == "new-thread" || screen.name == "conversation" {
+							cardID := "composer-card"
+							if screen.name == "new-thread" {
+								cardID = "new-thread-composer"
+							}
+							card := mobileScreenFrame(rendered.Find("id:" + cardID))
+							send := mobileScreenFrame(rendered.Find("id:composer-send"))
+							if send.Size.Width != 38 || send.Size.Height != 38 {
+								t.Errorf("send button has inconsistent size: %v", send)
+							}
+							if gap := card.Origin.X + card.Size.Width - send.Origin.X - send.Size.Width; gap < 0 || gap > 16 {
+								t.Errorf("send button is not right aligned: card=%v send=%v", card, send)
+							}
+							if send.Origin.Y+send.Size.Height > size.height-size.keyboard {
+								t.Errorf("send button is below the keyboard: %v", send)
+							}
+						}
+						if screen.name == "chats" {
+							if rendered.Exists("id:new-project") || rendered.Exists("id:open-palette") {
+								t.Error("mobile thread inbox exposes desktop creation or search")
+							}
+							rendered.Find("id:mobile-thread-search-open")
+						}
+						if screen.name == "new-thread" {
+							rendered.Find("id:new-thread-new-project")
+							rendered.Find("id:new-thread-project-menu")
+						}
+					})
+				}
 			}
 		}
 	}

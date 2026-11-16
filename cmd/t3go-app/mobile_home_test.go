@@ -75,7 +75,7 @@ func TestUIMobileUnifiedInbox(t *testing.T) {
 	// A smaller phone still has separate 44-point navigation targets.
 	app.Resize(320, 700)
 	app.Settle()
-	for _, id := range []string{"mobile-thread-search", "mobile-filter", "mobile-tab-threads",
+	for _, id := range []string{"mobile-thread-search-open", "mobile-filter", "mobile-tab-threads",
 		"mobile-tab-prs", "mobile-tab-usage", "settings", "new-thread"} {
 		frame := mobileScreenFrame(app.Find("id:" + id))
 		if frame.Size.Width < 44 || frame.Size.Height < 44 ||
@@ -99,10 +99,17 @@ func TestUIMobileUnifiedInbox(t *testing.T) {
 	app.WaitFor("id:project-"+beta.profile.ID+"/same-project", 5*time.Second)
 	app.Press("id:mobile-tab-threads")
 	app.WaitFor("id:mobile-group-working", 5*time.Second)
+	app.Press("id:mobile-thread-search-open")
+	app.WaitFor("id:mobile-thread-search", 5*time.Second)
 	app.Type("label:Search threads", "Alpha project")
 	app.WaitFor("text:No threads match your search.", 5*time.Second)
 	app.Press("id:clear-thread-search")
 	app.WaitFor("id:thread-"+betaID, 5*time.Second)
+	app.Press("id:mobile-thread-search-back")
+	app.WaitForGone("id:mobile-thread-search", 5*time.Second)
+	app.WaitFor("id:mobile-thread-search-open", 5*time.Second)
+	app.Press("id:mobile-thread-search-open")
+	app.WaitFor("id:mobile-thread-search", 5*time.Second)
 	app.Type("label:Search threads", "Beta thread")
 	app.WaitFor("id:thread-"+betaID, 5*time.Second)
 	app.WaitForGone("id:thread-"+alphaID, 5*time.Second)

@@ -38,7 +38,16 @@ func interceptMobileFixture(t *testing.T, f *settingsFixture, intercept func(htt
 	f.profile.Routes = []client.Route{{URL: ts.URL, Kind: "direct"}}
 }
 
-func startMobilePages(t *testing.T, fixtures ...*settingsFixture) (*nsgotest.App, *environmentManager) {
+func mobileTestEnvironment(os core.OS) core.Environment {
+	safe := core.Edges{Top: 24, Bottom: 16}
+	if os == core.OSIOS {
+		safe = core.Edges{Top: 47, Bottom: 34}
+	}
+	return core.Environment{OS: os, Idiom: core.IdiomPhone, SafeArea: safe}
+}
+
+func startMobilePagesWithEnvironment(t *testing.T, env core.Environment,
+	fixtures ...*settingsFixture) (*nsgotest.App, *environmentManager) {
 	t.Helper()
 	var profiles []client.EnvironmentProfile
 	for _, f := range fixtures {
@@ -50,9 +59,8 @@ func startMobilePages(t *testing.T, fixtures ...*settingsFixture) (*nsgotest.App
 		manager = newEnvironmentManager(cx)
 		manager.start()
 		return manager.view(cx)
-	}, nsgotest.Size(390, 844), nsgotest.Environment(core.Environment{
-		OS: core.OSAndroid, Idiom: core.IdiomPhone, SafeArea: core.Edges{Top: 24, Bottom: 16},
-	}), nsgotest.Storage(map[string]string{"environments:v1": workspaceRegistry(profiles...)}))
+	}, nsgotest.Size(390, 844), nsgotest.Environment(env),
+		nsgotest.Storage(map[string]string{"environments:v1": workspaceRegistry(profiles...)}))
 	for _, f := range fixtures {
 		id := "same-thread"
 		if len(fixtures) > 1 {
@@ -61,6 +69,73 @@ func startMobilePages(t *testing.T, fixtures ...*settingsFixture) (*nsgotest.App
 		app.WaitFor("id:thread-"+id, 10*time.Second)
 	}
 	return app, manager
+}
+
+func startMobilePages(t *testing.T, fixtures ...*settingsFixture) (*nsgotest.App, *environmentManager) {
+	t.Helper()
+	return startMobilePagesWithEnvironment(t, mobileTestEnvironment(core.OSAndroid), fixtures...)
+}
+
+func TestUIMobileIOSSearchParity(t *testing.T) {
+	fixture := newSettingsFixture(t, "Alpha")
+	env := mobileTestEnvironment(core.OSIOS)
+	env.KeyboardHeight = 300
+	app, _ := startMobilePagesWithEnvironment(t, env, fixture)
+
+	if app.Exists("id:new-project") || app.Exists("id:open-palette") {
+		t.Fatal("iOS thread inbox exposes desktop project creation or search")
+	}
+	if !app.Exists("id:mobile-thread-search-open") {
+		t.Fatal("iOS thread inbox has no search button")
+	}
+	app.Press("id:mobile-thread-search-open")
+	app.WaitFor("id:mobile-thread-search", 5*time.Second)
+	app.Type("label:Search threads", "Alpha thread")
+	app.WaitFor("id:thread-same-thread", 5*time.Second)
+	if app.Exists("id:palette") {
+		t.Fatal("iOS inline search opened the command palette")
+	}
+	app.Press("id:clear-thread-search")
+	app.Press("id:mobile-thread-search-back")
+	app.WaitForGone("id:mobile-thread-search", 5*time.Second)
+	app.WaitFor("id:mobile-thread-search-open", 5*time.Second)
+	app.Press("id:new-thread")
+	app.WaitFor("id:new-thread-page", 5*time.Second)
+}
+
+func TestUIMobileIOSNewThreadParity(t *testing.T) {
+	fixture := newSettingsFixture(t, "Alpha")
+	project, err := fixture.server.Service.CreateProject(context.Background(), "Secondary", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mobileTestEnvironment(core.OSIOS)
+	env.KeyboardHeight = 300
+	app, _ := startMobilePagesWithEnvironment(t, env, fixture)
+	window := mobileScreenFrame(app.Find("id:mobile-home"))
+	width, height := window.Size.Width, window.Origin.Y+window.Size.Height+env.SafeArea.Bottom
+
+	app.Press("id:new-thread")
+	app.WaitFor("id:new-thread-new-project", 5*time.Second)
+	if app.Exists("id:new-project") {
+		t.Fatal("iOS thread inbox still exposes project creation above the list")
+	}
+	app.Press("id:new-thread-project-menu")
+	app.WaitFor("id:new-thread-project-choice-"+project.ID, 5*time.Second)
+	app.Press("id:new-thread-project-choice-" + project.ID)
+	app.WaitFor("id:new-thread-project-menu >> text:\"in Secondary\"", 5*time.Second)
+
+	app.Type("label:New thread message", "iOS keyboard parity")
+	send := mobileScreenFrame(app.Find("id:composer-send"))
+	if send.Size.Width < 36 || send.Size.Height < 36 {
+		t.Fatalf("iOS send button is too small: %v", send)
+	}
+	if send.Origin.X < 0 || send.Origin.X+send.Size.Width > width {
+		t.Fatalf("iOS send button overflows: %v", send)
+	}
+	if send.Origin.Y+send.Size.Height > height-env.KeyboardHeight {
+		t.Fatalf("iOS send button is outside the window: %v", send)
+	}
 }
 
 func TestUIMobileNewThreadTargetsEnvironment(t *testing.T) {

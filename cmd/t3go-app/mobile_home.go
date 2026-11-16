@@ -85,8 +85,8 @@ func (a *app) mobileHome(cx *core.Scope) core.Node {
 				}
 				return core.Func(a.mobileThreadsPage)
 			}),
-			core.Dynamic(a.mobileNewThreadAction),
 		}},
+		core.Dynamic(a.mobileNewThreadAction),
 		core.Dynamic(a.mobileNavigation),
 	}}
 }
@@ -94,6 +94,9 @@ func (a *app) mobileHome(cx *core.Scope) core.Node {
 func (a *app) mobileHeader(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	page := a.mobilePage.Get()
+	if page == "threads" && a.mobileThreadSearch.Get() {
+		return a.mobileThreadSearchHeader(cx)
+	}
 	var title core.Node = brandWordmark(cx, 26)
 	switch page {
 	case "settings":
@@ -127,6 +130,10 @@ func (a *app) mobileHeader(cx *core.Scope) core.Node {
 			}})
 	}
 	children = append(children, title, ui.Spacer{})
+	if page == "threads" {
+		children = append(children, ui.IconButton{Icon: lucide.Search, Label: "Search threads", Size: 44, IconSize: 24,
+			TestID: "mobile-thread-search-open", OnPress: func() { a.mobileThreadSearch.Set(true) }})
+	}
 	if page == "projects" {
 		children = append(children,
 			ui.IconButton{Icon: lucide.FolderPlus, Label: "New project", Size: 44, IconSize: 23,
@@ -165,22 +172,32 @@ func (a *app) mobileHeader(cx *core.Scope) core.Node {
 	}}
 }
 
+func (a *app) mobileThreadSearchHeader(cx *core.Scope) core.Node {
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
+		FlexShrink: 0, Padding: core.Symmetric(10, 14), Gap: 6}, Children: []core.Node{
+		ui.IconButton{Icon: lucide.ChevronLeft, Label: "Close search", Size: 44, IconSize: 24,
+			TestID: "mobile-thread-search-back", OnPress: a.closeMobileThreadSearch},
+		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+			mobileInput{Scope: cx, TestID: "mobile-thread-search", Input: base.Input{
+				Value: a.sidebarQuery.Get, OnChange: a.sidebarQuery.Set, AutoFocus: true,
+				Placeholder: "Search threads", Label: "Search threads"}},
+		}},
+		core.Show{When: func() bool { return strings.TrimSpace(a.sidebarQuery.Get()) != "" },
+			Then: func(*core.Scope) core.Node {
+				return ui.IconButton{Icon: lucide.X, Label: "Clear thread search", Size: 44, IconSize: 22,
+					TestID: "clear-thread-search", OnPress: func() { a.sidebarQuery.Set("") }}
+			}},
+	}}
+}
+
+func (a *app) closeMobileThreadSearch() {
+	a.sidebarQuery.Set("")
+	a.mobileThreadSearch.Set(false)
+}
+
 func (a *app) mobileThreadsPage(cx *core.Scope) core.Node {
 	return core.View{TestID: "mobile-threads-page", Style: core.Style{FlexGrow: 1, FlexShrink: 1,
-		MinHeight: core.Pt(0), Gap: 6}, Children: []core.Node{
-		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
-			Padding: core.Edges{Top: 8, Right: 14, Bottom: 4, Left: 14}, FlexShrink: 0}, Children: []core.Node{
-			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
-				mobileInput{Scope: cx, TestID: "mobile-thread-search", Input: base.Input{
-					Value: a.sidebarQuery.Get, OnChange: a.sidebarQuery.Set,
-					Placeholder: "Search threads", Label: "Search threads"}},
-			}},
-			core.Show{When: func() bool { return strings.TrimSpace(a.sidebarQuery.Get()) != "" },
-				Then: func(*core.Scope) core.Node {
-					return ui.IconButton{Icon: lucide.X, Label: "Clear thread search", Size: 44, IconSize: 22,
-						TestID: "clear-thread-search", OnPress: func() { a.sidebarQuery.Set("") }}
-				}},
-		}},
+		MinHeight: core.Pt(0)}, Children: []core.Node{
 		core.Scroll{TestID: "mobile-thread-scroll", Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
 			Children: []core.Node{core.Dynamic(a.mobileThreadList)}},
 	}}
@@ -384,11 +401,11 @@ func (a *app) mobileNavigation(cx *core.Scope) core.Node {
 	children := []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 			tab(lucide.MessageSquare, "Chats", "mobile-tab-threads", func() bool { return a.mobilePage.Get() == "threads" },
-				func() { a.mobilePage.Set("threads") }),
+				func() { a.closeMobileThreadSearch(); a.mobilePage.Set("threads") }),
 			tab(lucide.GitPullRequest, "Pulls", "mobile-tab-prs", func() bool { return a.mobilePage.Get() == "prs" },
-				func() { a.mobilePage.Set("prs"); a.loadMobilePullRequests() }),
+				func() { a.closeMobileThreadSearch(); a.mobilePage.Set("prs"); a.loadMobilePullRequests() }),
 			tab(lucide.ChartColumn, "Usage", "mobile-tab-usage", func() bool { return a.mobilePage.Get() == "usage" },
-				func() { a.mobilePage.Set("usage"); a.loadMobileUsage() }),
+				func() { a.closeMobileThreadSearch(); a.mobilePage.Set("usage"); a.loadMobileUsage() }),
 			tab(lucide.Settings, "Settings", "settings", func() bool { return a.mobilePage.Get() == "settings" }, a.openSettings),
 		}},
 	}
@@ -401,12 +418,14 @@ func (a *app) mobileNewThreadAction(cx *core.Scope) core.Node {
 		return core.Group{}
 	}
 	colors := ui.ColorsOf(cx)
-	return base.Button{Label: "New thread", TestID: "new-thread", OnPress: func(core.PressEvent) { a.openNewThread() },
-		Style: core.Style{Position: core.Absolute, Right: core.Pt(16), Bottom: core.Pt(16), ZIndex: 1,
-			Width: core.Pt(56), Height: core.Pt(56), CornerRadius: 18, AlignItems: core.AlignCenter,
-			JustifyContent: core.JustifyCenter},
-		StyleFunc: func() core.Style {
-			return core.Style{Background: colors.Accent(), Focus: ui.FocusRing(cx, 2),
-				Shadows: []core.BoxShadow{ui.Shadow(0, 3, 8, 0, ui.Black(0.18))}}
-		}, Children: []core.Node{ui.Icon(lucide.SquarePen, 26, colors.OnAccent)}}
+	return core.View{Style: core.Style{Height: core.Pt(72), Direction: core.Row, AlignItems: core.AlignCenter,
+		JustifyContent: core.JustifyEnd, Padding: core.Edges{Right: 16}, FlexShrink: 0}, Children: []core.Node{
+		base.Button{Label: "New thread", TestID: "new-thread", OnPress: func(core.PressEvent) { a.openNewThread() },
+			Style: core.Style{Width: core.Pt(56), Height: core.Pt(56), CornerRadius: 18, AlignItems: core.AlignCenter,
+				JustifyContent: core.JustifyCenter},
+			StyleFunc: func() core.Style {
+				return core.Style{Background: colors.Accent(), Focus: ui.FocusRing(cx, 2),
+					Shadows: []core.BoxShadow{ui.Shadow(0, 3, 8, 0, ui.Black(0.18))}}
+			}, Children: []core.Node{ui.Icon(lucide.SquarePen, 26, colors.OnAccent)}},
+	}}
 }

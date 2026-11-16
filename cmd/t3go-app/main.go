@@ -630,6 +630,8 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 			a.selected.Set("")
 		} else if a.mobilePage.GetUntracked() == "settings" && a.mobileSettingsDetail.GetUntracked() != "" {
 			a.mobileSettingsDetail.Set("")
+		} else if a.mobilePage.GetUntracked() == "threads" && a.mobileThreadSearch.GetUntracked() {
+			a.closeMobileThreadSearch()
 		} else if a.mobilePage.GetUntracked() != "threads" {
 			a.mobilePage.Set("threads")
 		} else {

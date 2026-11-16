@@ -159,6 +159,7 @@ type app struct {
 	settingsSaveBusy      *core.Signal[bool]
 	settingsSaveErr       *core.Signal[string]
 	mobilePage            *core.Signal[string]
+	mobileThreadSearch    *core.Signal[bool]
 	mobileSettledClosed   *core.Signal[bool]
 	mobileSettingsDetail  *core.Signal[string]
 	mobileSurface         *core.Signal[string]
@@ -414,6 +415,7 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		settingsSaveBusy:      core.NewSignal(cx, false),
 		settingsSaveErr:       core.NewSignal(cx, ""),
 		mobilePage:            core.NewSignal(cx, "threads"),
+		mobileThreadSearch:    core.NewSignal(cx, false),
 		mobileSettledClosed:   core.NewSignal(cx, false),
 		mobileSettingsDetail:  core.NewSignal(cx, ""),
 		mobileSurface:         core.NewSignal(cx, ""),
@@ -4216,6 +4218,9 @@ func (a *app) openNewThreadIn(projectID string) {
 }
 
 func (a *app) openNewThread() {
+	if a.mobileThreadSearch.GetUntracked() {
+		a.closeMobileThreadSearch()
+	}
 	a.prepareNewThread()
 	if compactSettings(a.cx) {
 		target := a
@@ -4462,6 +4467,9 @@ func (a *app) setSettingsSection(name string) {
 func (a *app) openSettings() {
 	if a.settingsSaveBusy.GetUntracked() {
 		return
+	}
+	if a.mobileThreadSearch.GetUntracked() {
+		a.closeMobileThreadSearch()
 	}
 	a.connErr.Set("")
 	a.settingsSaveErr.Set("")

@@ -24,6 +24,8 @@ import (
 	"github.com/tk/t3go/internal/server"
 )
 
+func TestMain(m *testing.M) { nsgotest.Main(m) }
+
 // startEnv runs a real server for the app to connect to, closed with the
 // test. Clients and SSE must be disconnected before the listener, or
 // Close waits on the stream.
@@ -3086,8 +3088,8 @@ func TestUIMobileInlineThreadSearch(t *testing.T) {
 			"serverUrl": ts.URL,
 			"token":     cfg.Token,
 		}))
-	app.WaitFor("id:mobile-thread-search", 15*time.Second)
-	for _, id := range []string{"new-thread", "mobile-thread-search", "settings"} {
+	app.WaitFor("id:mobile-thread-search-open", 15*time.Second)
+	for _, id := range []string{"new-thread", "mobile-thread-search-open", "settings"} {
 		if frame := app.Find("id:" + id).Frame; frame.Size.Width < 34 || frame.Size.Height < 34 {
 			t.Fatalf("%s touch icon is too small: %v", id, frame)
 		}
@@ -3095,6 +3097,8 @@ func TestUIMobileInlineThreadSearch(t *testing.T) {
 	if app.Exists("id:new-project") || app.Exists("id:open-palette") {
 		t.Fatal("thread inbox still exposes project creation or search palette")
 	}
+	app.Press("id:mobile-thread-search-open")
+	app.WaitFor("id:mobile-thread-search", 5*time.Second)
 	app.Type("label:Search threads", "nothing here")
 	app.WaitFor("text:No threads match your search.", 5*time.Second)
 	if app.Exists("id:palette") {
@@ -3104,10 +3108,18 @@ func TestUIMobileInlineThreadSearch(t *testing.T) {
 	if app.Exists("id:palette") {
 		t.Fatal("Android back opened the command palette")
 	}
+	app.WaitForGone("id:mobile-thread-search", 5*time.Second)
+	app.WaitFor("id:mobile-thread-search-open", 5*time.Second)
+	app.Press("id:mobile-thread-search-open")
+	app.WaitFor("id:mobile-thread-search", 5*time.Second)
+	app.Type("label:Search threads", "temporary")
 	app.Press("id:clear-thread-search")
 	if app.Find("label:Search threads").Text != "" {
 		t.Fatal("clear search did not empty the field")
 	}
+	app.Press("id:mobile-thread-search-back")
+	app.WaitForGone("id:mobile-thread-search", 5*time.Second)
+	app.WaitFor("id:mobile-thread-search-open", 5*time.Second)
 }
 
 // TestUIMobileBrowseHostDirs browses the connected environment's folders
