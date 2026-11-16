@@ -95,7 +95,7 @@ func (a *app) mobileSurfaceView(cx *core.Scope) core.Node {
 		Height: core.Pct(100), Overflow: core.Hidden, PaddingEnv: core.EnvEdges{Bottom: core.EnvKeyboard}}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Padding: core.Symmetric(8, 12), Gap: 8}, Children: []core.Node{
 			ui.IconButton{Icon: lucide.ArrowLeft, Label: "Back to conversation", TestID: "mobile-surface-back", Size: 44,
-				OnPress: func() { a.mobileSurface.Set("") }},
+				OnPress: a.closeMobileSurface},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				return ui.Text(surfaceTitle(a.surface.Get()), 20, ui.Medium, colors.Text)
 			}),

@@ -1031,13 +1031,9 @@ func (a *app) rightTerminal(cx *core.Scope) core.Node {
 	case session.ID != "":
 		body = append(body, core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0),
 			Padding: core.Edges{Top: 6, Right: 8, Bottom: 8, Left: 8}}, Children: []core.Node{
-			core.WebView{TestID: "terminal-view", Style: ui.FillRest,
+			core.WebView{TestID: "terminal-view", Style: ui.FillRest, Ref: a.terminalRef,
 				SourceFunc: func() core.WebSource { return a.terminalSource(session.ID) },
-				OnMessage: func(data string) {
-					if data == "exit" {
-						a.loadTerminalSessions()
-					}
-				}},
+				OnMessage:  func(data string) { a.terminalPageMessage(cx, a.terminalRef, session.ID, data) }},
 		}})
 	case len(sessions) == 0 && !a.terminalBusy.Get():
 		body = append(body, core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},

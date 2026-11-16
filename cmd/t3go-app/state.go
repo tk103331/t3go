@@ -96,6 +96,7 @@ type app struct {
 	// scroll handles for surfaces that draw their own bars
 	filesScroll *core.Ref
 	graphScroll *core.Ref
+	terminalRef *core.Ref
 
 	// message search
 	searchHits  *core.Signal[[]proto.MessageHit]
@@ -295,6 +296,7 @@ type app struct {
 	terminals       *core.Signal[[]proto.TerminalSession]
 	terminalBusy    *core.Signal[bool]
 	terminalErr     *core.Signal[string]
+	terminalBridge  *terminalBridge
 
 	conv *chat.ConversationState
 
@@ -370,6 +372,7 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		sideAttachments: sliceSignal[proto.Attachment](cx),
 		filesScroll:     &core.Ref{},
 		graphScroll:     &core.Ref{},
+		terminalRef:     &core.Ref{},
 		searchHits:      sliceSignal[proto.MessageHit](cx),
 		searchBusy:      core.NewSignal(cx, false),
 		searchErr:       core.NewSignal(cx, ""),
@@ -543,6 +546,7 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		terminals:           sliceSignal[proto.TerminalSession](cx),
 		terminalBusy:        core.NewSignal(cx, false),
 		terminalErr:         core.NewSignal(cx, ""),
+		terminalBridge:      newTerminalBridge(),
 	}
 	if manager != nil {
 		a.appearance = manager.appearance
@@ -1732,6 +1736,7 @@ func (a *app) selectThread(id string) {
 	}
 	a.selected.Set(id)
 	if switching {
+		a.terminalBridge.close()
 		a.mobileSurface.Set("")
 		a.attachments.Set(append([]proto.Attachment(nil), a.attachmentDrafts.GetUntracked()[id]...))
 		a.fileIndex.Set(nil)
@@ -2936,6 +2941,9 @@ func (a *app) goBrowser(raw string) {
 // openSurface switches the right panel to a surface, or to the picker
 // when name is empty.
 func (a *app) openSurface(name string) {
+	if a.surface.GetUntracked() == "terminal" && name != "terminal" {
+		a.terminalBridge.close()
+	}
 	if name != "" {
 		tabs := a.tabs.GetUntracked()
 		found := false
@@ -2996,8 +3004,18 @@ func (a *app) closeSurface(name string) {
 	} else if len(next) > 0 {
 		a.openSurface(next[len(next)-1])
 	} else {
+		if name == "terminal" {
+			a.terminalBridge.close()
+		}
 		a.surface.Set("")
 	}
+}
+
+func (a *app) closeMobileSurface() {
+	if a.surface.GetUntracked() == "terminal" {
+		a.terminalBridge.close()
+	}
+	a.mobileSurface.Set("")
 }
 
 // setRightWidth resizes and remembers the surfaces panel.

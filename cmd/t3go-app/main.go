@@ -624,7 +624,7 @@ func (a *app) narrowView(cx *core.Scope) core.Node {
 				a.showNewThread.Set(false)
 			}
 		} else if a.mobileSurface.GetUntracked() != "" {
-			a.mobileSurface.Set("")
+			a.closeMobileSurface()
 		} else if a.selected.GetUntracked() != "" {
 			a.persistView()
 			a.selected.Set("")

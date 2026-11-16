@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/coder/websocket"
 	"github.com/oneo-me/nsgo/core"
 )
 
@@ -27,18 +31,16 @@ func (a *app) terminalHTML(sessionID string) string {
 	if c == nil {
 		return ""
 	}
-	return terminalPageFor(c.TerminalURL(sessionID), a.cx.Dark())
+	// The route and session identify the bridge page. Changing either
+	// reloads it and asks the Go bridge to attach the new WebSocket.
+	return terminalPageFor(c.BaseURL+"#"+sessionID, a.cx.Dark())
 }
 
-// Give Android's inline WebView the environment's HTTP origin, including
-// its relay prefix, rather than an opaque about:blank origin.
+// The page has no network origin: xterm talks to the Go bridge, which owns
+// the WebSocket. Android blocks cleartext ws:// from WebViews with this
+// app's target SDK, while the native Go client is unaffected.
 func (a *app) terminalSource(sessionID string) core.WebSource {
-	html := a.terminalHTML(sessionID)
-	c := a.client()
-	if c == nil {
-		return core.WebHTML(html, "")
-	}
-	return core.WebHTML(html, strings.TrimRight(c.BaseURL, "/")+"/")
+	return core.WebHTML(a.terminalHTML(sessionID), "")
 }
 
 // terminalTheme is the terminal's colors, following the app's appearance.
@@ -95,7 +97,7 @@ func terminalPageFor(wsURL string, dark bool) string {
 		"/*XTERM_CSS*/", xtermCSS,
 		"/*XTERM_JS*/", xtermJS,
 		"/*FIT_JS*/", xtermFitJS,
-		"__WS_URL__", string(quoted),
+		"__BRIDGE_ROUTE__", string(quoted),
 		"__THEME__", string(themeJSON),
 		"__BG__", theme.Background,
 		"__SCROLL__", scroll,
@@ -131,6 +133,7 @@ const terminalPage = `<!doctype html>
 <script>/*FIT_JS*/</script>
 <script>
 (function () {
+  const bridgeRoute = __BRIDGE_ROUTE__;
   const term = new Terminal({
     cursorBlink: true,
     cursorStyle: 'bar',
@@ -145,10 +148,13 @@ const terminalPage = `<!doctype html>
   term.loadAddon(fit);
   term.open(document.getElementById('term'));
 
-  let ws, timer, attempts = 0, ready = false, exited = false, disposed = false;
+  let timer, attempts = 0, ready = false, exited = false, disposed = false;
   const reconnect = document.getElementById('reconnect');
+  function post(message) {
+    if (window.nsgo) window.nsgo.postMessage(JSON.stringify(message));
+  }
   function sendResize() {
-    if (ready && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'resize', cols: term.cols, rows: term.rows}));
+    if (ready) post({type: 'resize', cols: term.cols, rows: term.rows});
   }
   function refit() {
     try { fit.fit(); } catch (e) {}
@@ -156,7 +162,8 @@ const terminalPage = `<!doctype html>
   }
   function retry() {
     if (disposed || exited || timer || attempts >= 5) return;
-    timer = setTimeout(function () { timer = null; connect(); }, Math.min(500 * Math.pow(2, attempts++), 8000));
+    timer = setTimeout(function () { timer = null; connect(); }, Math.min(500 * Math.pow(2, attempts), 8000));
+    attempts++;
   }
   function disconnected() {
     if (disposed || exited) return;
@@ -166,48 +173,51 @@ const terminalPage = `<!doctype html>
     retry();
   }
   function connect() {
-    if (disposed || exited) return;
-    try { ws = new WebSocket(__WS_URL__); } catch (e) { disconnected(); return; }
-    ws.onopen = function () {
-      ready = true;
-      attempts = 0;
-      reconnect.style.display = 'none';
-      // The server replays its snapshot on every attachment.
-      term.reset();
-      requestAnimationFrame(function () { refit(); term.focus(); });
-    };
-    ws.onmessage = function (event) {
-      let message;
-      try { message = JSON.parse(event.data); } catch (e) { return; }
-      if (message.type === 'output' && message.data) term.write(message.data);
-      if (message.type === 'exit') {
-        exited = true;
-        ready = false;
-        clearTimeout(timer);
-        reconnect.style.display = 'none';
-        term.write('\r\n\x1b[38;5;244m[process exited ' + message.code + ']\x1b[0m\r\n');
-        try { if (window.nsgo) window.nsgo.postMessage('exit'); } catch (e) {}
-        ws.close();
-      }
-    };
-    ws.onerror = function () { /* onclose schedules the retry. */ };
-    ws.onclose = disconnected;
+    if (disposed || exited || timer) return;
+    if (!window.nsgo) {
+      timer = setTimeout(function () { timer = null; connect(); }, 50);
+      return;
+    }
+    post({type: 'ready', route: bridgeRoute});
+  }
+  function connected() {
+    ready = true;
+    attempts = 0;
+    clearTimeout(timer); timer = null;
+    reconnect.style.display = 'none';
+    // The server replays its snapshot on every attachment.
+    term.reset();
+    requestAnimationFrame(function () { refit(); term.focus(); });
   }
   reconnect.onclick = function () {
     clearTimeout(timer); timer = null; attempts = 0;
-    if (ws) {
-      ws.onclose = null;
-      ws.close();
-    }
     connect();
   };
+  window.addEventListener('message', function (event) {
+    let message;
+    try { message = JSON.parse(event.data); } catch (e) { return; }
+    if (message.type === 'bridge') {
+      if (message.state === 'connected') connected();
+      if (message.state === 'disconnected') disconnected();
+      return;
+    }
+    if (message.type === 'output' && message.data) term.write(message.data);
+    if (message.type === 'exit') {
+      exited = true;
+      ready = false;
+      clearTimeout(timer); timer = null;
+      reconnect.style.display = 'none';
+      term.write('\r\n\x1b[38;5;244m[process exited ' + message.code + ']\x1b[0m\r\n');
+      post({type: 'exit', code: message.code});
+    }
+  });
   window.addEventListener('pagehide', function () {
     disposed = true; ready = false; clearTimeout(timer);
-    if (ws) ws.close();
+    post({type: 'close'});
   });
   connect();
   term.onData(function (data) {
-    if (ready && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'input', data: data}));
+    if (ready) post({type: 'input', data: data});
   });
   term.onResize(sendResize);
   new ResizeObserver(function () { refit(); }).observe(document.getElementById('term'));
@@ -218,3 +228,156 @@ const terminalPage = `<!doctype html>
 </body>
 </html>
 `
+
+// terminalBridge owns the native terminal WebSocket. The xterm page receives
+// server frames through Ref.PostMessage and sends input back through
+// window.nsgo.postMessage. This avoids Android WebView's cleartext policy.
+type terminalBridge struct {
+	mu         sync.Mutex
+	writeMu    sync.Mutex
+	generation uint64
+	sessionID  string
+	cancel     context.CancelFunc
+	conn       *websocket.Conn
+}
+
+func newTerminalBridge() *terminalBridge {
+	return &terminalBridge{}
+}
+
+func (b *terminalBridge) connect(emit func(string), sessionID, rawURL string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	b.mu.Lock()
+	if b.cancel != nil {
+		b.cancel()
+	}
+	if b.conn != nil {
+		_ = b.conn.CloseNow()
+	}
+	b.generation++
+	generation := b.generation
+	b.sessionID = sessionID
+	b.cancel = cancel
+	b.conn = nil
+	b.mu.Unlock()
+
+	go func() {
+		defer cancel()
+		dialCtx, dialCancel := context.WithTimeout(ctx, 15*time.Second)
+		conn, resp, err := websocket.Dial(dialCtx, rawURL, nil)
+		dialCancel()
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		if err != nil {
+			b.finish(generation, emit)
+			return
+		}
+		conn.SetReadLimit(1 << 20)
+		b.mu.Lock()
+		if b.generation != generation {
+			b.mu.Unlock()
+			_ = conn.CloseNow()
+			return
+		}
+		b.conn = conn
+		b.mu.Unlock()
+		emitJSON(emit, map[string]any{"type": "bridge", "state": "connected"})
+		for {
+			typ, data, readErr := conn.Read(ctx)
+			if readErr != nil {
+				break
+			}
+			if typ == websocket.MessageText {
+				emit(string(data))
+			}
+		}
+		_ = conn.CloseNow()
+		b.finish(generation, emit)
+	}()
+}
+
+func (b *terminalBridge) finish(generation uint64, emit func(string)) {
+	b.mu.Lock()
+	if b.generation != generation {
+		b.mu.Unlock()
+		return
+	}
+	b.conn = nil
+	b.cancel = nil
+	b.mu.Unlock()
+	emitJSON(emit, map[string]any{"type": "bridge", "state": "disconnected"})
+}
+
+func (b *terminalBridge) send(sessionID string, value any) bool {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return false
+	}
+	b.mu.Lock()
+	conn := b.conn
+	matches := conn != nil && b.sessionID == sessionID
+	b.mu.Unlock()
+	if !matches {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	b.writeMu.Lock()
+	defer b.writeMu.Unlock()
+	return conn.Write(ctx, websocket.MessageText, data) == nil
+}
+
+func (b *terminalBridge) close() {
+	b.mu.Lock()
+	b.generation++
+	cancel := b.cancel
+	conn := b.conn
+	b.cancel, b.conn, b.sessionID = nil, nil, ""
+	b.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if conn != nil {
+		_ = conn.CloseNow()
+	}
+}
+
+func emitJSON(emit func(string), value any) {
+	data, err := json.Marshal(value)
+	if err == nil {
+		emit(string(data))
+	}
+}
+
+func (a *app) terminalPageMessage(cx *core.Scope, ref *core.Ref, sessionID, data string) {
+	var message struct {
+		Type string `json:"type"`
+		Data string `json:"data"`
+		Cols int    `json:"cols"`
+		Rows int    `json:"rows"`
+	}
+	if json.Unmarshal([]byte(data), &message) != nil {
+		return
+	}
+	switch message.Type {
+	case "ready":
+		c := a.client()
+		if c == nil {
+			return
+		}
+		emit := func(value string) {
+			cx.Post(func() { ref.PostMessage(value) })
+		}
+		a.terminalBridge.connect(emit, sessionID, c.TerminalURL(sessionID))
+	case "input":
+		a.terminalBridge.send(sessionID, map[string]any{"type": "input", "data": message.Data})
+	case "resize":
+		a.terminalBridge.send(sessionID, map[string]any{"type": "resize", "cols": message.Cols, "rows": message.Rows})
+	case "exit":
+		a.terminalBridge.close()
+		a.loadTerminalSessions()
+	case "close":
+		a.terminalBridge.close()
+	}
+}
