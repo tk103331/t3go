@@ -135,6 +135,11 @@ type environmentManager struct {
 	localStarting *core.Signal[bool]
 	localErr      *core.Signal[string]
 	localID       string
+	// background keeps this machine's environment server running after the
+	// client exits, so agent runs it owns finish. local is the handle to
+	// the server this client started.
+	background *core.Signal[bool]
+	local      *localServer
 }
 
 func newEnvironmentManager(cx *core.Scope) *environmentManager {
@@ -145,6 +150,7 @@ func newEnvironmentManager(cx *core.Scope) *environmentManager {
 		sidebarKeys:   core.NewSignal(cx, false),
 		localStarting: core.NewSignal(cx, false),
 		localErr:      core.NewSignal(cx, ""),
+		background:    core.NewSignal(cx, loadBackgroundServer(cx.Storage())),
 		active:        core.NewSignal[*app](cx, nil), pending: core.NewSignal[*app](cx, nil), profiles: core.NewSignalFunc(cx,
 			[]client.EnvironmentProfile{}, func([]client.EnvironmentProfile, []client.EnvironmentProfile) bool { return false }),
 		revision: core.NewSignal(cx, 0)}

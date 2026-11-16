@@ -8,6 +8,6 @@ import "context"
 // one of its own.
 func bundledServerPath() string { return "" }
 
-func startLocalServer(ctx context.Context) (*localServer, error) {
+func startLocalServer(ctx context.Context, background bool) (*localServer, error) {
 	return nil, errNoBundledServer
 }

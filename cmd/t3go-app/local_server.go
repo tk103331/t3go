@@ -21,6 +21,9 @@ type localServer struct {
 	// stop ends the server this client started. It is nil when an already
 	// running server was reused.
 	stop func()
+	// background records whether the server was started to outlive the
+	// client, which decides whether a setting change restarts it.
+	background bool
 }
 
 // errNoBundledServer means the installed package carries no server binary:

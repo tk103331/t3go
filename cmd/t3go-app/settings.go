@@ -449,9 +449,30 @@ func (a *app) settingsAbout(cx *core.Scope) core.Node {
 	body := []core.Node{
 		settingsSectionTitle(cx, "About T3Go", "Client and local environment build information."),
 		core.View{Style: core.Style{Direction: core.Column, Gap: 4}, Children: rows},
+	}
+	// Only a package that ships the environment server can keep it
+	// running once the window closes; a phone talks to one instead.
+	if bundledServerPath() != "" {
+		body = append(body, core.View{TestID: "settings-about-background", Style: core.Style{Direction: core.Column, Gap: 4},
+			Children: []core.Node{
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
+					core.View{Style: core.Style{Direction: core.Column, Gap: 1, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(120)},
+						Children: []core.Node{
+							core.Text{Content: "Keep running in the background", Style: core.Style{FontSize: 12, FontWeight: ui.Medium},
+								StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+							core.Text{Content: "Closing T3Go leaves this machine's server and its agent runs going. Turning it off stops the server when the window closes.",
+								MaxLines: 3, Style: core.Style{FontSize: 10.5, LineHeight: 15},
+								StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+						}},
+					settingsSwitch(cx, "Keep the local environment server running in the background",
+						"settings-background-server", func() bool { return a.manager.background.Get() }, a.manager.setBackgroundServer),
+				}},
+			}})
+	}
+	body = append(body,
 		core.Text{Content: "Remote environments are managed under Environments. This page reports only the client and the T3Go server running on this machine.",
 			MaxLines: 4, Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-	}
+	)
 	if a.manager != nil {
 		body = append(body, ui.Button{Text: "Manage environments", Variant: ui.ButtonGhost, Size: controlSize(cx),
 			TestID: "settings-manage-environments", OnPress: func() { a.setSettingsSection("environments") }})

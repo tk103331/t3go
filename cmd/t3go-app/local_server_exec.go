@@ -73,8 +73,9 @@ func readLocalToken(home string) string {
 
 // startLocalServer starts the packaged environment server and returns its
 // address and token. A server already serving the same data directory is
-// reused instead of a second one.
-func startLocalServer(ctx context.Context) (*localServer, error) {
+// reused instead of a second one. A background server keeps running after
+// the client exits, so agent runs it owns finish.
+func startLocalServer(ctx context.Context, background bool) (*localServer, error) {
 	bin := bundledServerPath()
 	if bin == "" {
 		return nil, errNoBundledServer
@@ -84,6 +85,7 @@ func startLocalServer(ctx context.Context) (*localServer, error) {
 		return nil, err
 	}
 	token := readLocalToken(home)
+	var lastErr error
 	for port := localServerPort; port < localServerPort+20; port++ {
 		base := fmt.Sprintf("http://127.0.0.1:%d", port)
 		if serverAnswers(base) {
@@ -95,18 +97,30 @@ func startLocalServer(ctx context.Context) (*localServer, error) {
 				// connecting to one that is about to close.
 				time.Sleep(1200 * time.Millisecond)
 				if serverAcceptsToken(base, token) {
-					return &localServer{baseURL: base, token: token, home: home}, nil
+					return &localServer{baseURL: base, token: token, home: home, background: background}, nil
 				}
 			}
 			continue
 		}
-		return launchLocalServer(ctx, bin, home, port)
+		srv, err := launchLocalServer(ctx, bin, home, port, background)
+		if err == nil {
+			return srv, nil
+		}
+		if ctx.Err() != nil {
+			return nil, err
+		}
+		// The port may have been taken between the probe and the listen,
+		// or a server this client just stopped may still hold it.
+		lastErr = err
+	}
+	if lastErr != nil {
+		return nil, lastErr
 	}
 	return nil, errors.New("no free port for the local environment server")
 }
 
 // launchLocalServer runs the packaged server and waits for it to answer.
-func launchLocalServer(ctx context.Context, bin, home string, port int) (*localServer, error) {
+func launchLocalServer(ctx context.Context, bin, home string, port int, background bool) (*localServer, error) {
 	logs := filepath.Join(home, "logs")
 	if err := os.MkdirAll(logs, 0o700); err != nil {
 		return nil, err
@@ -116,35 +130,54 @@ func launchLocalServer(ctx context.Context, bin, home string, port int) (*localS
 		return nil, err
 	}
 	defer logFile.Close()
-	cmd := exec.Command(bin, "serve", "--home", home, "--listen", fmt.Sprintf("127.0.0.1:%d", port),
-		"--parent-pid", strconv.Itoa(os.Getpid()), "--quiet")
+	cmd := localServerCommand(bin, home, port, background)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
 	stop := func() {
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
 	}
-	go func() {
-		<-ctx.Done()
-		stop()
-	}()
+	if !background {
+		go func() {
+			<-ctx.Done()
+			stop()
+		}()
+	}
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
+		select {
+		case err := <-exited:
+			return nil, fmt.Errorf("the local environment server exited: %v", err)
+		default:
+		}
 		if ctx.Err() != nil {
 			stop()
 			return nil, ctx.Err()
 		}
 		if serverAnswers(base) {
 			if token := readLocalToken(home); token != "" {
-				return &localServer{baseURL: base, token: token, home: home, stop: stop}, nil
+				return &localServer{baseURL: base, token: token, home: home, stop: stop, background: background}, nil
 			}
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	stop()
 	return nil, errors.New("the local environment server did not start")
+}
+
+// localServerCommand builds the serve command. A foreground server carries
+// the client's process id so it stops with the client; a background one is
+// started without it and keeps running.
+func localServerCommand(bin, home string, port int, background bool) *exec.Cmd {
+	args := []string{"serve", "--home", home, "--listen", fmt.Sprintf("127.0.0.1:%d", port), "--quiet"}
+	if !background {
+		args = append(args, "--parent-pid", strconv.Itoa(os.Getpid()))
+	}
+	return exec.Command(bin, args...)
 }

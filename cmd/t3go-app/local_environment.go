@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/tk/t3go/internal/client"
@@ -11,6 +12,41 @@ import (
 // localEnvironmentRemoved remembers the environment the user removed from
 // the list, so this machine does not come back on the next start.
 const localEnvironmentRemoved = "localEnvironmentRemoved"
+
+// backgroundServerKey remembers whether this machine's environment server
+// keeps running after the client exits.
+const backgroundServerKey = "backgroundServer"
+
+// loadBackgroundServer reads the saved choice; foreground is the default,
+// so an environment never outlives the client unasked.
+func loadBackgroundServer(store appStorage) bool {
+	raw, _ := store.GetItem(backgroundServerKey)
+	return raw == "true"
+}
+
+// setBackgroundServer saves the choice and restarts the server this
+// client started, since only a server's own command line carries the
+// parent watch.
+func (m *environmentManager) setBackgroundServer(on bool) {
+	background := strconv.FormatBool(on)
+	if err := m.store.SetItem(backgroundServerKey, background); err != nil {
+		return
+	}
+	m.background.Set(on)
+	srv := m.local
+	if !needsRestart(srv, on) {
+		return
+	}
+	srv.stop()
+	m.local = nil
+	m.startLocalEnvironment()
+}
+
+// needsRestart tells whether changing the background choice restarts the
+// running server: only a server this client started can be restarted.
+func needsRestart(srv *localServer, background bool) bool {
+	return srv != nil && srv.stop != nil && srv.background != background
+}
 
 // startLocalEnvironment starts the environment server the desktop package
 // ships and connects this machine to it, so a fresh install works without
@@ -28,8 +64,9 @@ func (m *environmentManager) startLocalEnvironment() {
 	// Read the scope's context here: the graph's current owner is only
 	// meaningful while this runs on the graph's goroutine.
 	ctx := m.cx.Context()
+	background := m.background.GetUntracked()
 	go func() {
-		srv, err := startLocalServer(ctx)
+		srv, err := startLocalServer(ctx, background)
 		m.cx.Post(func() {
 			m.localStarting.Set(false)
 			if err != nil {
@@ -38,6 +75,7 @@ func (m *environmentManager) startLocalEnvironment() {
 				}
 				return
 			}
+			m.local = srv
 			m.useLocalEnvironment(srv)
 		})
 	}()

@@ -7,7 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/tk/t3go/internal/client"
 )
@@ -117,7 +120,7 @@ func TestStartLocalServerRunsThePackagedServer(t *testing.T) {
 	t.Setenv("T3GO_HOME", filepath.Join(dir, "home"))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	srv, err := startLocalServer(ctx)
+	srv, err := startLocalServer(ctx, false)
 	if err != nil {
 		t.Fatalf("start the local server: %v", err)
 	}
@@ -143,7 +146,7 @@ func TestStartLocalServerRunsThePackagedServer(t *testing.T) {
 		t.Fatal("the environment has no identity")
 	}
 	// A second start finds the running server instead of a second one.
-	again, err := startLocalServer(ctx)
+	again, err := startLocalServer(ctx, false)
 	if err != nil {
 		t.Fatalf("start the local server again: %v", err)
 	}
@@ -158,5 +161,74 @@ func TestBundledServerPathNeedsTheBinary(t *testing.T) {
 		if _, err := os.Stat(path); err == nil {
 			t.Skip("this machine has a server next to the test binary")
 		}
+	}
+}
+
+// TestLocalServerCommandFollowsTheBackgroundSetting keeps the parent watch
+// on a foreground server and off one the user wants to outlive the client.
+func TestLocalServerCommandFollowsTheBackgroundSetting(t *testing.T) {
+	foreground := localServerCommand("/bin/t3go", "/tmp/home", 4870, false)
+	if !slices.Contains(foreground.Args, "--parent-pid") {
+		t.Fatalf("foreground args = %v, want a parent pid", foreground.Args)
+	}
+	if !slices.Contains(foreground.Args, strconv.Itoa(os.Getpid())) {
+		t.Fatalf("foreground args = %v, want this process", foreground.Args)
+	}
+	background := localServerCommand("/bin/t3go", "/tmp/home", 4870, true)
+	if slices.Contains(background.Args, "--parent-pid") {
+		t.Fatalf("background args = %v, want no parent pid", background.Args)
+	}
+}
+
+// TestBackgroundChoiceRestartsOnlyAnOwnedServer keeps a reused server, one
+// this client cannot control, out of the restart path.
+func TestBackgroundChoiceRestartsOnlyAnOwnedServer(t *testing.T) {
+	owned := &localServer{stop: func() {}}
+	if !needsRestart(owned, true) {
+		t.Fatal("changing the choice should restart a server this client owns")
+	}
+	owned.background = true
+	if needsRestart(owned, true) {
+		t.Fatal("the same choice should not restart the server")
+	}
+	if needsRestart(&localServer{}, true) {
+		t.Fatal("a reused server should not be restarted")
+	}
+	if needsRestart(nil, true) {
+		t.Fatal("no server needs no restart")
+	}
+}
+
+// TestBackgroundServerOutlivesItsContext starts the packaged server the
+// way the background setting does and checks it keeps answering after the
+// client's context is done.
+func TestBackgroundServerOutlivesItsContext(t *testing.T) {
+	if testing.Short() {
+		t.Skip("the packaged server is built for this test")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "t3go")
+	build := exec.Command("go", "build", "-o", bin, "../t3go")
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build the server: %v\n%s", err, out)
+	}
+	t.Setenv("T3GO_SERVER_BIN", bin)
+	t.Setenv("T3GO_HOME", filepath.Join(dir, "home"))
+	ctx, cancel := context.WithCancel(context.Background())
+	srv, err := startLocalServer(ctx, true)
+	if err != nil {
+		cancel()
+		t.Fatalf("start the local server: %v", err)
+	}
+	defer func() {
+		if srv.stop != nil {
+			srv.stop()
+		}
+	}()
+	cancel()
+	time.Sleep(2 * time.Second)
+	if !serverAnswers(srv.baseURL) {
+		t.Fatal("the background server stopped with the client")
 	}
 }
