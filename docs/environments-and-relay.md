@@ -136,9 +136,10 @@ t3go devices revoke dev_...     # 撤销一台设备
 并在列表里撤销。链接只显示一次，环境数据库只保存 Token 的 SHA-256 摘要，
 不保存 Token 本身；一个环境最多同时保留 32 个有效设备 Token。
 
-撤销立即生效：该设备已建立的 SSE/WebSocket 流会被切断，撤销前签发但还没用掉的
-WebSocket ticket 也一并失效，下一次请求返回 401，客户端进入 Update token 流程
-重新配对。环境 Token 和其他设备不受影响。
+撤销立即生效：新的请求返回 401，撤销前签发但还没用掉的 WebSocket ticket 一并
+失效，该设备已建立的 SSE/WebSocket 流会被切断。经桌面端或 API 撤销时流立刻断开；
+用 CLI 直接改数据库时，流会在 30 秒内自行复查并关闭。客户端随后进入 Update token
+流程重新配对。环境 Token 和其他设备不受影响。
 接口为 `GET /api/v1/access/devices`、`POST /api/v1/access/devices`（返回
 `{device, token}`）和 `DELETE /api/v1/access/devices/{id}`。
 

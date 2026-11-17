@@ -192,3 +192,46 @@ func TestRevokedDeviceTicketCannotOpenASocket(t *testing.T) {
 		t.Fatalf("revoked ticket = %v, %v", resp, err)
 	}
 }
+
+// TestStreamOfRevokedGrantEnds covers a revocation made where this server
+// does not see it, as `t3go devices revoke` writes it: the stream re-checks
+// its grant and closes on its own.
+func TestStreamOfRevokedGrantEnds(t *testing.T) {
+	previous := deviceCheckInterval
+	deviceCheckInterval = 20 * time.Millisecond
+	t.Cleanup(func() { deviceCheckInterval = previous })
+
+	env := newTestEnv(t)
+	var pairing proto.DevicePairing
+	if code := env.request(t, http.MethodPost, "/api/v1/access/devices", map[string]string{"label": "Phone"}, env.token, &pairing); code != http.StatusCreated {
+		t.Fatalf("pair device = %d", code)
+	}
+	req, err := http.NewRequest(http.MethodGet, env.http.URL+"/api/v1/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+pairing.Token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	reader := bufio.NewReader(resp.Body)
+	if _, err := reader.ReadString('\n'); err != nil {
+		t.Fatalf("stream did not start: %v", err)
+	}
+	// Revoke behind the server's back, as another process would.
+	if err := env.server.Store.RevokeDevice(context.Background(), pairing.Device.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	closed := make(chan error, 1)
+	go func() {
+		_, err := io.Copy(io.Discard, reader)
+		closed <- err
+	}()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a stream outlived the grant revoked from another process")
+	}
+}

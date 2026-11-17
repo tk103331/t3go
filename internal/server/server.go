@@ -436,8 +436,13 @@ func (s *Server) deviceAuthenticates(ctx context.Context, token string) bool {
 	return true
 }
 
+// deviceCheckInterval is how often a live stream re-checks that its grant
+// still exists, which catches a revocation made from another process such
+// as the CLI.
+var deviceCheckInterval = 30 * time.Second
+
 // watchDeviceStream keeps a live stream's cancel so revoking its device
-// closes it at once, and returns the function that forgets the stream.
+// closes it, and returns the function that forgets the stream.
 func (s *Server) watchDeviceStream(deviceID string, cancel context.CancelFunc) func() {
 	if deviceID == "" {
 		return func() {}
@@ -453,7 +458,29 @@ func (s *Server) watchDeviceStream(deviceID string, cancel context.CancelFunc) f
 	}
 	s.streams[deviceID][key] = cancel
 	s.streamMu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(deviceCheckInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-s.closing:
+				return
+			case <-ticker.C:
+				ctx, cancelCheck := context.WithTimeout(context.Background(), 5*time.Second)
+				_, err := s.Store.ActiveDevice(ctx, deviceID)
+				cancelCheck()
+				if err != nil {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 	return func() {
+		close(done)
 		s.streamMu.Lock()
 		defer s.streamMu.Unlock()
 		delete(s.streams[deviceID], key)
