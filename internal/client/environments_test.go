@@ -411,3 +411,27 @@ func TestPairingLinkPrefersLANOverLoopback(t *testing.T) {
 		t.Fatalf("duplicate direct route = %q", got)
 	}
 }
+
+// TestProbeExplainsWhyAnAddressIsRefused pins the typed errors the client
+// UI turns into wording: a status from the address, and an address that
+// answers as another environment.
+func TestProbeExplainsWhyAnAddressIsRefused(t *testing.T) {
+	ctx := context.Background()
+	offline := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "environment offline", http.StatusServiceUnavailable)
+	}))
+	defer offline.Close()
+	var probeErr *ProbeError
+	if _, err := New(offline.URL, "").Probe(ctx, "env_id", "env_key"); !errors.As(err, &probeErr) ||
+		probeErr.Status != http.StatusServiceUnavailable {
+		t.Fatalf("probe of an offline environment = %v", err)
+	}
+
+	good, srv := newTestClient(t)
+	if _, err := good.Probe(ctx, srv.Identity.ID, srv.Identity.PublicKey()); err != nil {
+		t.Fatalf("probe of the paired environment: %v", err)
+	}
+	if _, err := good.Probe(ctx, "another_environment", srv.Identity.PublicKey()); !errors.Is(err, ErrIdentityMismatch) {
+		t.Fatalf("probe of another environment = %v", err)
+	}
+}

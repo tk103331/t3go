@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -35,6 +36,21 @@ func TestFriendlyErrorExplainsRejectedCredentials(t *testing.T) {
 			name: "rejected token without a reason",
 			err:  client.ErrUnauthorized,
 			want: "That token was rejected. Check the token and try again.",
+		},
+		{
+			name: "relay answering for an offline environment",
+			err:  &client.ProbeError{Status: http.StatusServiceUnavailable},
+			want: "The environment is offline. Start its server or reconnect it, then try again.",
+		},
+		{
+			name: "an address that is not an environment",
+			err:  &client.ProbeError{Status: http.StatusNotFound},
+			want: "That address is not a T3Go environment.",
+		},
+		{
+			name: "another environment at the saved address",
+			err:  fmt.Errorf("%w: environment identity mismatch", client.ErrIdentityMismatch),
+			want: "That address is not the environment you paired with. Forget it and pair again.",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

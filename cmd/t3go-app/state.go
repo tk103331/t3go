@@ -1816,6 +1816,16 @@ func friendlyError(err error) string {
 	if errors.Is(err, client.ErrUnauthorized) {
 		return i18n.T("That token was rejected. Check the token and try again.")
 	}
+	var probeErr *client.ProbeError
+	if errors.As(err, &probeErr) {
+		if probeErr.Status >= 500 {
+			return i18n.T("The environment is offline. Start its server or reconnect it, then try again.")
+		}
+		return i18n.T("That address is not a T3Go environment.")
+	}
+	if errors.Is(err, client.ErrIdentityMismatch) {
+		return i18n.T("That address is not the environment you paired with. Forget it and pair again.")
+	}
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "connection refused"):

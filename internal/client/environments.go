@@ -168,6 +168,19 @@ func LegacyEnvironmentID(address string) string {
 	return "legacy-" + base64.RawURLEncoding.EncodeToString(sum[:12])
 }
 
+// ErrIdentityMismatch reports an address that answered, but not as the
+// environment the client paired with: another machine holds it, or the
+// environment has been reset since.
+var ErrIdentityMismatch = errors.New("environment identity mismatch")
+
+// ProbeError is an address that rejected the identity probe with a status,
+// such as a relay answering for an environment that is offline.
+type ProbeError struct{ Status int }
+
+func (e *ProbeError) Error() string {
+	return fmt.Sprintf("environment identity probe rejected (%d)", e.Status)
+}
+
 // Probe verifies a fresh signed descriptor without exposing the environment token.
 func (c *Client) Probe(ctx context.Context, id, key string) (environment.Descriptor, error) {
 	var d environment.Descriptor
@@ -186,12 +199,15 @@ func (c *Client) Probe(ctx context.Context, id, key string) (environment.Descrip
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return d, fmt.Errorf("environment identity probe rejected (%d)", resp.StatusCode)
+		return d, &ProbeError{Status: resp.StatusCode}
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(nil, resp.Body, 64<<10)).Decode(&d); err != nil {
 		return d, err
 	}
-	return d, environment.Verify(d, challenge, id, key)
+	if err := environment.Verify(d, challenge, id, key); err != nil {
+		return d, fmt.Errorf("%w: %v", ErrIdentityMismatch, err)
+	}
+	return d, nil
 }
 
 // ConnectEnvironment probes routes before sending credentials. Writes are never
@@ -235,7 +251,7 @@ func ConnectEnvironment(ctx context.Context, p EnvironmentProfile) (*Client, pro
 			continue
 		}
 		if p.PublicKey != "" && (st.EnvironmentID != p.ID || st.IdentityKey != p.PublicKey) {
-			last = errors.New("environment state identity mismatch")
+			last = fmt.Errorf("%w: the state answered for another environment", ErrIdentityMismatch)
 			continue
 		}
 		return c, st, nil
