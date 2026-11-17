@@ -388,7 +388,6 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 		core.Show{When: func() bool { return a.rightBusy.Get() }, Then: func(*core.Scope) core.Node {
 			return ui.Spinner{Size: 14, Label: i18n.T("Loading files")}
 		}},
-		a.rightError(cx),
 		a.scrollWithBar(cx, a.filesListScroll, "files-list-scrollbar",
 			core.Scroll{Style: ui.FillRest, Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: rows}}}),
 	}}
@@ -463,7 +462,6 @@ func (a *app) rightDiff(cx *core.Scope) core.Node {
 	}
 	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(10)}, Children: []core.Node{
 		head,
-		a.rightError(cx),
 		list,
 		body,
 	}}
@@ -522,7 +520,7 @@ func (a *app) rightLinkedPRs(cx *core.Scope) core.Node {
 			OnPress: func() { a.loadPullRequests(a.selected.GetUntracked()) }},
 	}}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 6, Padding: core.All(10), FlexGrow: 1, MinHeight: core.Pt(0)},
-		Children: []core.Node{head, a.rightError(cx), core.Scroll{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0)},
+		Children: []core.Node{head, core.Scroll{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0)},
 			Children: []core.Node{core.View{Style: core.Style{Direction: core.Column, Gap: 6}, Children: rows}}}}}
 }
 
@@ -558,9 +556,6 @@ func (a *app) rightSideChat(cx *core.Scope) core.Node {
 	thread := a.sideChat.Get()
 	if thread.ID == "" {
 		note := i18n.T("A side chat keeps this thread's conversation out of the way.")
-		if message := a.sideErr.Get(); message != "" {
-			note = message
-		}
 		var action core.Node = ui.Button{Text: i18n.T("Start side chat"), Icon: lucide.MessageCircleMore, Variant: ui.ButtonPrimary,
 			Size: controlSize(cx), TestID: "side-start", OnPress: a.openSideChat}
 		if a.sideBusy.Get() {
@@ -665,11 +660,6 @@ func (a *app) rightSideChat(cx *core.Scope) core.Node {
 		submit = ui.Button{Text: i18n.T("Send"), Icon: lucide.Send, Variant: ui.ButtonPrimary, Size: controlSize(cx), TestID: "side-send",
 			Disabled: func() bool { return strings.TrimSpace(a.sideDraft.Get()) == "" }, OnPress: a.sendSideChat}
 	}
-	if message := a.sideErr.Get(); message != "" {
-		head = core.View{Style: core.Style{Direction: core.Column, Gap: 4}, Children: []core.Node{head,
-			core.Text{Content: message, MaxLines: 3, Style: core.Style{FontSize: 10.5},
-				StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }}}}
-	}
 	composer := core.View{TestID: "side-composer", OnFileDrop: a.attachSidePaths,
 		Style: core.Style{Direction: core.Column, Gap: 5, Padding: core.Edges{Top: 6}}, Children: []core.Node{
 			core.Show{When: func() bool { return len(a.sideAttachments.Get()) > 0 }, Then: func(cx *core.Scope) core.Node {
@@ -733,13 +723,7 @@ func (a *app) rightDevices(cx *core.Scope) core.Node {
 		ui.IconButton{Icon: lucide.RefreshCw, Label: i18n.T("Refresh devices"), TestID: "devices-refresh",
 			OnPress: a.loadDevices},
 	}}
-	body := []core.Node{head, a.rightError(cx),
-		core.Show{When: func() bool { return a.deviceErr.Get() != "" }, Then: func(*core.Scope) core.Node {
-			return core.View{Style: core.Style{Padding: core.Edges{Right: 10, Bottom: 4, Left: 10}}, Children: []core.Node{
-				core.Text{Content: a.deviceErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 10.5},
-					StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }}}}
-		}},
-	}
+	body := []core.Node{head}
 	switch {
 	case len(devices) == 0:
 		detail := a.deviceDetail.Get()
@@ -940,7 +924,6 @@ func (a *app) rightPullRequest(cx *core.Scope) core.Node {
 	}
 	pr := a.pullRequest.Get()
 	fields := []core.Node{
-		a.rightError(cx),
 		core.Show{When: func() bool { return a.gitBusy.Get() }, Then: func(*core.Scope) core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
 				ui.Spinner{Size: 14, Label: i18n.T("Running git action")}, ui.Text(i18n.T("Working…"), 12, ui.Regular, colors.Faint),
@@ -998,14 +981,6 @@ func (a *app) rightNotice(cx *core.Scope, text string) core.Node {
 		Children: []core.Node{ui.Text(text, 12.5, ui.Regular, colors.Faint)}}
 }
 
-func (a *app) rightError(cx *core.Scope) core.Node {
-	colors := ui.ColorsOf(cx)
-	return core.Show{When: func() bool { return a.rightErr.Get() != "" }, Then: func(*core.Scope) core.Node {
-		return core.Text{Content: a.rightErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 11.5, LineHeight: 16},
-			StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }}
-	}}
-}
-
 // rightTerminal shows the thread's interactive shell.
 func (a *app) rightTerminal(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
@@ -1015,12 +990,6 @@ func (a *app) rightTerminal(cx *core.Scope) core.Node {
 	sessions := a.terminals.Get()
 	session := a.terminalSession.Get()
 	body := []core.Node{}
-	if message := a.terminalErr.Get(); message != "" {
-		body = append(body, core.View{Style: core.Style{Padding: core.Symmetric(6, 10)}, Children: []core.Node{
-			core.Text{Content: message, MaxLines: 3, Style: core.Style{FontSize: 11.5},
-				StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }},
-		}})
-	}
 	if session.ID != "" && session.Exited {
 		body = append(body, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
 			Padding: core.Symmetric(4, 10), Background: colors.Inset()}, Children: []core.Node{
@@ -1099,11 +1068,7 @@ func (a *app) rightPreview(cx *core.Scope) core.Node {
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 6, Padding: core.All(10), FlexGrow: 1, MinHeight: core.Pt(0)},
-		Children: []core.Node{head, a.rightError(cx),
-			core.Show{When: func() bool { return a.previewErr.Get() != "" }, Then: func(*core.Scope) core.Node {
-				return core.Text{Content: a.previewErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 10.5},
-					StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }}
-			}},
+		Children: []core.Node{head,
 			core.Scroll{Style: ui.FillRest, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Column, Gap: 5}, Children: rows},
 			}},
@@ -1212,7 +1177,6 @@ func (a *app) rightGraph(cx *core.Scope) core.Node {
 	}}
 	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(10)}, Children: []core.Node{
 		head,
-		a.rightError(cx),
 		core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Overflow: core.Hidden}, Children: []core.Node{
 			view,
 			ui.Scrollbar{Scroll: func() *core.Ref { return a.graphScroll },

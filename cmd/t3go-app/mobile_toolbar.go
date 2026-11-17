@@ -71,9 +71,6 @@ func (a *app) mobileTerminalMenu(cx *core.Scope) core.Node {
 			ui.Text(i18n.T("Terminal"), 12, ui.Medium, ui.ColorsOf(cx).Muted),
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				var rows []core.Node
-				if err := a.terminalErr.Get(); err != "" {
-					rows = append(rows, ui.Text(err, 12, ui.Regular, ui.ColorsOf(cx).Danger))
-				}
 				for i, session := range a.terminals.Get() {
 					session := session
 					title := session.Title

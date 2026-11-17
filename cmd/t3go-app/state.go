@@ -118,7 +118,7 @@ type app struct {
 	sideRunning     *core.Signal[bool]
 	sideDraft       *core.Signal[string]
 	sideBusy        *core.Signal[bool]
-	sideErr         *core.Signal[string]
+	sideErr         *actionError
 	sideFor         *core.Signal[string]
 	sideAttachments *core.Signal[[]proto.Attachment]
 
@@ -148,7 +148,7 @@ type app struct {
 	// local preview servers
 	previewServers *core.Signal[[]proto.PreviewServer]
 	previewDetail  *core.Signal[string]
-	previewErr     *core.Signal[string]
+	previewErr     *actionError
 	previewBusy    *core.Signal[bool]
 
 	// simulators
@@ -156,7 +156,7 @@ type app struct {
 	deviceDetail   *core.Signal[string]
 	deviceSelected *core.Signal[string]
 	deviceBusy     *core.Signal[bool]
-	deviceErr      *core.Signal[string]
+	deviceErr      *actionError
 	deviceImage    *core.Signal[[]byte]
 	deviceLive     *core.Signal[bool]
 	deviceTimer    func() bool
@@ -314,7 +314,7 @@ type app struct {
 	filesEntries *core.Signal[[]proto.WorkspaceEntry]
 	fileSelected *core.Signal[string]
 	file         *core.Signal[proto.WorkspaceFile]
-	rightErr     *core.Signal[string]
+	rightErr     *actionError
 	rightBusy    *core.Signal[bool]
 	pullRequest  *core.Signal[proto.PullRequest]
 	prDetail     *core.Signal[string]
@@ -329,7 +329,7 @@ type app struct {
 	terminalSession *core.Signal[proto.TerminalSession]
 	terminals       *core.Signal[[]proto.TerminalSession]
 	terminalBusy    *core.Signal[bool]
-	terminalErr     *core.Signal[string]
+	terminalErr     *actionError
 	terminalBridge  *terminalBridge
 
 	conv *chat.ConversationState
@@ -422,7 +422,7 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		sideRunning:        core.NewSignal(cx, false),
 		sideDraft:          core.NewSignal(cx, ""),
 		sideBusy:           core.NewSignal(cx, false),
-		sideErr:            core.NewSignal(cx, ""),
+		sideErr:            newActionError(cx, toasts),
 		sideFor:            core.NewSignal(cx, ""),
 		sideAttachments:    sliceSignal[proto.Attachment](cx),
 		filesListScroll:    &core.Ref{},
@@ -439,13 +439,13 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		usageErr:           core.NewSignal(cx, ""),
 		previewServers:     sliceSignal[proto.PreviewServer](cx),
 		previewDetail:      core.NewSignal(cx, ""),
-		previewErr:         core.NewSignal(cx, ""),
+		previewErr:         newActionError(cx, toasts),
 		previewBusy:        core.NewSignal(cx, false),
 		devices:            sliceSignal[proto.Device](cx),
 		deviceDetail:       core.NewSignal(cx, ""),
 		deviceSelected:     core.NewSignal(cx, ""),
 		deviceBusy:         core.NewSignal(cx, false),
-		deviceErr:          core.NewSignal(cx, ""),
+		deviceErr:          newActionError(cx, toasts),
 		deviceImage:        sliceSignal[byte](cx),
 		deviceLive:         core.NewSignal(cx, true),
 		showDevices:        core.NewSignal(cx, false),
@@ -584,7 +584,7 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		filesEntries:        sliceSignal[proto.WorkspaceEntry](cx),
 		fileSelected:        core.NewSignal(cx, ""),
 		file:                core.NewSignal(cx, proto.WorkspaceFile{}),
-		rightErr:            core.NewSignal(cx, ""),
+		rightErr:            newActionError(cx, toasts),
 		rightBusy:           core.NewSignal(cx, false),
 		pullRequest:         core.NewSignal(cx, proto.PullRequest{}),
 		prDetail:            core.NewSignal(cx, ""),
@@ -604,7 +604,7 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		terminalSession:     core.NewSignal(cx, proto.TerminalSession{}),
 		terminals:           sliceSignal[proto.TerminalSession](cx),
 		terminalBusy:        core.NewSignal(cx, false),
-		terminalErr:         core.NewSignal(cx, ""),
+		terminalErr:         newActionError(cx, toasts),
 		terminalBridge:      newTerminalBridge(),
 	}
 	if manager != nil {

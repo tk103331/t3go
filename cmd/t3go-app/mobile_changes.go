@@ -74,7 +74,6 @@ func (a *app) mobileChangesView(cx *core.Scope) core.Node {
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 		}},
 		actions,
-		a.rightError(cx),
 		core.Dynamic(func(*core.Scope) core.Node {
 			note := a.gitNote.Get()
 			if note == "" {
