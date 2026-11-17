@@ -3519,3 +3519,37 @@ func TestUIFailureShowsAsAToast(t *testing.T) {
 	app.Post(func() { instance.notify("Copied the command.") })
 	waitForToast(t, app, "text:Copied the command.")
 }
+
+// TestUIQueuedRowActions pins the queued message's controls: editing is an
+// icon rather than a word, and both controls sit at the end of the row
+// instead of under the text.
+func TestUIQueuedRowActions(t *testing.T) {
+	root := func(cx *core.Scope) core.Node {
+		a := newApp(cx)
+		a.selected.Set("thr_queued_actions")
+		a.queue.Set([]queuedPrompt{{Text: "工作目录"}})
+		return core.View{Style: core.Style{Width: core.Pt(520)}, Children: []core.Node{a.queuedBlock(cx)}}
+	}
+	app := nsgotest.Start(t, root, nsgotest.Size(560, 300))
+	app.WaitFor("id:queued", 5*time.Second)
+	edit, remove := app.Find("id:queued-edit-0"), app.Find("id:queued-remove-0")
+	if edit.Props.Label != "Edit" || remove.Props.Label == "" {
+		t.Fatalf("edit label = %q, remove label = %q", edit.Props.Label, remove.Props.Label)
+	}
+	app.WaitFor("text:工作目录", 5*time.Second)
+	if app.Exists("text:Edit") {
+		t.Fatal("the edit control still draws its word")
+	}
+	row := mobileScreenFrame(app.Find("id:queued"))
+	editFrame, removeFrame := mobileScreenFrame(edit), mobileScreenFrame(remove)
+	right := row.Origin.X + row.Size.Width
+	if editFrame.Origin.X <= row.Origin.X+row.Size.Width/2 {
+		t.Fatalf("edit sits at %v, not at the row's end (%v wide)", editFrame, row)
+	}
+	if removeFrame.Origin.X < editFrame.Origin.X+editFrame.Size.Width {
+		t.Fatalf("remove at %v does not follow edit at %v", removeFrame, editFrame)
+	}
+	if gap := right - (removeFrame.Origin.X + removeFrame.Size.Width); gap > 12 || gap < 0 {
+		t.Fatalf("remove ends %v from the row's edge: row %v, remove %v", gap, row, removeFrame)
+	}
+}

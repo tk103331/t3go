@@ -601,7 +601,8 @@ func (a *app) queuedBlock(cx *core.Scope) core.Node {
 						TestID: fmt.Sprintf("queued-retry-%d", i), OnPress: func() { a.retryQueuedRequest(threadID, prompt.RequestID) }})
 			} else {
 				actions = append(actions,
-					ui.Button{Text: i18n.T("Edit"), Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: fmt.Sprintf("queued-edit-%d", i),
+					ui.IconButton{Icon: lucide.Pencil, Label: i18n.T("Edit"), Variant: ui.IconButtonGhost,
+						Size: iconButtonSize(cx), TestID: fmt.Sprintf("queued-edit-%d", i),
 						OnPress: func() {
 							if strings.TrimSpace(a.draft.GetUntracked()) != "" {
 								a.connErr.Set(i18n.T("Save or send the current draft before editing a queued message."))
@@ -618,13 +619,17 @@ func (a *app) queuedBlock(cx *core.Scope) core.Node {
 						}})
 			}
 			actions = append(actions,
-				ui.Button{Text: "×", Variant: ui.ButtonGhost, Size: controlSize(cx), Label: i18n.T("Remove queued message"),
-					TestID: fmt.Sprintf("queued-remove-%d", i), OnPress: func() { a.dropQueued(i) }})
+				ui.IconButton{Icon: lucide.X, Label: i18n.T("Remove queued message"), Variant: ui.IconButtonGhost,
+					Size: iconButtonSize(cx), TestID: fmt.Sprintf("queued-remove-%d", i),
+					OnPress: func() { a.dropQueued(i) }})
 			rows = append(rows, core.View{Style: core.Style{Gap: 4,
 				Padding: core.Symmetric(6, 10), Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{
 				ui.Text(label, 11, ui.Semibold, colors.Faint),
 				core.View{Style: core.Style{Gap: 2, MinWidth: core.Pt(0)}, Children: lines},
-				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: actions},
+				// The message's actions sit at the end of its row, next to
+				// the text they act on.
+				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter,
+					JustifyContent: core.JustifyEnd, Gap: 2}, Children: actions},
 			}})
 		}
 		return core.View{TestID: "queued", Style: core.Style{Gap: 4, Padding: core.Edges{Bottom: 6}}, Children: rows}
