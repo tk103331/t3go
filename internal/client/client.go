@@ -683,6 +683,16 @@ func (c *Client) PullRequests(ctx context.Context, threadID string) ([]proto.Pul
 	return out.PullRequests, out.Detail, err
 }
 
+// CommitDiff reads one commit's patch.
+func (c *Client) CommitDiff(ctx context.Context, threadID, commit string) (string, error) {
+	var out struct {
+		Patch string `json:"patch"`
+	}
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/commits/" + url.PathEscape(commit)
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out.Patch, err
+}
+
 // Branches lists the local branches of a thread's checkout.
 func (c *Client) Branches(ctx context.Context, threadID string) ([]proto.Branch, error) {
 	var out struct {

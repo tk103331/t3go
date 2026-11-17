@@ -3553,3 +3553,106 @@ func TestUIQueuedRowActions(t *testing.T) {
 		t.Fatalf("remove ends %v from the row's edge: row %v, remove %v", gap, row, removeFrame)
 	}
 }
+
+// TestUIPreviewScrollsWithAPermanentBar pins the preview list's bar: the
+// rows scroll inside the panel, and the bar sits over its edge as on the
+// other surfaces.
+func TestUIPreviewScrollsWithAPermanentBar(t *testing.T) {
+	root := func(cx *core.Scope) core.Node {
+		a := newApp(cx)
+		a.selected.Set("thr_preview_scroll")
+		var servers []proto.PreviewServer
+		for i := range 24 {
+			servers = append(servers, proto.PreviewServer{Process: fmt.Sprintf("vite-%d", i), Port: 5200 + i,
+				URL: fmt.Sprintf("http://localhost:%d", 5200+i)})
+		}
+		a.previewServers.Set(servers)
+		return core.View{Style: core.Style{Width: core.Pt(420), Height: core.Pt(420), Direction: core.Column},
+			Children: []core.Node{a.rightPreview(cx)}}
+	}
+	app := nsgotest.Start(t, root, nsgotest.Size(440, 440))
+	app.WaitFor("id:preview-scroll", 5*time.Second)
+	scroll := app.Find("id:preview-scroll")
+	if scroll.Content.Height <= scroll.Frame.Size.Height {
+		t.Fatalf("preview did not overflow: frame %v, content %v", scroll.Frame, scroll.Content)
+	}
+	bar := app.Find("id:preview-scrollbar")
+	if bar.Frame.Size.Width != 10 {
+		t.Fatalf("preview bar width = %v", bar.Frame.Size.Width)
+	}
+	app.Drag("id:preview-scrollbar", core.Point{}, core.Point{Y: 120})
+	app.Advance(100 * time.Millisecond)
+	if offset := app.Find("id:preview-scroll").Offset.Y; offset <= 0 {
+		t.Fatalf("dragging the preview bar left the list at %v", offset)
+	}
+}
+
+// TestUIGitGraphScrollsAndOpensACommit pins the graph surface: its rows
+// scroll inside the panel, and clicking one opens that commit's patch.
+func TestUIGitGraphScrollsAndOpensACommit(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	for i := range 30 {
+		if err := os.WriteFile(filepath.Join(repo, "log.txt"), []byte(fmt.Sprintf("entry %d\n", i)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		for _, args := range [][]string{{"add", "-A"}, {"commit", "-qm", fmt.Sprintf("entry %d", i)}} {
+			cmd := exec.Command("git", args...)
+			cmd.Dir = repo
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %v\n%s", args, err, out)
+			}
+		}
+	}
+	project, err := srv.Service.CreateProject(ctx, "Repo", repo)
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Graph thread", Provider: "claude", Model: "test-model", Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"serverUrl": ts.URL,
+		"token":     cfg.Token,
+	}))
+	app.WaitFor("id:thread-"+thread.ID, 15*time.Second)
+	app.Press("id:thread-" + thread.ID)
+	app.WaitFor("id:toggle-right-panel", 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:right-panel") {
+			return true
+		}
+		if app.Exists("id:toggle-right-panel") {
+			app.Press("id:toggle-right-panel")
+			app.Settle()
+		}
+		return app.Exists("id:right-panel")
+	})
+	app.WaitUntil(10*time.Second, func() bool {
+		if app.Exists("id:surface-graph") {
+			return true
+		}
+		if app.Exists("id:surface-add") {
+			app.Press("id:surface-add")
+			app.Settle()
+		}
+		return app.Exists("id:surface-graph")
+	})
+	app.Press("id:surface-graph")
+	app.WaitFor("id:git-graph", 10*time.Second)
+	bar := app.WaitFor("id:git-graph-scrollbar", 5*time.Second)
+	if bar.Frame.Size.Width != 10 {
+		t.Fatalf("graph bar width = %v", bar.Frame.Size.Width)
+	}
+	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("text:entry 29")) > 0 })
+
+	app.PressAt("id:git-graph", core.Point{X: 80, Y: 12})
+	app.WaitFor("id:commit-subject", 10*time.Second)
+	app.WaitFor("id:code-diff", 10*time.Second)
+	app.Press("id:commit-back")
+	app.WaitFor("id:git-graph", 5*time.Second)
+}

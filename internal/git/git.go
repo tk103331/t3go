@@ -582,6 +582,34 @@ func GraphCommits(ctx context.Context, dir string, limit int) ([]proto.GraphComm
 	return commits, nil
 }
 
+// ErrInvalidCommit is a commit that is not a hash. Git would read a
+// revision there, so the layer above refuses it instead.
+var ErrInvalidCommit = errors.New("git: invalid commit")
+
+// ErrUnknownCommit is a hash that names no commit in this repository.
+var ErrUnknownCommit = errors.New("git: no such commit")
+
+// CommitDiff reads one commit's patch. The hash is checked here because it
+// comes from a URL, and git would read something else as a revision.
+func CommitDiff(ctx context.Context, dir, hash string) (string, error) {
+	if !IsRepo(ctx, dir) {
+		return "", ErrNotRepo
+	}
+	hash = strings.TrimSpace(hash)
+	if hash == "" || len(hash) > 64 {
+		return "", ErrInvalidCommit
+	}
+	for _, r := range hash {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", r) {
+			return "", ErrInvalidCommit
+		}
+	}
+	if _, err := run(ctx, dir, "rev-parse", "--verify", "--quiet", hash+"^{commit}"); err != nil {
+		return "", ErrUnknownCommit
+	}
+	return run(ctx, dir, "show", "--patch", "--format=", "--find-renames", "--no-ext-diff", hash)
+}
+
 // graphRefs maps commit hashes to the refs that point at them.
 func graphRefs(ctx context.Context, dir, current string) map[string][]proto.GraphRef {
 	out, err := run(ctx, dir, "for-each-ref",

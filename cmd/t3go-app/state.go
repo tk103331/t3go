@@ -136,7 +136,16 @@ type app struct {
 	filesListScroll    *core.Ref
 	filesContentScroll *core.Ref
 	graphScroll        *core.Ref
-	terminalRef        *core.Ref
+	commitScroll       *core.Ref
+	previewScroll      *core.Ref
+
+	// the commit opened from the git graph
+	graphCommit *core.Signal[proto.GraphCommit]
+	graphSelect *ui.Selection
+	commitPatch *core.Signal[string]
+	commitBusy  *core.Signal[bool]
+	commitErr   *core.Signal[string]
+	terminalRef *core.Ref
 
 	// message search
 	searchHits  *core.Signal[[]proto.MessageHit]
@@ -229,6 +238,7 @@ type app struct {
 	workingFiles          *core.Signal[[]proto.DiffFile]
 	diffSplit             *core.Signal[bool]
 	workingRef            *basediff.Ref
+	commitRef             *basediff.Ref
 	diffDiscard           *core.Signal[string]
 	editingMessage        *core.Signal[proto.Message]
 	editDraft             *core.Signal[string]
@@ -442,6 +452,8 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		filesListScroll:    &core.Ref{},
 		filesContentScroll: &core.Ref{},
 		graphScroll:        &core.Ref{},
+		commitScroll:       &core.Ref{},
+		previewScroll:      &core.Ref{},
 		terminalRef:        &core.Ref{},
 		searchHits:         sliceSignal[proto.MessageHit](cx),
 		searchBusy:         core.NewSignal(cx, false),
@@ -515,6 +527,7 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		workingFiles:          sliceSignal[proto.DiffFile](cx),
 		diffSplit:             core.NewSignal(cx, false),
 		workingRef:            &basediff.Ref{},
+		commitRef:             &basediff.Ref{},
 		diffDiscard:           core.NewSignal(cx, ""),
 		editingMessage: core.NewSignalFunc(cx, proto.Message{}, func(a, b proto.Message) bool {
 			return a.ID == b.ID
@@ -603,6 +616,11 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		pullRequest:         core.NewSignal(cx, proto.PullRequest{}),
 		prDetail:            core.NewSignal(cx, ""),
 		graph:               sliceSignal[proto.GraphCommit](cx),
+		graphCommit:         core.NewSignalFunc(cx, proto.GraphCommit{}, func(a, b proto.GraphCommit) bool { return a.Hash == b.Hash }),
+		graphSelect:         ui.NewSelection(cx, false),
+		commitPatch:         core.NewSignal(cx, ""),
+		commitBusy:          core.NewSignal(cx, false),
+		commitErr:           core.NewSignal(cx, ""),
 		browserURL:          core.NewSignal(cx, ""),
 		browserInput:        core.NewSignal(cx, ""),
 		browserNote:         core.NewSignal(cx, ""),
@@ -690,6 +708,22 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		a.serverURL.Set("")
 		a.token.Set("")
 	}
+	// Choosing a commit row opens it: a click selects the row, and the
+	// selection is cleared again so the next click on it opens it too.
+	cx.Effect(func() {
+		keys := a.graphSelect.Keys()
+		if len(keys) == 0 {
+			return
+		}
+		hash, _ := keys[0].(string)
+		defer cx.Untrack(func() { a.graphSelect.Clear() })
+		for _, commit := range a.graph.GetUntracked() {
+			if commit.Hash == hash {
+				a.openCommit(commit)
+				return
+			}
+		}
+	})
 	return a
 }
 
@@ -1901,6 +1935,7 @@ func (a *app) selectThread(id string) {
 	a.prViewNumber.Set(0)
 	a.prNote.Set("")
 	a.graph.Set(nil)
+	a.closeCommit()
 	a.workingDiff.Set("")
 	a.workingFiles.Set(nil)
 	a.terminalSession.Set(proto.TerminalSession{})

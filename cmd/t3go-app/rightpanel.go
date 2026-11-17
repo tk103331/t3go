@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/oneo-me/nsgo/ui/commitgraph"
 	uidiff "github.com/oneo-me/nsgo/ui/diff"
+	"github.com/tk/t3go/internal/client"
 	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
 )
@@ -262,7 +264,9 @@ func (a *app) scrollWithBar(cx *core.Scope, ref *core.Ref, testID string, scroll
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
 		scroll,
 		ui.Scrollbar{Scroll: func() *core.Ref { return ref },
-			Mode:  func() base.ScrollbarMode { return base.ScrollbarAlways },
+			Mode: func() base.ScrollbarMode { return base.ScrollbarAlways },
+			// The thumb keeps the width a horizontal bar's keeps its height.
+			Style: core.Style{Padding: core.Symmetric(2, 2)},
 			Label: i18n.T("Scroll"), TestID: testID},
 	}}
 }
@@ -1067,12 +1071,13 @@ func (a *app) rightPreview(cx *core.Scope) core.Node {
 		rows = append(rows, core.Text{Content: detail, MaxLines: 5, Style: core.Style{FontSize: 11},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 	}
-	return core.View{Style: core.Style{Direction: core.Column, Gap: 6, Padding: core.All(10), FlexGrow: 1, MinHeight: core.Pt(0)},
-		Children: []core.Node{head,
-			core.Scroll{Style: ui.FillRest, Children: []core.Node{
+	return core.View{Style: core.Style{Direction: core.Column, Gap: 6, Padding: core.All(10), FlexGrow: 1,
+		FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{head,
+		a.scrollWithBar(cx, a.previewScroll, "preview-scrollbar", core.Scroll{TestID: "preview-scroll", Style: ui.FillRest,
+			Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Column, Gap: 5}, Children: rows},
-			}},
-		}}
+			}}),
+	}}
 }
 
 // rightBrowser shows a web page with its address bar.
@@ -1141,14 +1146,104 @@ func (a *app) browserStart(cx *core.Scope) core.Node {
 }
 
 // rightGraph draws the repository's commits beside their revision graph.
+// openCommit shows one commit's patch in place of the graph.
+func (a *app) openCommit(commit proto.GraphCommit) {
+	if commit.Hash == "" ||
+		(a.graphCommit.GetUntracked().Hash == commit.Hash && (a.commitBusy.GetUntracked() || a.commitPatch.GetUntracked() != "")) {
+		return
+	}
+	a.graphCommit.Set(commit)
+	a.commitPatch.Set("")
+	a.commitErr.Set("")
+	a.commitBusy.Set(true)
+	threadID := a.selected.GetUntracked()
+	var patch string
+	a.call(func(ctx context.Context, c *client.Client) error {
+		p, err := c.CommitDiff(ctx, threadID, commit.Hash)
+		patch = p
+		return err
+	}, func(err error) {
+		a.commitBusy.Set(false)
+		if err != nil {
+			a.commitErr.Set(friendlyError(err))
+			return
+		}
+		a.commitPatch.Set(patch)
+	})
+}
+
+// closeCommit returns the graph surface to the commit list.
+func (a *app) closeCommit() {
+	a.graphCommit.Set(proto.GraphCommit{})
+	a.commitPatch.Set("")
+	a.commitErr.Set("")
+	a.commitBusy.Set(false)
+}
+
+// rightCommit is one commit's patch, opened from the graph.
+func (a *app) rightCommit(cx *core.Scope, commit proto.GraphCommit) core.Node {
+	colors := ui.ColorsOf(cx)
+	short := commit.Short
+	if short == "" {
+		short = commit.Hash
+	}
+	detail := short
+	if commit.Author != "" {
+		detail += " · " + commit.Author
+	}
+	if !commit.Date.IsZero() {
+		detail += " · " + commit.Date.Local().Format("2006-01-02 15:04")
+	}
+	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+		Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
+		ui.IconButton{Icon: lucide.ChevronLeft, Label: i18n.T("Back to commits"), TestID: "commit-back", OnPress: a.closeCommit},
+		core.View{Style: core.Style{Direction: core.Column, Gap: 1, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+			Children: []core.Node{
+				core.Text{Content: commit.Subject, TestID: "commit-subject", MaxLines: 2,
+					Style:     core.Style{FontSize: 12, FontWeight: ui.Semibold},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+				core.Text{Content: detail, MaxLines: 1, Style: core.Style{FontSize: 10.5},
+					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+			}},
+		ui.IconButton{Icon: lucide.Copy, Label: i18n.T("Copy commit hash"), TestID: "commit-copy",
+			OnPress: func() { a.cx.SetClipboard(commit.Hash) }},
+	}}
+	var body core.Node
+	switch {
+	case a.commitErr.Get() != "":
+		body = core.View{Style: core.Style{Padding: core.Symmetric(6, 2)}, Children: []core.Node{
+			ui.Text(a.commitErr.Get(), 11.5, ui.Regular, colors.Danger)}}
+	case a.commitBusy.Get():
+		body = ui.Spinner{Size: 14, Label: i18n.T("Reading the commit")}
+	case a.commitPatch.Get() == "":
+		body = ui.Text(i18n.T("This commit has no changes."), 11.5, ui.Regular, colors.Faint)
+	default:
+		// The patch scrolls like the thread's diff, its bar over the edge.
+		body = a.diffNodeWith(a.commitPatch.Get(), a.commitRef, true)
+	}
+	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
+		Padding: core.All(10)}, Children: []core.Node{
+		head,
+		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Overflow: core.Hidden},
+			Children: []core.Node{body}},
+	}}
+}
+
 func (a *app) rightGraph(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	if a.selected.Get() == "" {
 		return a.rightNotice(cx, i18n.T("Pick a thread to see its commit graph."))
 	}
+	if commit := a.graphCommit.Get(); commit.Hash != "" {
+		return a.rightCommit(cx, commit)
+	}
 	commits := a.graph.Get()
 	view := commitgraph.View{Label: i18n.T("Commits"), TestID: "git-graph", Empty: ui.Text(i18n.T("No commits yet."), 12, ui.Regular, colors.Faint),
-		Style: ui.FillRest, Ref: a.graphScroll,
+		Style: ui.FillRest, Ref: a.graphScroll, Selection: a.graphSelect,
+		OnActivate: func(commit commitgraph.Commit) {
+			a.openCommit(proto.GraphCommit{Hash: commit.Hash, Short: commit.Short, Subject: commit.Subject,
+				Author: commit.Author, Date: commit.Date})
+		},
 		Commits: func() []commitgraph.Commit {
 			list := a.graph.Get()
 			out := make([]commitgraph.Commit, 0, len(list))
@@ -1175,12 +1270,18 @@ func (a *app) rightGraph(cx *core.Scope) core.Node {
 		ui.IconButton{Icon: lucide.RefreshCw, Label: i18n.T("Refresh graph"), TestID: "git-graph-refresh",
 			OnPress: func() { a.loadGraph(a.selected.GetUntracked()) }},
 	}}
-	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(10)}, Children: []core.Node{
+	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
+		Padding: core.All(10)}, Children: []core.Node{
 		head,
-		core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Overflow: core.Hidden}, Children: []core.Node{
+		// The list shrinks to the panel, so its rows scroll rather than
+		// stretch it past the window.
+		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinHeight: core.Pt(0),
+			Overflow: core.Hidden}, Children: []core.Node{
 			view,
 			ui.Scrollbar{Scroll: func() *core.Ref { return a.graphScroll },
-				Mode:  func() base.ScrollbarMode { return base.ScrollbarAlways },
+				Mode: func() base.ScrollbarMode { return base.ScrollbarAlways },
+				// The thumb keeps the width a horizontal bar's keeps its height.
+				Style: core.Style{Padding: core.Symmetric(2, 2)},
 				Label: i18n.T("Scroll commits"), TestID: "git-graph-scrollbar"},
 		}},
 	}}

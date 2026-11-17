@@ -218,6 +218,21 @@ func (s *Server) handleThreadGraph(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"commits": commits})
 }
 
+// handleCommitDiff reads one commit's patch for the git graph.
+func (s *Server) handleCommitDiff(w http.ResponseWriter, r *http.Request) {
+	t, err := s.Store.Thread(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), "thread", err.Error())
+		return
+	}
+	patch, err := git.CommitDiff(r.Context(), s.Service.ThreadDir(r.Context(), t), r.PathValue("commit"))
+	if err != nil {
+		writeError(w, statusFor(err), "commit", err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]string{"patch": patch})
+}
+
 // handlePullRequest reads the open pull request for a thread's branch.
 func (s *Server) handlePullRequest(w http.ResponseWriter, r *http.Request) {
 	t, err := s.Store.Thread(r.Context(), r.PathValue("id"))

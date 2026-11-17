@@ -298,6 +298,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/threads/{id}/pull-requests/{number}/action", s.auth(s.handlePullRequestAction))
 	mux.HandleFunc("POST /api/v1/threads/{id}/pull-requests/{number}/review", s.auth(s.handlePullRequestReview))
 	mux.HandleFunc("POST /api/v1/threads/{id}/pull-requests/{number}/comments", s.auth(s.handlePullRequestComment))
+	mux.HandleFunc("GET /api/v1/threads/{id}/commits/{commit}", s.auth(s.handleCommitDiff))
 	mux.HandleFunc("GET /api/v1/threads/{id}/branches", s.auth(s.handleBranches))
 	mux.HandleFunc("GET /api/v1/threads/{id}/files", s.auth(s.handleThreadFiles))
 	mux.HandleFunc("GET /api/v1/threads/{id}/file", s.auth(s.handleThreadFile))
@@ -2883,6 +2884,10 @@ func statusFor(err error) int {
 		return 409
 	case errors.Is(err, orchestrator.ErrEmpty), errors.Is(err, orchestrator.ErrBadPath), errors.Is(err, orchestrator.ErrBadAttachment), errors.Is(err, orchestrator.ErrInvalidRequestID):
 		return 400
+	case errors.Is(err, git.ErrInvalidCommit):
+		return 400
+	case errors.Is(err, git.ErrUnknownCommit):
+		return http.StatusNotFound
 	case errors.Is(err, orchestrator.ErrArchived), errors.Is(err, orchestrator.ErrNoProvider):
 		return 422
 	default:

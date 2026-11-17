@@ -324,3 +324,42 @@ func TestGraphCommits(t *testing.T) {
 		t.Fatalf("refs = %#v", commits[0].Refs)
 	}
 }
+
+// TestCommitDiffReadsOneCommit pins the commit patch the git graph shows
+// when a commit is opened, and that a revision git would read differently
+// is refused.
+func TestCommitDiffReadsOneCommit(t *testing.T) {
+	ctx := context.Background()
+	dir := initRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "commit", "-qam", "second change")
+	hash, err := run(ctx, dir, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash = strings.TrimSpace(hash)
+	patch, err := CommitDiff(ctx, dir, hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(patch, "diff --git a/a.txt b/a.txt") || !strings.Contains(patch, "+two") {
+		t.Fatalf("patch = %q", patch)
+	}
+	short, err := CommitDiff(ctx, dir, hash[:8])
+	if err != nil || short != patch {
+		t.Fatalf("short hash patch = %q, %v", short, err)
+	}
+	for _, bad := range []string{"", "HEAD~1", "--all", "main"} {
+		if _, err := CommitDiff(ctx, dir, bad); err == nil {
+			t.Fatalf("CommitDiff(%q) read something besides a hash", bad)
+		}
+	}
+	if _, err := CommitDiff(ctx, t.TempDir(), hash); !errors.Is(err, ErrNotRepo) {
+		t.Fatalf("a folder that is not a repository = %v", err)
+	}
+	if _, err := CommitDiff(ctx, dir, "deadbeef"); !errors.Is(err, ErrUnknownCommit) {
+		t.Fatalf("an unknown hash = %v", err)
+	}
+}
