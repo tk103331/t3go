@@ -11,6 +11,7 @@ import (
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/tk/t3go/internal/client"
+	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -88,9 +89,9 @@ func (a *app) updateProviderSettings(update func(*proto.Settings)) {
 func providerSettingsSource(source string) string {
 	switch source {
 	case "registry":
-		return "ACP Registry"
+		return i18n.T("ACP Registry")
 	case "local":
-		return "Local ACP"
+		return i18n.T("Local ACP")
 	default:
 		return source
 	}
@@ -115,10 +116,10 @@ func providerSettingsHeader(cx *core.Scope, name, detail, testID string, enabled
 	colors := ui.ColorsOf(cx)
 	var trailing []core.Node
 	if onDelete != nil {
-		trailing = append(trailing, ui.Button{Text: "Remove", Icon: lucide.Trash, Variant: ui.ButtonGhost,
+		trailing = append(trailing, ui.Button{Text: i18n.T("Remove"), Icon: lucide.Trash, Variant: ui.ButtonGhost,
 			Size: controlSize(cx), TestID: deleteTestID, OnPress: onDelete})
 	}
-	trailing = append(trailing, settingsSwitch(cx, "Enable "+name, testID+"-enabled", enabled, onEnabled))
+	trailing = append(trailing, settingsSwitch(cx, i18n.T("Enable ")+name, testID+"-enabled", enabled, onEnabled))
 	return core.View{TestID: testID + "-header", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
 		Wrap: core.Wrap, Gap: 8}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Column, Gap: 1, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(140)},
@@ -157,7 +158,7 @@ func (a *app) acpProviderSettingsCards(cx *core.Scope) []core.Node {
 							settings.ACPProviders[index].Enabled = enabled
 						}
 					})
-				}, "Remove", "settings-acp-remove-"+configured.ID, func() {
+				}, i18n.T("Remove"), "settings-acp-remove-"+configured.ID, func() {
 					a.updateProviderSettings(func(settings *proto.Settings) {
 						if index < len(settings.ACPProviders) {
 							settings.ACPProviders = append(settings.ACPProviders[:index], settings.ACPProviders[index+1:]...)
@@ -168,7 +169,7 @@ func (a *app) acpProviderSettingsCards(cx *core.Scope) []core.Node {
 				return a.providerTextValue(providerTextKeyACP(configured.ID, "name"), configured.Name)
 			}, OnChange: func(name string) {
 				a.setProviderTextValue(providerTextKeyACP(configured.ID, "name"), name)
-			}, Placeholder: "Provider name", Label: "ACP provider name"},
+			}, Placeholder: i18n.T("Provider name"), Label: i18n.T("ACP provider name")},
 				TestID: "settings-acp-name-" + configured.ID},
 		}
 		if configured.Source == "local" {
@@ -177,12 +178,12 @@ func (a *app) acpProviderSettingsCards(cx *core.Scope) []core.Node {
 					return a.providerTextValue(providerTextKeyACP(configured.ID, "path"), configured.CommandPath)
 				}, OnChange: func(path string) {
 					a.setProviderTextValue(providerTextKeyACP(configured.ID, "path"), path)
-				}, Placeholder: "/absolute/path/to/agent or executable on PATH", Label: "ACP executable",
+				}, Placeholder: i18n.T("/absolute/path/to/agent or executable on PATH"), Label: i18n.T("ACP executable"),
 					NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone},
 					TestID: "settings-acp-path-" + configured.ID},
 			)
 		} else {
-			body = append(body, core.Text{Content: fmt.Sprintf("Registry agent %s · %s distribution",
+			body = append(body, core.Text{Content: i18n.T("Registry agent %s · %s distribution",
 				configured.AgentID, configured.Distribution), MaxLines: 2,
 				Style:     core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
@@ -192,10 +193,10 @@ func (a *app) acpProviderSettingsCards(cx *core.Scope) []core.Node {
 				return a.providerTextValue(providerTextKeyACP(configured.ID, "args"), commandArgsText(configured.CommandArgs))
 			}, OnChange: func(value string) {
 				a.setProviderTextValue(providerTextKeyACP(configured.ID, "args"), value)
-			}, Placeholder: "One literal argument per line", Label: "ACP arguments",
+			}, Placeholder: i18n.T("One literal argument per line"), Label: i18n.T("ACP arguments"),
 				Multiline: true, NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone},
 				TestID: "settings-acp-args-" + configured.ID},
-			core.Text{Content: "Arguments are passed directly to the process; shell expansion is never applied.",
+			core.Text{Content: i18n.T("Arguments are passed directly to the process; shell expansion is never applied."),
 				MaxLines: 2, Style: core.Style{FontSize: 10.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 		)
@@ -221,7 +222,7 @@ func (a *app) openProviderAdd() {
 
 func (a *app) searchProviderCatalog(refresh bool) {
 	if !a.settingsConnectionReady() {
-		a.providerCatalogErr.Set("Connect this environment to search the ACP Registry.")
+		a.providerCatalogErr.Set(i18n.T("Connect this environment to search the ACP Registry."))
 		return
 	}
 	a.providerSeq++
@@ -301,7 +302,7 @@ func (a *app) addRegistryProvider(agent proto.ACPRegistryAgent, distribution str
 	settings := a.settingsDraft.GetUntracked()
 	for _, configured := range settings.ACPProviders {
 		if configured.Source == "registry" && configured.AgentID == agent.ID {
-			a.providerManageErr.Set(agent.Name + " is already configured for this environment.")
+			a.providerManageErr.Set(agent.Name + i18n.T(" is already configured for this environment."))
 			return
 		}
 	}
@@ -338,11 +339,11 @@ func (a *app) addLocalACPProvider() {
 	name := strings.TrimSpace(a.providerLocalName.GetUntracked())
 	path := strings.TrimSpace(a.providerLocalPath.GetUntracked())
 	if name == "" {
-		a.providerManageErr.Set("Enter a provider name.")
+		a.providerManageErr.Set(i18n.T("Enter a provider name."))
 		return
 	}
 	if path == "" {
-		a.providerManageErr.Set("Enter the local ACP executable.")
+		a.providerManageErr.Set(i18n.T("Enter the local ACP executable."))
 		return
 	}
 	a.updateProviderSettings(func(settings *proto.Settings) {
@@ -368,10 +369,10 @@ func (a *app) providerRegistryPanel(cx *core.Scope) core.Node {
 				continue
 			}
 			distribution := distribution
-			label := "Add via " + distribution
+			label := i18n.T("Add via ") + distribution
 			icon := lucide.Plus
 			if distribution == "binary" {
-				label, icon = "Install", lucide.Download
+				label, icon = i18n.T("Install"), lucide.Download
 			}
 			actions = append(actions, ui.Button{Text: label, Icon: icon, Variant: ui.ButtonSecondary,
 				Size: controlSize(cx), TestID: "settings-acp-add-" + agent.ID + "-" + distribution,
@@ -401,21 +402,21 @@ func (a *app) providerRegistryPanel(cx *core.Scope) core.Node {
 			}})
 	}
 	if a.providerCatalogBusy.Get() {
-		resultCards = []core.Node{ui.Spinner{Size: 14, Label: "Loading ACP Registry"}}
+		resultCards = []core.Node{ui.Spinner{Size: 14, Label: i18n.T("Loading ACP Registry")}}
 	} else if a.providerCatalogErr.Get() != "" {
 		resultCards = []core.Node{ui.Text(a.providerCatalogErr.Get(), 11, ui.Regular, colors.Danger)}
 	} else if len(resultCards) == 0 {
-		resultCards = []core.Node{ui.Text("No compatible registry agents found.", 11.5, ui.Regular, colors.Faint)}
+		resultCards = []core.Node{ui.Text(i18n.T("No compatible registry agents found."), 11.5, ui.Regular, colors.Faint)}
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 7}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 				mobileInput{Scope: cx, Input: base.Input{Value: a.providerSearchQuery.Get, OnChange: a.providerSearchQuery.Set,
-					Placeholder: "Search agents", Label: "Search ACP Registry", NoAutoCorrect: true,
+					Placeholder: i18n.T("Search agents"), Label: i18n.T("Search ACP Registry"), NoAutoCorrect: true,
 					SubmitBehavior: core.SubmitBehaviorSubmit, OnSubmit: func(string) { a.searchProviderCatalog(false) }},
 					TestID: "settings-acp-search"},
 			}},
-			ui.Button{Text: "Search", Icon: lucide.Search, Variant: ui.ButtonSecondary, Size: controlSize(cx),
+			ui.Button{Text: i18n.T("Search"), Icon: lucide.Search, Variant: ui.ButtonSecondary, Size: controlSize(cx),
 				TestID: "settings-acp-search-button", Disabled: a.providerCatalogBusy.Get,
 				OnPress: func() { a.searchProviderCatalog(true) }},
 		}},
@@ -427,17 +428,17 @@ func (a *app) providerLocalPanel(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 7}, Children: []core.Node{
 		mobileInput{Scope: cx, Input: base.Input{Value: a.providerLocalName.Get, OnChange: a.providerLocalName.Set,
-			Placeholder: "Provider name", Label: "Local ACP provider name"}, TestID: "settings-acp-local-name"},
+			Placeholder: i18n.T("Provider name"), Label: i18n.T("Local ACP provider name")}, TestID: "settings-acp-local-name"},
 		mobileInput{Scope: cx, Input: base.Input{Value: a.providerLocalPath.Get, OnChange: a.providerLocalPath.Set,
-			Placeholder: "/absolute/path/to/agent or executable on PATH", Label: "Local ACP executable",
+			Placeholder: i18n.T("/absolute/path/to/agent or executable on PATH"), Label: i18n.T("Local ACP executable"),
 			NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone}, TestID: "settings-acp-local-path"},
 		mobileInput{Scope: cx, Input: base.Input{Value: a.providerLocalArgs.Get, OnChange: a.providerLocalArgs.Set,
-			Placeholder: "One literal argument per line", Label: "Local ACP arguments", Multiline: true,
+			Placeholder: i18n.T("One literal argument per line"), Label: i18n.T("Local ACP arguments"), Multiline: true,
 			NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone}, TestID: "settings-acp-local-args"},
-		core.Text{Content: "The executable is started directly without a shell. Relative executable names are resolved on the environment's PATH.",
+		core.Text{Content: i18n.T("The executable is started directly without a shell. Relative executable names are resolved on the environment's PATH."),
 			MaxLines: 3, Style: core.Style{FontSize: 10.5, LineHeight: 15},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-		ui.Button{Text: "Add local ACP provider", Icon: lucide.Plus, Variant: ui.ButtonPrimary,
+		ui.Button{Text: i18n.T("Add local ACP provider"), Icon: lucide.Plus, Variant: ui.ButtonPrimary,
 			Size: controlSize(cx), TestID: "settings-acp-add-local", OnPress: a.addLocalACPProvider},
 	}}
 }
@@ -445,7 +446,7 @@ func (a *app) providerLocalPanel(cx *core.Scope) core.Node {
 func (a *app) providerAddPanel(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	if !a.providerAddOpen.Get() {
-		return ui.Button{Text: "Add ACP provider", Icon: lucide.Plus, Variant: ui.ButtonSecondary,
+		return ui.Button{Text: i18n.T("Add ACP provider"), Icon: lucide.Plus, Variant: ui.ButtonSecondary,
 			Size: controlSize(cx), TestID: "settings-provider-add", OnPress: a.openProviderAdd}
 	}
 	var body core.Node
@@ -456,20 +457,20 @@ func (a *app) providerAddPanel(cx *core.Scope) core.Node {
 	}
 	return providerSettingsCard(cx, "settings-provider-add-panel",
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
-			core.Text{Content: "Add provider", Style: core.Style{FontSize: 13, FontWeight: ui.Semibold, FlexGrow: 1},
+			core.Text{Content: i18n.T("Add provider"), Style: core.Style{FontSize: 13, FontWeight: ui.Semibold, FlexGrow: 1},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-			ui.Button{Text: "Close", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "settings-provider-add-close",
+			ui.Button{Text: i18n.T("Close"), Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "settings-provider-add-close",
 				OnPress: func() { a.providerAddOpen.Set(false) }},
 		}},
 		core.View{Style: core.Style{Direction: core.Row, Gap: 5}, Children: []core.Node{
-			ui.Button{Text: "ACP Registry", Variant: func() ui.ButtonVariant {
+			ui.Button{Text: i18n.T("ACP Registry"), Variant: func() ui.ButtonVariant {
 				if a.providerAddMode.Get() == "registry" {
 					return ui.ButtonPrimary
 				}
 				return ui.ButtonSecondary
 			}(), Size: controlSize(cx), TestID: "settings-provider-mode-registry",
 				OnPress: func() { a.providerAddMode.Set("registry") }},
-			ui.Button{Text: "Local command", Variant: func() ui.ButtonVariant {
+			ui.Button{Text: i18n.T("Local command"), Variant: func() ui.ButtonVariant {
 				if a.providerAddMode.Get() == "local" {
 					return ui.ButtonPrimary
 				}
@@ -485,11 +486,11 @@ func (a *app) providerSettingsSection(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	cards := a.acpProviderSettingsCards(cx)
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 7}, Children: []core.Node{
-		core.Text{Content: "Configured providers", Style: core.Style{FontSize: 11, FontWeight: ui.Semibold},
+		core.Text{Content: i18n.T("Configured providers"), Style: core.Style{FontSize: 11, FontWeight: ui.Semibold},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 		core.View{Style: core.Style{Direction: core.Column, Gap: 6}, Children: cards},
 		core.Show{When: func() bool { return a.providerPrepareID.Get() != "" }, Then: func(*core.Scope) core.Node {
-			return ui.Spinner{Size: 14, Label: "Installing " + a.providerPrepareID.Get()}
+			return ui.Spinner{Size: 14, Label: i18n.T("Installing ") + a.providerPrepareID.Get()}
 		}},
 		core.Show{When: func() bool { return a.providerManageErr.Get() != "" }, Then: func(*core.Scope) core.Node {
 			return ui.Text(a.providerManageErr.Get(), 11, ui.Regular, colors.Danger)

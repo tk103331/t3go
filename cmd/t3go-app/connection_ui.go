@@ -8,6 +8,7 @@ import (
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/tk/t3go/internal/i18n"
 )
 
 // Status has its own reactive boundary so transport changes keep input focus.
@@ -24,25 +25,33 @@ func (a *app) environmentStatus(cx *core.Scope) core.Node {
 }
 
 func (a *app) connectionLabel() string {
+	_, label := a.connectionStatus()
+	return label
+}
+
+// connectionStatus reports the connection's state and the label that
+// shows it. The key stays the same in every language, so the interface
+// can tell the states apart.
+func (a *app) connectionStatus() (string, string) {
 	if a.connecting.Get() {
-		return "Connecting…"
+		return "connecting", i18n.T("Connecting…")
 	}
 	if a.transportBlocked.Get() {
-		return "Authorization required"
+		return "blocked", i18n.T("Authorization required")
 	}
 	if a.offline.Get() {
-		return "Reconnecting…"
+		return "reconnecting", i18n.T("Reconnecting…")
 	}
 	if !a.connected.Get() {
-		return "Not connected"
+		return "offline", i18n.T("Not connected")
 	}
 	switch routeKind(a.profile.Routes, a.serverURL.Get()) {
 	case "relay":
-		return "Relay"
+		return "relay", "Relay"
 	case "direct":
-		return "Direct"
+		return "direct", i18n.T("Direct")
 	default:
-		return "Connected"
+		return "connected", i18n.T("Connected")
 	}
 }
 
@@ -58,24 +67,24 @@ func (a *app) connectionBanner(cx *core.Scope) core.Node {
 	}
 	switch {
 	case a.connecting.Get():
-		children = []core.Node{ui.Spinner{Size: 12, Label: "Connecting"}, text("Checking the environment connection…")}
+		children = []core.Node{ui.Spinner{Size: 12, Label: i18n.T("Connecting")}, text(i18n.T("Checking the environment connection…"))}
 	case a.transportBlocked.Get():
 		testID = "authorization-required"
 		children = []core.Node{
 			ui.Icon(lucide.KeyRound, 16, colors.Danger),
-			text("Environment access was rejected. Update the token to reconnect."),
-			ui.Button{Text: "Update token", TestID: "update-credentials", Size: controlSize(cx),
+			text(i18n.T("Environment access was rejected. Update the token to reconnect.")),
+			ui.Button{Text: i18n.T("Update token"), TestID: "update-credentials", Size: controlSize(cx),
 				Variant: ui.ButtonSecondary, OnPress: a.openCredentials},
 		}
 	case a.offline.Get():
-		children = []core.Node{ui.Spinner{Size: 12, Label: "Reconnecting"},
-			text("Connection lost. Reconnecting…"),
-			ui.Button{Text: "Retry now", TestID: "retry-connection", Size: controlSize(cx),
+		children = []core.Node{ui.Spinner{Size: 12, Label: i18n.T("Reconnecting")},
+			text(i18n.T("Connection lost. Reconnecting…")),
+			ui.Button{Text: i18n.T("Retry now"), TestID: "retry-connection", Size: controlSize(cx),
 				Variant: ui.ButtonGhost, OnPress: func() { a.connectProfile(a.profile) }},
 		}
 	case a.connectionRecovered.Get():
 		testID = "connection-restored"
-		children = []core.Node{ui.Icon(lucide.Check, 16, colors.Accent), text("Connection restored.")}
+		children = []core.Node{ui.Icon(lucide.Check, 16, colors.Accent), text(i18n.T("Connection restored."))}
 	default:
 		return core.View{}
 	}
@@ -99,7 +108,7 @@ func (a *app) markOnline() {
 
 func (a *app) environmentContext(cx *core.Scope, testID string) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		return core.Text{Content: "Environment: " + a.envName(), TestID: testID, MaxLines: 1,
+		return core.Text{Content: i18n.T("Environment: ") + a.envName(), TestID: testID, MaxLines: 1,
 			Style:     core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexShrink: 0},
 			StyleFunc: func() core.Style { return core.Style{Color: ui.ColorsOf(cx).Muted()} }}
 	})
@@ -126,7 +135,7 @@ func (a *app) updateCredentials() {
 	}
 	token := strings.TrimSpace(a.credentialToken.GetUntracked())
 	if token == "" {
-		a.credentialError.Set("Enter the environment token.")
+		a.credentialError.Set(i18n.T("Enter the environment token."))
 		return
 	}
 	a.credentialError.Set("")
@@ -142,25 +151,25 @@ func (a *app) credentialsDialog(cx *core.Scope) core.Node {
 				a.closeCredentials()
 			}
 		},
-		NoCloseOnBackdropPress: compactSettings(cx), Title: "Update environment token",
-		Description: "Test the new token before saving it. Your drafts and queued messages are kept.",
+		NoCloseOnBackdropPress: compactSettings(cx), Title: i18n.T("Update environment token"),
+		Description: i18n.T("Test the new token before saving it. Your drafts and queued messages are kept."),
 		TestID:      "credentials-dialog", Style: dialogWidth(cx, 480),
 		Children: []core.Node{
 			a.environmentContext(cx, "credentials-environment"),
 			mobileInput{Scope: cx, Input: base.Input{Value: a.credentialToken.Get, OnChange: a.credentialToken.Set,
-				Label: "New environment token", Placeholder: "Paste the environment token", Masked: true,
+				Label: i18n.T("New environment token"), Placeholder: i18n.T("Paste the environment token"), Masked: true,
 				SubmitBehavior: core.SubmitBehaviorSubmit, OnSubmit: func(string) { a.updateCredentials() }}},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				if a.connecting.Get() {
-					return ui.Text("Checking connection…", 12, ui.Regular, ui.ColorsOf(cx).Muted)
+					return ui.Text(i18n.T("Checking connection…"), 12, ui.Regular, ui.ColorsOf(cx).Muted)
 				}
 				return ui.Text(a.credentialError.Get(), 12, ui.Regular, ui.ColorsOf(cx).Danger)
 			}),
 		},
 		Footer: []core.Node{
-			ui.Button{Text: "Cancel", TestID: "credentials-cancel", Variant: ui.ButtonGhost,
+			ui.Button{Text: i18n.T("Cancel"), TestID: "credentials-cancel", Variant: ui.ButtonGhost,
 				Size: controlSize(cx), Disabled: a.connecting.Get, OnPress: a.closeCredentials},
-			ui.Button{Text: "Save and reconnect", TestID: "credentials-save", Size: controlSize(cx),
+			ui.Button{Text: i18n.T("Save and reconnect"), TestID: "credentials-save", Size: controlSize(cx),
 				Disabled: a.connecting.Get, OnPress: a.updateCredentials},
 		}}
 }

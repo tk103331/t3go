@@ -12,6 +12,7 @@ import (
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/tk/t3go/internal/client"
+	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -560,7 +561,7 @@ func (a *app) environmentList(cx *core.Scope) core.Node {
 		p := profile
 		name := names[p.ID]
 		if p.ID == a.manager.defaultID {
-			name += " · Default"
+			name += i18n.T(" · Default")
 		}
 		var addresses []string
 		for _, r := range p.Routes {
@@ -586,7 +587,7 @@ func (a *app) environmentList(cx *core.Scope) core.Node {
 			}
 			modeControls = core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: modes}
 		}
-		status := "Not connected"
+		status := i18n.T("Not connected")
 		var sessionError string
 		session := a.manager.sessions[p.ID]
 		if session != nil {
@@ -605,65 +606,65 @@ func (a *app) environmentList(cx *core.Scope) core.Node {
 				ui.Text(strings.Join(addresses, "\n"), 11, ui.Regular, colors.Muted),
 				ui.Text(sessionError, 11, ui.Regular, colors.Danger),
 				core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: []core.Node{
-					ui.Button{Text: "Reconnect", Size: controlSize(cx), TestID: "environment-reconnect-" + p.ID,
+					ui.Button{Text: i18n.T("Reconnect"), Size: controlSize(cx), TestID: "environment-reconnect-" + p.ID,
 						Disabled: func() bool { return session == nil || session.connecting.Get() },
 						OnPress: func() {
 							if session != nil {
 								session.connectProfile(a.manager.find(p.ID))
 							}
 						}},
-					ui.Button{Text: "Update token", Variant: ui.ButtonGhost, Size: controlSize(cx),
+					ui.Button{Text: i18n.T("Update token"), Variant: ui.ButtonGhost, Size: controlSize(cx),
 						TestID: "environment-token-" + p.ID, OnPress: func() {
 							if session != nil {
 								session.openCredentials()
 							}
 						}},
-					ui.Button{Text: "Default", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "environment-default-" + p.ID, OnPress: func() {
+					ui.Button{Text: i18n.T("Default"), Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "environment-default-" + p.ID, OnPress: func() {
 						a.manager.defaultID = p.ID
 						_ = a.manager.save()
 						a.manager.profiles.Set(append([]client.EnvironmentProfile(nil), a.manager.profiles.GetUntracked()...))
 					}},
 					core.Show{When: func() bool { return !a.manager.isLocalEnvironment(p.ID) }, Then: func(*core.Scope) core.Node {
-						return ui.Button{Text: "Forget", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "environment-forget-" + p.ID, OnPress: func() {
+						return ui.Button{Text: i18n.T("Forget"), Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "environment-forget-" + p.ID, OnPress: func() {
 							a.forgetEnvironment.Set(p.ID)
 						}}
 					}},
-					ui.Button{Text: "Edit alias", Icon: lucide.Pencil, Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "environment-rename-" + p.ID, OnPress: func() {
+					ui.Button{Text: i18n.T("Edit alias"), Icon: lucide.Pencil, Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "environment-rename-" + p.ID, OnPress: func() {
 						a.environmentAlias.Set(p.Alias)
 						a.renameEnvironment.Set(p.ID)
 					}},
-					ui.Button{Text: "Configure", Icon: lucide.Settings, Variant: ui.ButtonGhost, Size: controlSize(cx),
+					ui.Button{Text: i18n.T("Configure"), Icon: lucide.Settings, Variant: ui.ButtonGhost, Size: controlSize(cx),
 						TestID: "environment-configure-" + p.ID, OnPress: func() { a.openEnvironmentSettings(p.ID) }},
 				}},
 				modeControls,
 			}})
 	}
 	if len(rows) == 0 {
-		rows = append(rows, ui.Text("No saved environments.", 13, ui.Regular, colors.Muted))
+		rows = append(rows, ui.Text(i18n.T("No saved environments."), 13, ui.Regular, colors.Muted))
 	}
 	return core.View{Style: core.Style{Gap: 8}, Children: rows}
 }
 
 func (a *app) environmentDialog(cx *core.Scope) core.Node {
 	return ui.Dialog{Open: a.showEnvironments.Get, OnOpenChange: closeDialog(a.showEnvironments),
-		Title: "Environments", Description: "Manage connections to your machines.",
+		Title: i18n.T("Environments"), Description: i18n.T("Manage connections to your machines."),
 		TestID: "environments-dialog", Style: dialogWidth(cx, 620),
 		Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{a.environmentManagement(cx)}}},
 		Footer: []core.Node{
-			ui.Button{Text: "Close", Variant: ui.ButtonGhost, Size: controlSize(cx), OnPress: func() { a.showEnvironments.Set(false) }},
+			ui.Button{Text: i18n.T("Close"), Variant: ui.ButtonGhost, Size: controlSize(cx), OnPress: func() { a.showEnvironments.Set(false) }},
 		}}
 }
 
 func (a *app) environmentManagement(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
-		settingsSectionTitle(cx, "Environments", "All connected environments appear in the session list. Choose a target when creating a project."),
-		ui.Button{Text: "Add environment", Icon: lucide.Plus, TestID: "environment-add", Size: controlSize(cx),
+		settingsSectionTitle(cx, i18n.T("Environments"), i18n.T("All connected environments appear in the session list. Choose a target when creating a project.")),
+		ui.Button{Text: i18n.T("Add environment"), Icon: lucide.Plus, TestID: "environment-add", Size: controlSize(cx),
 			OnPress: func() { a.manager.addEnvironment() }},
 		core.Dynamic(a.environmentList),
 		core.Show{When: func() bool { return a.forgetEnvironment.Get() != "" }, Then: func(*core.Scope) core.Node {
 			return core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
-				ui.Text("Forget this connection? Local drafts and queued messages are kept. Remote projects and running tasks are not deleted.", 12, ui.Regular, ui.ColorsOf(cx).Muted),
-				ui.Button{Text: "Confirm forget", TestID: "environment-confirm-forget", OnPress: func() {
+				ui.Text(i18n.T("Forget this connection? Local drafts and queued messages are kept. Remote projects and running tasks are not deleted."), 12, ui.Regular, ui.ColorsOf(cx).Muted),
+				ui.Button{Text: i18n.T("Confirm forget"), TestID: "environment-confirm-forget", OnPress: func() {
 					id := a.forgetEnvironment.GetUntracked()
 					a.forgetEnvironment.Set("")
 					a.manager.forget(id)
@@ -684,13 +685,13 @@ func (m *environmentManager) addEnvironmentDialog(cx *core.Scope) core.Node {
 				m.closePending()
 			}
 		},
-		Title: "Add environment", TestID: "add-environment-dialog", Style: dialogWidth(cx, 560),
+		Title: i18n.T("Add environment"), TestID: "add-environment-dialog", Style: dialogWidth(cx, 560),
 		Children: []core.Node{core.Scroll{StyleFunc: func() core.Style {
 			height := (cx.Env().Window().Height - cx.Env().KeyboardHeight()) * 0.72
 			return core.Style{MaxHeight: core.Pt(height)}
 		},
 			Children: []core.Node{core.Dynamic(pending.connectView)}}},
-		Footer: []core.Node{ui.Button{Text: "Cancel", TestID: "environment-add-cancel", Variant: ui.ButtonGhost,
+		Footer: []core.Node{ui.Button{Text: i18n.T("Cancel"), TestID: "environment-add-cancel", Variant: ui.ButtonGhost,
 			Size: controlSize(cx), OnPress: m.closePending}}}
 }
 
@@ -898,7 +899,7 @@ func (a *app) blockTransport(err error) {
 	a.transportBlocked.Set(true)
 	a.queuePaused.Set(true)
 	a.offline.Set(true)
-	a.connErr.Set("Environment access was rejected. Update the connection token before reconnecting. " + friendlyError(err))
+	a.connErr.Set(i18n.T("Environment access was rejected. Update the connection token before reconnecting. ") + friendlyError(err))
 	a.mu.Lock()
 	if a.streamCancel != nil {
 		a.streamCancel()

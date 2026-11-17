@@ -9,6 +9,7 @@ import (
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/tk/t3go/internal/client"
 	"github.com/tk/t3go/internal/environment"
+	"github.com/tk/t3go/internal/i18n"
 )
 
 func memoryLabel(bytes uint64) string {
@@ -35,23 +36,23 @@ func environmentHardware(cx *core.Scope, p client.EnvironmentProfile) core.Node 
 			}})
 	}
 	if environment.UsableName(p.Hostname) && p.Hostname != environmentBaseName(p) {
-		row("Host", p.Hostname, "environment-host-")
+		row(i18n.T("Host"), p.Hostname, "environment-host-")
 	}
 	if info := p.System; info != nil {
-		row("System", strings.TrimSpace(info.OS+" "+info.OSVersion)+" · "+info.Arch, "environment-system-")
+		row(i18n.T("System"), strings.TrimSpace(info.OS+" "+info.OSVersion)+" · "+info.Arch, "environment-system-")
 		cpu := info.CPUModel
 		if info.LogicalCPUs > 0 {
 			if cpu != "" {
 				cpu += " · "
 			}
-			cpu += fmt.Sprintf("%d logical CPUs", info.LogicalCPUs)
+			cpu += i18n.T("%d logical CPUs", info.LogicalCPUs)
 		}
-		row("CPU", cpu, "environment-cpu-")
+		row(i18n.T("CPU"), cpu, "environment-cpu-")
 		if info.MemoryTotalBytes > 0 {
-			row("Memory", memoryLabel(info.MemoryTotalBytes), "environment-memory-")
+			row(i18n.T("Memory"), memoryLabel(info.MemoryTotalBytes), "environment-memory-")
 		}
 	} else {
-		rows = append(rows, ui.Text("System information unavailable", 11.5, ui.Regular, colors.Faint))
+		rows = append(rows, ui.Text(i18n.T("System information unavailable"), 11.5, ui.Regular, colors.Faint))
 	}
 	return core.View{TestID: "environment-hardware-" + p.ID, Style: core.Style{Gap: 4}, Children: rows}
 }
@@ -63,16 +64,16 @@ func (a *app) environmentAliasEditor(cx *core.Scope, id string) core.Node {
 			return value != "" && !environment.UsableName(value)
 		}
 		return core.View{TestID: "environment-alias-editor-" + id, Style: core.Style{Gap: 8}, Children: []core.Node{
-			mobileInput{Scope: cx, Input: base.Input{Label: "Environment alias", TestID: "environment-alias-" + id,
-				Placeholder: "Alias (blank uses hostname)", Value: a.environmentAlias.Get, OnChange: a.environmentAlias.Set}},
+			mobileInput{Scope: cx, Input: base.Input{Label: i18n.T("Environment alias"), TestID: "environment-alias-" + id,
+				Placeholder: i18n.T("Alias (blank uses hostname)"), Value: a.environmentAlias.Get, OnChange: a.environmentAlias.Set}},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				if invalid() {
-					return ui.Text("Use a device name instead of localhost or a loopback address.", 12, ui.Regular, ui.ColorsOf(cx).Danger)
+					return ui.Text(i18n.T("Use a device name instead of localhost or a loopback address."), 12, ui.Regular, ui.ColorsOf(cx).Danger)
 				}
-				return ui.Text("Saved on this client. Leave blank to use the hostname.", 12, ui.Regular, ui.ColorsOf(cx).Muted)
+				return ui.Text(i18n.T("Saved on this client. Leave blank to use the hostname."), 12, ui.Regular, ui.ColorsOf(cx).Muted)
 			}),
 			core.View{Style: core.Style{Direction: core.Row, Gap: 8, Wrap: core.Wrap}, Children: []core.Node{
-				ui.Button{Text: "Save alias", TestID: "environment-alias-save-" + id, Size: controlSize(cx), Disabled: invalid,
+				ui.Button{Text: i18n.T("Save alias"), TestID: "environment-alias-save-" + id, Size: controlSize(cx), Disabled: invalid,
 					OnPress: func() {
 						if invalid() {
 							return
@@ -82,7 +83,7 @@ func (a *app) environmentAliasEditor(cx *core.Scope, id string) core.Node {
 						a.manager.update(p)
 						a.renameEnvironment.Set("")
 					}},
-				ui.Button{Text: "Cancel", TestID: "environment-alias-cancel-" + id, Variant: ui.ButtonGhost, Size: controlSize(cx),
+				ui.Button{Text: i18n.T("Cancel"), TestID: "environment-alias-cancel-" + id, Variant: ui.ButtonGhost, Size: controlSize(cx),
 					OnPress: func() { a.renameEnvironment.Set("") }},
 			}},
 		}}

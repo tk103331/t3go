@@ -14,6 +14,7 @@ import (
 	"github.com/oneo-me/nsgo/ui"
 	qrcode "github.com/skip2/go-qrcode"
 	"github.com/tk/t3go/internal/client"
+	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -171,12 +172,12 @@ func (a *app) configureRelay() {
 	}
 	c := a.client()
 	if c == nil {
-		a.relayErr.Set("Connect the local environment before configuring Relay.")
+		a.relayErr.Set(i18n.T("Connect the local environment before configuring Relay."))
 		return
 	}
 	session, server, ok := a.relayAccountSession()
 	if !ok {
-		a.relayErr.Set("Sign in from Account before connecting Relay.")
+		a.relayErr.Set(i18n.T("Sign in from Account before connecting Relay."))
 		return
 	}
 	in := proto.RelayAccessConfig{
@@ -234,13 +235,13 @@ func (a *app) scheduleRelayStatusRefresh() {
 func relayAccessStateLabel(status proto.RelayAccessStatus) string {
 	switch strings.ToLower(strings.TrimSpace(status.State)) {
 	case "connecting":
-		return "Connecting"
+		return i18n.T("Connecting")
 	case "retrying":
-		return "Reconnecting"
+		return i18n.T("Reconnecting")
 	case "active":
 		return "Online"
 	case "error":
-		return "Connection error"
+		return i18n.T("Connection error")
 	default:
 		return "Configured"
 	}
@@ -257,7 +258,7 @@ func (a *app) refreshAccess() {
 		return
 	}
 	if !isLocalEnvironmentProfile(a.profile) {
-		a.accessErr.Set("Access is only available for the environment running on this machine.")
+		a.accessErr.Set(i18n.T("Access is only available for the environment running on this machine."))
 		return
 	}
 	direct, relay := accessRouteMode(a.settingsDraft.GetUntracked())
@@ -268,7 +269,7 @@ func (a *app) refreshAccess() {
 	}
 	png, err := qrcode.Encode(link, qrcode.Medium, 320)
 	if err != nil {
-		a.accessErr.Set("Could not draw pairing QR code: " + err.Error())
+		a.accessErr.Set(i18n.T("Could not draw pairing QR code: ") + err.Error())
 		return
 	}
 	a.accessLink.Set(link)
@@ -287,7 +288,7 @@ func accessRouteWarning(link string) string {
 	}
 	name := strings.ToLower(parsed.Hostname())
 	if name == "localhost" || name == "127.0.0.1" || name == "::1" {
-		return "This direct route only works on this machine. Turn on LAN access for devices on the same Wi-Fi, or configure Relay for access across networks."
+		return i18n.T("This direct route only works on this machine. Turn on LAN access for devices on the same Wi-Fi, or configure Relay for access across networks.")
 	}
 	return ""
 }
@@ -320,9 +321,9 @@ func accessRouteRow(cx *core.Scope, label, detail, testID string, available bool
 	colors := ui.ColorsOf(cx)
 	var control core.Node
 	if available {
-		control = accessRouteSwitch(cx, label+" pairing route", testID, checked, disabled, onChange)
+		control = accessRouteSwitch(cx, label+i18n.T(" pairing route"), testID, checked, disabled, onChange)
 	} else {
-		control = core.Text{Content: "Not configured", TestID: testID + "-unavailable",
+		control = core.Text{Content: i18n.T("Not configured"), TestID: testID + "-unavailable",
 			Style:     core.Style{FontSize: 11, FontWeight: ui.Medium},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }}
 	}
@@ -345,9 +346,9 @@ func (a *app) relayConfigurationCard(cx *core.Scope) core.Node {
 	header := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Column, Gap: 2, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 			Children: []core.Node{
-				core.Text{Content: "Relay access", Style: core.Style{FontSize: 12.5, FontWeight: ui.Semibold},
+				core.Text{Content: i18n.T("Relay access"), Style: core.Style{FontSize: 12.5, FontWeight: ui.Semibold},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-				core.Text{Content: "Use the Relay account already signed in under Account.",
+				core.Text{Content: i18n.T("Use the Relay account already signed in under Account."),
 					MaxLines: 2, Style: core.Style{FontSize: 10.5},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 			}},
@@ -374,7 +375,7 @@ func (a *app) relayConfigurationCard(cx *core.Scope) core.Node {
 					}},
 			}})
 	} else {
-		body = append(body, core.Text{Content: "No Relay account is signed in. Sign in once under Account, then return here to connect this machine.",
+		body = append(body, core.Text{Content: i18n.T("No Relay account is signed in. Sign in once under Account, then return here to connect this machine."),
 			TestID: "settings-relay-account-required", MaxLines: 3,
 			Style:     core.Style{FontSize: 10.5, LineHeight: 15},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }})
@@ -385,13 +386,13 @@ func (a *app) relayConfigurationCard(cx *core.Scope) core.Node {
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }})
 	}
 	if a.relayBusy.Get() {
-		body = append(body, ui.Spinner{Size: 14, Label: "Connecting Relay"})
+		body = append(body, ui.Spinner{Size: 14, Label: i18n.T("Connecting Relay")})
 	} else if signedIn {
-		body = append(body, ui.Button{Text: "Connect Relay", Icon: lucide.Link,
+		body = append(body, ui.Button{Text: i18n.T("Connect Relay"), Icon: lucide.Link,
 			Variant: ui.ButtonPrimary, Size: controlSize(cx), TestID: "settings-relay-submit",
 			OnPress: a.configureRelay})
 	} else {
-		body = append(body, ui.Button{Text: "Open Account", Icon: lucide.UserRound,
+		body = append(body, ui.Button{Text: i18n.T("Open Account"), Icon: lucide.UserRound,
 			Variant: ui.ButtonSecondary, Size: controlSize(cx), TestID: "settings-relay-open-account",
 			OnPress: func() { a.setSettingsSection("account") }})
 	}
@@ -405,13 +406,13 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	if !isLocalEnvironmentProfile(a.profile) {
 		return core.View{TestID: "settings-access-local-only", Style: core.Style{Gap: 8}, Children: []core.Node{
-			settingsSectionTitle(cx, "Access", "Device pairing is available only for the T3Go environment running on this machine."),
-			ui.Text("Select the local environment to manage Access.", 12, ui.Regular, colors.Muted),
+			settingsSectionTitle(cx, i18n.T("Access"), i18n.T("Device pairing is available only for the T3Go environment running on this machine.")),
+			ui.Text(i18n.T("Select the local environment to manage Access."), 12, ui.Regular, colors.Muted),
 		}}
 	}
 	enabled := func() bool { return a.settingsDraft.Get().AccessEnabled }
 	body := []core.Node{
-		settingsSectionTitle(cx, "Access", "Local desktop use needs no account. Devices on the same Wi-Fi pair directly; Relay is only for access across networks."),
+		settingsSectionTitle(cx, i18n.T("Access"), i18n.T("Local desktop use needs no account. Devices on the same Wi-Fi pair directly; Relay is only for access across networks.")),
 	}
 	hasLANCard := a.hasLANAccessCard()
 	if hasLANCard {
@@ -422,14 +423,14 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 			Padding: core.Symmetric(10, 12), Background: colors.Inset(), CornerRadius: 9}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Column, Gap: 2, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 				Children: []core.Node{
-					core.Text{Content: "Allow device pairing", TestID: "settings-access-title",
+					core.Text{Content: i18n.T("Allow device pairing"), TestID: "settings-access-title",
 						Style:     core.Style{FontSize: 13, FontWeight: ui.Semibold},
 						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-					core.Text{Content: "Shows a pairing link and QR code for this machine. Credentials stay in local environment storage.",
+					core.Text{Content: i18n.T("Shows a pairing link and QR code for this machine. Credentials stay in local environment storage."),
 						MaxLines: 3, Style: core.Style{FontSize: 11, LineHeight: 16},
 						StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 				}},
-			settingsSwitch(cx, "Allow device pairing", "settings-access-enabled", enabled, func(on bool) {
+			settingsSwitch(cx, i18n.T("Allow device pairing"), "settings-access-enabled", enabled, func(on bool) {
 				a.settingsDraft.Update(func(settings proto.Settings) proto.Settings {
 					settings.AccessEnabled = on
 					return settings
@@ -460,20 +461,20 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 		})
 		a.refreshAccess()
 	}
-	directDetail := "No direct route saved for this environment."
+	directDetail := i18n.T("No direct route saved for this environment.")
 	if hasDirect {
 		directDetail = directRoute.URL
 	}
-	relayDetail := "No relay route saved for this environment."
+	relayDetail := i18n.T("No relay route saved for this environment.")
 	if hasRelay {
 		relayDetail = relayRoute.URL
 		if state := relayAccessStateLabel(a.relayAccess.Get()); state != "" {
 			relayDetail += " · " + state
 		}
 	}
-	routeRows := []core.Node{ui.Text("Pairing routes", 12, ui.Semibold, colors.Muted)}
+	routeRows := []core.Node{ui.Text(i18n.T("Pairing routes"), 12, ui.Semibold, colors.Muted)}
 	if !hasLANCard {
-		routeRows = append(routeRows, accessRouteRow(cx, "LAN direct", directDetail, "settings-access-direct", hasDirect,
+		routeRows = append(routeRows, accessRouteRow(cx, i18n.T("LAN direct"), directDetail, "settings-access-direct", hasDirect,
 			func() bool { return modeDirect && hasDirect },
 			func() bool { return modeDirect && hasDirect && (!modeRelay || !hasRelay) },
 			func(on bool) { toggleRoute(true, on) }))
@@ -485,7 +486,7 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 	body = append(body, core.View{TestID: "settings-access-routes",
 		Style: core.Style{Direction: core.Column, Gap: 7}, Children: routeRows})
 	if !hasRelay {
-		body = append(body, ui.Text("Remote access (optional)", 12, ui.Semibold, colors.Muted))
+		body = append(body, ui.Text(i18n.T("Remote access (optional)"), 12, ui.Semibold, colors.Muted))
 		body = append(body, a.relayConfigurationCard(cx))
 	}
 	link := a.accessLink.Get()
@@ -501,10 +502,10 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 			Padding: core.Symmetric(10, 12), Background: colors.Inset(), CornerRadius: 9}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
 				ui.Icon(lucide.KeyRound, 16, colors.Muted),
-				core.Text{Content: "Pairing link", Style: core.Style{FontSize: 12, FontWeight: ui.Semibold},
+				core.Text{Content: i18n.T("Pairing link"), Style: core.Style{FontSize: 12, FontWeight: ui.Semibold},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 				ui.Spacer{},
-				ui.Button{Text: "Copy link", Icon: lucide.Copy, Variant: ui.ButtonSecondary,
+				ui.Button{Text: i18n.T("Copy link"), Icon: lucide.Copy, Variant: ui.ButtonSecondary,
 					Size: controlSize(cx), TestID: "settings-access-copy", OnPress: func() { a.cx.SetClipboard(link) }},
 			}},
 			core.Text{Content: link, TestID: "settings-access-link", Selectable: core.SelectableOn, MaxLines: 4,
@@ -516,7 +517,7 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 		body = append(body, core.View{Style: core.Style{AlignItems: core.AlignCenter, Padding: core.All(8)},
 			Children: []core.Node{ui.Image{Source: core.ImageSource{
 				Data: a.accessQR.Get(), Size: core.Size{Width: 220, Height: 220},
-			}, Label: "Environment pairing QR code", ResizeMode: core.Contain, TestID: "settings-access-qr",
+			}, Label: i18n.T("Environment pairing QR code"), ResizeMode: core.Contain, TestID: "settings-access-qr",
 				Style: core.Style{Width: core.Pt(220), Height: core.Pt(220), CornerRadius: 8}}}},
 		)
 	}
@@ -534,26 +535,26 @@ func (a *app) lanAccessCard(cx *core.Scope) core.Node {
 	address := a.localLANURL()
 	direct, _ := accessRouteMode(a.settingsDraft.Get())
 	on := a.manager.lan.Get() && direct
-	detail := "Turn this on to pair a phone over the same Wi-Fi. The pairing link still requires this environment's token."
+	detail := i18n.T("Turn this on to pair a phone over the same Wi-Fi. The pairing link still requires this environment's token.")
 	if on {
 		if address == "" {
-			detail = "LAN access is on, but no private network address was detected. Reconnect this machine to Wi-Fi."
+			detail = i18n.T("LAN access is on, but no private network address was detected. Reconnect this machine to Wi-Fi.")
 		} else {
-			detail = address + " · Same Wi-Fi only; no account required."
+			detail = address + i18n.T(" · Same Wi-Fi only; no account required.")
 		}
 	}
 	return core.View{TestID: "settings-access-lan", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
 		Gap: 12, Padding: core.Symmetric(10, 12), Background: colors.Inset(), CornerRadius: 9}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Column, Gap: 2, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 			Children: []core.Node{
-				core.Text{Content: "LAN direct", TestID: "settings-access-lan-title",
+				core.Text{Content: i18n.T("LAN direct"), TestID: "settings-access-lan-title",
 					Style:     core.Style{FontSize: 13, FontWeight: ui.Semibold},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 				core.Text{Content: detail, TestID: "settings-access-lan-detail", MaxLines: 3,
 					Style:     core.Style{FontSize: 11, LineHeight: 16},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 			}},
-		settingsSwitch(cx, "Allow direct access from devices on this LAN", "settings-access-lan-toggle",
+		settingsSwitch(cx, i18n.T("Allow direct access from devices on this LAN"), "settings-access-lan-toggle",
 			func() bool {
 				direct, _ := accessRouteMode(a.settingsDraft.Get())
 				return a.manager.lan.Get() && direct
@@ -585,13 +586,13 @@ func (a *app) backgroundServerCard(cx *core.Scope) core.Node {
 		Gap: 12, Padding: core.Symmetric(10, 12), Background: colors.Inset(), CornerRadius: 9}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Column, Gap: 2, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 			Children: []core.Node{
-				core.Text{Content: "Keep running in the background", Style: core.Style{FontSize: 13, FontWeight: ui.Semibold},
+				core.Text{Content: i18n.T("Keep running in the background"), Style: core.Style{FontSize: 13, FontWeight: ui.Semibold},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-				core.Text{Content: "Paired devices and agent runs reach this machine through its server. Closing T3Go stops that server unless it is kept running here.",
+				core.Text{Content: i18n.T("Paired devices and agent runs reach this machine through its server. Closing T3Go stops that server unless it is kept running here."),
 					MaxLines: 4, Style: core.Style{FontSize: 11, LineHeight: 16},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 			}},
-		settingsSwitch(cx, "Keep the local environment server running in the background",
+		settingsSwitch(cx, i18n.T("Keep the local environment server running in the background"),
 			"settings-background-server", func() bool { return a.manager.background.Get() }, a.manager.setBackgroundServer),
 	}}
 }

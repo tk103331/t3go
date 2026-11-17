@@ -6,6 +6,7 @@ import (
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -42,10 +43,10 @@ func (a *app) mobileNewThread(cx *core.Scope) core.Node {
 		PaddingEnv: core.EnvEdges{Bottom: core.EnvKeyboard}}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(8, 12),
 			FlexShrink: 0}, Children: []core.Node{
-			ui.IconButton{Icon: lucide.ArrowLeft, Label: "Cancel new thread", TestID: "cancel-thread", Size: 44,
+			ui.IconButton{Icon: lucide.ArrowLeft, Label: i18n.T("Cancel new thread"), TestID: "cancel-thread", Size: 44,
 				Disabled: func() bool { target := a.newThreadTarget(); return target != nil && target.threadBusy.Get() },
 				OnPress:  func() { a.showNewThread.Set(false) }},
-			ui.Text("New thread", 22, ui.Medium, colors.Text), ui.Spacer{},
+			ui.Text(i18n.T("New thread"), 22, ui.Medium, colors.Text), ui.Spacer{},
 		}},
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Background: colors.Surface(),
 			CornerRadius: 24, Overflow: core.Hidden}, Children: []core.Node{
@@ -53,7 +54,7 @@ func (a *app) mobileNewThread(cx *core.Scope) core.Node {
 				core.View{Style: core.Style{Padding: core.Symmetric(24, 16), Gap: 10, AlignItems: core.AlignCenter},
 					Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 						target := a.newThreadTarget()
-						project := "your project"
+						project := i18n.T("your project")
 						if target != nil {
 							for _, p := range target.projects.Get() {
 								if p.ID == target.newThreadProj.Get() {
@@ -61,7 +62,7 @@ func (a *app) mobileNewThread(cx *core.Scope) core.Node {
 								}
 							}
 						}
-						return core.Text{Content: "What should we build\nin " + project + "?", Style: core.Style{FontSize: 26,
+						return core.Text{Content: i18n.T("What should we build\nin ") + project + "?", Style: core.Style{FontSize: 26,
 							FontWeight: ui.Semibold, TextAlign: core.TextAlignCenter},
 							StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }}
 					}), core.Dynamic(a.mobileNewThreadEnvironment)}},
@@ -77,20 +78,20 @@ func (a *app) mobileNewThread(cx *core.Scope) core.Node {
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						target := a.newThreadTarget()
 						if target == nil {
-							return ui.Text("Select an available environment.", 14, ui.Regular, colors.Danger)
+							return ui.Text(i18n.T("Select an available environment."), 14, ui.Regular, colors.Danger)
 						}
 						if !target.settingsConnectionReady() {
-							return ui.Text(target.envName()+" · "+target.connectionLabel()+". Reconnect in Settings.", 14, ui.Regular, colors.Danger)
+							return ui.Text(target.envName()+" · "+target.connectionLabel()+i18n.T(". Reconnect in Settings."), 14, ui.Regular, colors.Danger)
 						}
 						// The target is the only dependency here. Draft/keyboard updates
 						// belong to the composer, so they never replace its input node.
 						return mobileComposer{Draft: target.newThreadPrompt.Get, OnDraftChange: target.newThreadPrompt.Set,
-							Label: "New thread message", Placeholder: "Ask anything. @ files, $ skills, / commands",
+							Label: i18n.T("New thread message"), Placeholder: i18n.T("Ask anything. @ files, $ skills, / commands"),
 							TestID: "new-thread-composer", SendTestID: "composer-send",
 							Disabled: target.threadBusy.Get, AllowEmptySend: true, SendIcon: lucide.ArrowUp,
 							OnSend: func() { a.createMobileThread(strings.TrimSpace(target.newThreadPrompt.GetUntracked()) != "") },
 							Accessory: func(cx *core.Scope) core.Node {
-								return ui.IconButton{Icon: lucide.Paperclip, Label: "Attach files",
+								return ui.IconButton{Icon: lucide.Paperclip, Label: i18n.T("Attach files"),
 									TestID: "new-thread-attach", Size: 40, IconSize: 20,
 									OnPress: target.pickNewThreadAttachments}
 							},
@@ -113,7 +114,7 @@ func (a *app) mobileNewThread(cx *core.Scope) core.Node {
 
 func (a *app) mobileNewThreadEnvironment(cx *core.Scope) core.Node {
 	target := a.newThreadTarget()
-	name := "Choose environment"
+	name := i18n.T("Choose environment")
 	if target != nil {
 		name = target.envName()
 	}
@@ -129,9 +130,9 @@ func (a *app) mobileNewThreadEnvironment(cx *core.Scope) core.Node {
 			OnSelect: func() { a.selectThreadEnvironment(session.profile.ID) }})
 	}
 	children = append(children, ui.Menu{TestID: "new-thread-environment",
-		Trigger: ui.Button{Text: "on " + name, Icon: lucide.Laptop, Flex: 1,
-			Size: controlSize(cx), Variant: ui.ButtonGhost, Label: "Environment: " + name},
-		Face: mobileMenuFace(cx, "on "+name, lucide.Laptop), Children: items, MaxHeight: 360})
+		Trigger: ui.Button{Text: i18n.T("on ") + name, Icon: lucide.Laptop, Flex: 1,
+			Size: controlSize(cx), Variant: ui.ButtonGhost, Label: i18n.T("Environment: ") + name},
+		Face: mobileMenuFace(cx, i18n.T("on ")+name, lucide.Laptop), Children: items, MaxHeight: 360})
 	return core.View{Style: core.Style{Width: core.Pct(100), MinWidth: core.Pt(0), Direction: core.Row,
 		AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 6},
 		Children: children}
@@ -150,7 +151,7 @@ func (a *app) createPreparedThread(send bool) {
 		return
 	}
 	if !target.settingsConnectionReady() {
-		target.connErr.Set("Connect the selected environment in Settings first.")
+		target.connErr.Set(i18n.T("Connect the selected environment in Settings first."))
 		return
 	}
 	draft := target.newThreadPrompt.GetUntracked()
@@ -160,7 +161,7 @@ func (a *app) createPreparedThread(send bool) {
 		return
 	}
 	if target.newThreadProj.GetUntracked() == "" {
-		target.connErr.Set("Choose a project first.")
+		target.connErr.Set(i18n.T("Choose a project first."))
 		return
 	}
 	if target.newThreadTitle.GetUntracked() == "" && prompt != "" {

@@ -8,6 +8,7 @@ import (
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/tk/t3go/internal/client"
+	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -62,7 +63,7 @@ func (a *app) projectEnvironmentSelector(cx *core.Scope) core.Node {
 			OnPress: func() { a.selectProjectEnvironment(p.ID) }})
 	}
 	return core.View{TestID: "project-environment", Style: core.Style{Gap: 6}, Children: []core.Node{
-		ui.Text("Environment", 12, ui.Semibold, ui.ColorsOf(cx).Muted),
+		ui.Text(i18n.T("Environment"), 12, ui.Semibold, ui.ColorsOf(cx).Muted),
 		core.Scroll{Style: core.Style{MaxHeight: core.Pt(120)}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: choices},
 		}},
@@ -79,7 +80,7 @@ func (a *app) projectEnvironmentContext(cx *core.Scope, testID string) core.Node
 		if target := a.projectTarget(); target != nil {
 			name = target.envName()
 		}
-		return core.Text{Content: "Environment: " + name, TestID: testID, MaxLines: 1,
+		return core.Text{Content: i18n.T("Environment: ") + name, TestID: testID, MaxLines: 1,
 			Style:     core.Style{FontSize: 12, FontWeight: ui.Semibold},
 			StyleFunc: func() core.Style { return core.Style{Color: ui.ColorsOf(cx).Muted()} }}
 	})
@@ -90,11 +91,11 @@ func (a *app) projectEnvironmentContext(cx *core.Scope, testID string) core.Node
 func (a *app) callProjectTarget(fn func(context.Context, *client.Client) error, done func(error)) {
 	target := a.projectTarget()
 	if target == nil || !target.connected.GetUntracked() || target.client() == nil {
-		done(errors.New("Connect the selected environment in Settings first."))
+		done(errors.New(i18n.T("Connect the selected environment in Settings first.")))
 		return
 	}
 	if target.transportBlocked.GetUntracked() {
-		done(errors.New("Update the selected environment's token in Settings first."))
+		done(errors.New(i18n.T("Update the selected environment's token in Settings first.")))
 		return
 	}
 	c := target.client()

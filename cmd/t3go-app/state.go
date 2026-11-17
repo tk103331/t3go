@@ -24,6 +24,7 @@ import (
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/oneo-me/nsgo/ui/chat"
 	"github.com/tk/t3go/internal/client"
+	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/id"
 	"github.com/tk/t3go/internal/proto"
 )
@@ -736,7 +737,7 @@ func (a *app) connectProfile(profile client.EnvironmentProfile) {
 				}
 				if existing := a.manager.sessions[environmentID]; existing != nil && existing != a {
 					if err := existing.adoptEnvironment(profile, c, st); err != nil {
-						a.connErr.Set("Could not save environment: " + err.Error())
+						a.connErr.Set(i18n.T("Could not save environment: ") + err.Error())
 						return
 					}
 					existing.connectionAttempt++
@@ -747,7 +748,7 @@ func (a *app) connectProfile(profile client.EnvironmentProfile) {
 				}
 			}
 			if err := a.adoptEnvironment(profile, c, st); err != nil {
-				message := "Could not save environment: " + err.Error()
+				message := i18n.T("Could not save environment: ") + err.Error()
 				if a.showCredentials.GetUntracked() {
 					a.credentialError.Set(message)
 				} else {
@@ -855,7 +856,7 @@ func (a *app) startStream(c *client.Client, after int64) {
 func (a *app) disconnect() {
 	if a.manager != nil {
 		a.openSettings()
-		a.setSettingsSection("environments")
+		a.setSettingsSection(i18n.T("environments"))
 		a.forgetEnvironment.Set(a.profile.ID)
 		return
 	}
@@ -1105,7 +1106,7 @@ func (a *app) attachSideFiles(files []core.File) {
 			defer cancel()
 			src, err := f.Open()
 			if err != nil {
-				a.cx.Post(func() { a.sideErr.Set("Could not read " + f.Name + ": " + err.Error()) })
+				a.cx.Post(func() { a.sideErr.Set(i18n.T("Could not read ") + f.Name + ": " + err.Error()) })
 				return
 			}
 			attachment, uploadErr := c.Upload(ctx, f.Name, f.MIME, src)
@@ -1332,7 +1333,7 @@ func (a *app) addCustomModel() {
 	id := strings.TrimSpace(a.customModelID.GetUntracked())
 	name := strings.TrimSpace(a.customModelName.GetUntracked())
 	if provider == "" || id == "" {
-		a.customModelErr.Set("Enter the model id the CLI expects.")
+		a.customModelErr.Set(i18n.T("Enter the model id the CLI expects."))
 		return
 	}
 	if name == "" {
@@ -1345,7 +1346,7 @@ func (a *app) addCustomModel() {
 	}
 	for _, model := range next[provider] {
 		if model.ID == id {
-			a.customModelErr.Set("That model is already listed.")
+			a.customModelErr.Set(i18n.T("That model is already listed."))
 			return
 		}
 	}
@@ -1385,7 +1386,7 @@ func (a *app) removeCustomModel(provider, id string) {
 // refreshProviders re-probes the agent CLIs, after a sign-in for example.
 func (a *app) refreshProviders() {
 	if !a.settingsConnectionReady() {
-		a.providersErr.Set("Connect this environment before detecting its providers.")
+		a.providersErr.Set(i18n.T("Connect this environment before detecting its providers."))
 		return
 	}
 	a.providersSeq++
@@ -1745,7 +1746,7 @@ func decodeData[T any](v any) (T, bool) {
 
 func friendlyError(err error) string {
 	if errors.Is(err, client.ErrUnauthorized) {
-		return "That token was rejected. Check the token and try again."
+		return i18n.T("That token was rejected. Check the token and try again.")
 	}
 	var apiErr *client.APIError
 	if errors.As(err, &apiErr) {
@@ -1754,11 +1755,11 @@ func friendlyError(err error) string {
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "connection refused"):
-		return "No server is listening at that address."
+		return i18n.T("No server is listening at that address.")
 	case strings.Contains(msg, "no such host"):
-		return "That host could not be found."
+		return i18n.T("That host could not be found.")
 	case strings.Contains(msg, "deadline exceeded"), strings.Contains(msg, "timeout"):
-		return "The server did not answer in time."
+		return i18n.T("The server did not answer in time.")
 	}
 	return msg
 }
@@ -1940,7 +1941,7 @@ func (a *app) sendRequest(threadID string, prompt queuedPrompt) {
 			a.running.Set(false)
 		}
 		a.refreshQueue()
-		a.connErr.Set("Could not save the pending message. It has not been sent: " + err.Error())
+		a.connErr.Set(i18n.T("Could not save the pending message. It has not been sent: ") + err.Error())
 		return
 	}
 	a.call(func(ctx context.Context, c *client.Client) error {
@@ -1957,7 +1958,7 @@ func (a *app) sendRequest(threadID string, prompt queuedPrompt) {
 			// Keep the prompt rather than losing it to a failed request.
 			a.queued[threadID] = append([]queuedPrompt{prompt}, a.queued[threadID]...)
 			a.queuePaused.Set(true)
-			a.connErr.Set("Delivery could not be confirmed. Check the thread before editing and resending this message.")
+			a.connErr.Set(i18n.T("Delivery could not be confirmed. Check the thread before editing and resending this message."))
 			if client.IsAuthorizationError(err) {
 				a.blockTransport(err)
 			}
@@ -2086,7 +2087,7 @@ func (a *app) checkQueuedDelivery(threadID, requestID string) {
 		if err != nil {
 			var apiErr *client.APIError
 			if errors.As(err, &apiErr) && apiErr.Status == 404 {
-				a.connErr.Set("No receipt yet. Retry the same request to confirm delivery without starting it twice.")
+				a.connErr.Set(i18n.T("No receipt yet. Retry the same request to confirm delivery without starting it twice."))
 			} else if client.IsAuthorizationError(err) {
 				a.blockTransport(err)
 			} else {
@@ -2201,7 +2202,7 @@ func (a *app) attachFiles(files []core.File) {
 			defer cancel()
 			src, err := f.Open()
 			if err != nil {
-				a.cx.Post(func() { a.connErr.Set("Could not read " + f.Name + ": " + err.Error()) })
+				a.cx.Post(func() { a.connErr.Set(i18n.T("Could not read ") + f.Name + ": " + err.Error()) })
 				return
 			}
 			attachment, uploadErr := c.Upload(ctx, f.Name, f.MIME, src)
@@ -2279,7 +2280,7 @@ func (a *app) attachNewThreadFiles(files []core.File) {
 			defer cancel()
 			src, err := f.Open()
 			if err != nil {
-				a.cx.Post(func() { a.connErr.Set("Could not read " + f.Name + ": " + err.Error()) })
+				a.cx.Post(func() { a.connErr.Set(i18n.T("Could not read ") + f.Name + ": " + err.Error()) })
 				return
 			}
 			attachment, uploadErr := c.Upload(ctx, f.Name, f.MIME, src)
@@ -2354,7 +2355,7 @@ func (a *app) toggleDictation() {
 		return
 	}
 	if !a.cx.Env().CanRecognizeSpeech() {
-		a.connErr.Set("This platform has no speech recognition.")
+		a.connErr.Set(i18n.T("This platform has no speech recognition."))
 		return
 	}
 	a.connErr.Set("")
@@ -2374,7 +2375,7 @@ func (a *app) toggleDictation() {
 			if err != nil {
 				var speechErr core.SpeechError
 				if errors.As(err, &speechErr) && speechErr != core.SpeechNoSpeech {
-					a.connErr.Set("Speech: " + string(speechErr))
+					a.connErr.Set(i18n.T("Speech: ") + string(speechErr))
 				}
 			}
 		},
@@ -2524,7 +2525,7 @@ func (a *app) runGitAction(action proto.GitAction) {
 	}
 	in := proto.GitActionInput{Action: action, Message: strings.TrimSpace(a.gitMessage.GetUntracked())}
 	a.gitBusy.Set(true)
-	a.gitNote.Set("Working…")
+	a.gitNote.Set(i18n.T("Working…"))
 	a.gitPR.Set("")
 	go func() {
 		ctx, cancel := context.WithTimeout(a.lifetime, 2*time.Minute)
@@ -2546,20 +2547,20 @@ func (a *app) runGitAction(action proto.GitAction) {
 			}
 			var parts []string
 			if res.CommitSHA != "" {
-				parts = append(parts, "Committed "+shortID(res.CommitSHA))
+				parts = append(parts, i18n.T("Committed ")+shortID(res.CommitSHA))
 			}
 			if res.NoChanges {
-				parts = append(parts, "No changes to commit")
+				parts = append(parts, i18n.T("No changes to commit"))
 			}
 			if res.Pushed {
-				parts = append(parts, "Pushed "+res.Branch)
+				parts = append(parts, i18n.T("Pushed ")+res.Branch)
 			}
 			if res.PRURL != "" {
 				a.gitPR.Set(res.PRURL)
 				if res.PRExisted {
-					parts = append(parts, "Pull request already open")
+					parts = append(parts, i18n.T("Pull request already open"))
 				} else {
-					parts = append(parts, "Pull request created")
+					parts = append(parts, i18n.T("Pull request created"))
 				}
 			}
 			if len(parts) == 0 {
@@ -2619,7 +2620,7 @@ func (a *app) confirmMobileCommit() {
 		return
 	}
 	a.gitBusy.Set(true)
-	a.gitNote.Set("Working…")
+	a.gitNote.Set(i18n.T("Working…"))
 	a.gitPR.Set("")
 	go func() {
 		ctx, cancel := context.WithTimeout(a.lifetime, 2*time.Minute)
@@ -2655,13 +2656,13 @@ func (a *app) confirmMobileCommit() {
 			}
 			var parts []string
 			if res.CommitSHA != "" {
-				parts = append(parts, "Committed "+shortID(res.CommitSHA))
+				parts = append(parts, i18n.T("Committed ")+shortID(res.CommitSHA))
 			}
 			if res.NoChanges {
-				parts = append(parts, "No changes to commit")
+				parts = append(parts, i18n.T("No changes to commit"))
 			}
 			if res.Pushed {
-				parts = append(parts, "Pushed "+res.Branch)
+				parts = append(parts, i18n.T("Pushed ")+res.Branch)
 			}
 			if len(parts) == 0 {
 				parts = append(parts, "Done")
@@ -3034,7 +3035,7 @@ func (a *app) runProviderCommand(command string) {
 	id := a.selected.GetUntracked()
 	if id == "" {
 		a.cx.SetClipboard(command)
-		a.connErr.Set("Copied “" + command + "”. Open a thread to run it in its terminal.")
+		a.connErr.Set(i18n.T("Copied “") + command + i18n.T("”. Open a thread to run it in its terminal."))
 		return
 	}
 	a.setRightOpen(true)
@@ -3048,7 +3049,7 @@ func (a *app) runProviderCommand(command string) {
 	}, func(err error) {
 		if err != nil {
 			a.cx.SetClipboard(command)
-			a.connErr.Set(friendlyError(err) + " — copied “" + command + "” instead.")
+			a.connErr.Set(friendlyError(err) + i18n.T(" — copied “") + command + i18n.T("” instead."))
 		}
 	})
 }
@@ -3183,7 +3184,7 @@ func (a *app) goBrowser(raw string) {
 	}
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		a.browserNote.Set("Enter an http or https address.")
+		a.browserNote.Set(i18n.T("Enter an http or https address."))
 		return
 	}
 	a.browserNote.Set("")
@@ -3592,7 +3593,7 @@ func (a *app) submitPRReview(verdict string) {
 		return
 	}
 	if note == "" && verdict != "approve" {
-		a.connErr.Set("Write a note before submitting this review.")
+		a.connErr.Set(i18n.T("Write a note before submitting this review."))
 		return
 	}
 	a.prViewBusy.Set(true)
@@ -3685,7 +3686,7 @@ func (a *app) loadUsage(days int) {
 	seq := a.usageSeq
 	if !a.settingsConnectionReady() {
 		a.usageBusy.Set(false)
-		a.usageErr.Set("Connect this environment before loading its usage.")
+		a.usageErr.Set(i18n.T("Connect this environment before loading its usage."))
 		return
 	}
 	a.usageBusy.Set(true)
@@ -3965,7 +3966,7 @@ func (a *app) switchBranch(name string) {
 		return
 	}
 	a.gitBusy.Set(true)
-	a.gitNote.Set("Switching branch…")
+	a.gitNote.Set(i18n.T("Switching branch…"))
 	a.call(func(ctx context.Context, c *client.Client) error {
 		branches, err := c.SwitchBranch(ctx, id, name)
 		if err != nil {
@@ -3974,7 +3975,7 @@ func (a *app) switchBranch(name string) {
 		a.cx.Post(func() {
 			a.gitBusy.Set(false)
 			a.branches.Set(branches)
-			a.gitNote.Set("On " + name)
+			a.gitNote.Set(i18n.T("On ") + name)
 			a.loadDetail(id)
 		})
 		return nil
@@ -4009,7 +4010,7 @@ func (a *app) planReady() bool {
 // approvePlan leaves plan mode and stages the implementation prompt.
 func (a *app) approvePlan() {
 	a.setThreadPlan(false)
-	a.setDraft("Implement the plan.")
+	a.setDraft(i18n.T("Implement the plan."))
 }
 
 // setThreadPlan turns the open thread's plan-first mode on or off.
@@ -4126,7 +4127,7 @@ func (a *app) openDiff() {
 }
 
 func (a *app) loadDiff(threadID, runID string) {
-	a.diffText.Set("Loading diff…")
+	a.diffText.Set(i18n.T("Loading diff…"))
 	a.loadBranches(threadID)
 	a.call(func(ctx context.Context, c *client.Client) error {
 		diff, err := c.Diff(ctx, threadID, runID)
@@ -4135,7 +4136,7 @@ func (a *app) loadDiff(threadID, runID string) {
 		}
 		a.cx.Post(func() {
 			if diff == "" {
-				diff = "This run made no changes."
+				diff = i18n.T("This run made no changes.")
 			}
 			a.diffText.Set(diff)
 		})
@@ -4154,7 +4155,7 @@ func (a *app) createProject() {
 	path := strings.TrimSpace(a.newProjectPath.GetUntracked())
 	name := strings.TrimSpace(a.newProjectName.GetUntracked())
 	if path == "" {
-		a.connErr.Set("Choose the project's directory.")
+		a.connErr.Set(i18n.T("Choose the project's directory."))
 		return
 	}
 	// On phones and touch clients, the project path belongs to the
@@ -4162,10 +4163,10 @@ func (a *app) createProject() {
 	// browser can select those paths, so let the server validate them.
 	if a.manager == nil && !a.newProjectRemote.GetUntracked() {
 		if info, err := os.Stat(path); err != nil {
-			a.connErr.Set("That directory does not exist.")
+			a.connErr.Set(i18n.T("That directory does not exist."))
 			return
 		} else if !info.IsDir() {
-			a.connErr.Set("That path is not a directory.")
+			a.connErr.Set(i18n.T("That path is not a directory."))
 			return
 		}
 	}
@@ -4177,12 +4178,12 @@ func (a *app) createProject() {
 	}
 	target := a.projectTarget()
 	if target == nil {
-		a.connErr.Set("Choose an environment.")
+		a.connErr.Set(i18n.T("Choose an environment."))
 		return
 	}
 	for _, project := range target.projects.GetUntracked() {
 		if filepath.Clean(project.Path) == filepath.Clean(path) {
-			a.connErr.Set("That directory is already a project.")
+			a.connErr.Set(i18n.T("That directory is already a project."))
 			return
 		}
 	}
@@ -4271,7 +4272,7 @@ func (a *app) createDir() {
 	}
 	name := strings.TrimSpace(a.newDirName.GetUntracked())
 	if name == "" {
-		a.newDirErr.Set("Enter a folder name.")
+		a.newDirErr.Set(i18n.T("Enter a folder name."))
 		return
 	}
 	a.newDirErr.Set("")
@@ -4359,13 +4360,13 @@ func (a *app) createThreadThen(after func(proto.Thread)) {
 		projectID = a.currentProject()
 	}
 	if projectID == "" {
-		a.connErr.Set("Add a project first.")
+		a.connErr.Set(i18n.T("Add a project first."))
 		return
 	}
 	provider := a.newThreadProv.GetUntracked()
 	model := a.newThreadModel.GetUntracked()
 	if provider == "" || model == "" {
-		a.connErr.Set("Choose a provider and a model.")
+		a.connErr.Set(i18n.T("Choose a provider and a model."))
 		return
 	}
 	installed := false
@@ -4375,7 +4376,7 @@ func (a *app) createThreadThen(after func(proto.Thread)) {
 		}
 	}
 	if !installed {
-		a.connErr.Set("Install " + provider + " before creating a thread with it.")
+		a.connErr.Set(i18n.T("Install ") + provider + i18n.T(" before creating a thread with it."))
 		return
 	}
 	worktree := a.newThreadWT.GetUntracked()
@@ -4758,11 +4759,11 @@ func (a *app) runCommand(id string) {
 // environment's threads.
 func (a *app) commandItems() []base.CommandItem {
 	items := []base.CommandItem{
-		{ID: "new-thread", Label: "New thread", Group: "Actions", Keywords: []string{"create", "start"}, Shortcut: "mod+n"},
-		{ID: "new-project", Label: "New project", Group: "Actions", Keywords: []string{"create", "add", "folder"}, Shortcut: "mod+shift+n"},
-		{ID: "settings", Label: "Settings", Group: "Actions", Keywords: []string{"defaults", "environment"}, Shortcut: "mod+,"},
-		{ID: "toggle-archived", Label: a.archivedLabel(), Group: "View", Keywords: []string{"archive", "filter"}},
-		{ID: "toggle-sidebar", Label: "Toggle sidebar", Group: "View", Keywords: []string{"panel"}, Shortcut: "mod+b"},
+		{ID: "new-thread", Label: i18n.T("New thread"), Group: i18n.T("Actions"), Keywords: []string{"create", "start"}, Shortcut: "mod+n"},
+		{ID: "new-project", Label: i18n.T("New project"), Group: i18n.T("Actions"), Keywords: []string{"create", "add", "folder"}, Shortcut: "mod+shift+n"},
+		{ID: "settings", Label: i18n.T("Settings"), Group: i18n.T("Actions"), Keywords: []string{"defaults", i18n.T("environment")}, Shortcut: "mod+,"},
+		{ID: "toggle-archived", Label: a.archivedLabel(), Group: i18n.T("View"), Keywords: []string{"archive", "filter"}},
+		{ID: "toggle-sidebar", Label: i18n.T("Toggle sidebar"), Group: i18n.T("View"), Keywords: []string{"panel"}, Shortcut: "mod+b"},
 	}
 	showArchived := a.showArchived.Get()
 	sessions := []*app{a}
@@ -4786,7 +4787,7 @@ func (a *app) commandItems() []base.CommandItem {
 			}
 			items = append(items, base.CommandItem{
 				ID: "thread:" + session.threadKey(t.ID), Label: t.Title,
-				Description: projects[t.ProjectID] + " · " + session.envName(), Group: "Threads",
+				Description: projects[t.ProjectID] + " · " + session.envName(), Group: i18n.T("Threads"),
 				Keywords: []string{projects[t.ProjectID], t.Provider, session.envName()},
 			})
 		}
@@ -4794,7 +4795,7 @@ func (a *app) commandItems() []base.CommandItem {
 	for _, hit := range a.searchHits.Get() {
 		items = append(items, base.CommandItem{
 			ID: "message:" + hit.ThreadID + ":" + hit.MessageID, Label: hit.Snippet,
-			Description: hit.ProjectName + " · " + hit.ThreadTitle, Group: "Messages",
+			Description: hit.ProjectName + " · " + hit.ThreadTitle, Group: i18n.T("Messages"),
 			Keywords: []string{hit.ThreadTitle, hit.ProjectName},
 		})
 	}
@@ -4956,7 +4957,7 @@ func (a *app) saveSettings(s proto.Settings) {
 
 // itemTarget is a thread or project a dialog acts on.
 type itemTarget struct {
-	Kind string // "thread" or "project"
+	Kind string // "thread" or i18n.T("project")
 	ID   string
 	Name string
 }

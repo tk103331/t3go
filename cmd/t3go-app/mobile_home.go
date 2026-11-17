@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"hash/fnv"
 	"sort"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -100,12 +100,12 @@ func (a *app) mobileHeader(cx *core.Scope) core.Node {
 	var title core.Node = brandWordmark(cx, 26)
 	switch page {
 	case "settings":
-		name := "Settings"
+		name := i18n.T("Settings")
 		if detail := a.mobileSettingsDetail.Get(); detail != "" {
 			if detail == "environment-defaults" {
-				name = "Environment configuration"
+				name = i18n.T("Environment configuration")
 			}
-			for _, item := range settingsNav {
+			for _, item := range settingsNavItems() {
 				if item.ID == detail {
 					name = item.Label
 				}
@@ -113,17 +113,17 @@ func (a *app) mobileHeader(cx *core.Scope) core.Node {
 		}
 		title = ui.Text(name, 24, ui.Medium, colors.Text)
 	case "usage":
-		title = ui.Text("Usage", 24, ui.Medium, colors.Text)
+		title = ui.Text(i18n.T("Usage"), 24, ui.Medium, colors.Text)
 	case "projects":
-		title = ui.Text("Projects", 24, ui.Medium, colors.Text)
+		title = ui.Text(i18n.T("Projects"), 24, ui.Medium, colors.Text)
 	}
 	var children []core.Node
 	if page == "settings" && a.mobileSettingsDetail.Get() != "" {
-		children = append(children, ui.IconButton{Icon: lucide.ChevronLeft, Label: "Back to settings", Size: 44,
+		children = append(children, ui.IconButton{Icon: lucide.ChevronLeft, Label: i18n.T("Back to settings"), Size: 44,
 			TestID: "mobile-settings-back", OnPress: func() {
 				if a.mobileSettingsDetail.GetUntracked() == "environment-defaults" {
-					a.setSettingsSection("environments")
-					a.mobileSettingsDetail.Set("environments")
+					a.setSettingsSection(i18n.T("environments"))
+					a.mobileSettingsDetail.Set(i18n.T("environments"))
 				} else {
 					a.mobileSettingsDetail.Set("")
 				}
@@ -131,35 +131,35 @@ func (a *app) mobileHeader(cx *core.Scope) core.Node {
 	}
 	children = append(children, title, ui.Spacer{})
 	if page == "threads" {
-		children = append(children, ui.IconButton{Icon: lucide.Search, Label: "Search threads", Size: 44, IconSize: 24,
+		children = append(children, ui.IconButton{Icon: lucide.Search, Label: i18n.T("Search threads"), Size: 44, IconSize: 24,
 			TestID: "mobile-thread-search-open", OnPress: func() { a.mobileThreadSearch.Set(true) }})
 	}
 	if page == "projects" {
 		children = append(children,
-			ui.IconButton{Icon: lucide.FolderPlus, Label: "New project", Size: 44, IconSize: 23,
+			ui.IconButton{Icon: lucide.FolderPlus, Label: i18n.T("New project"), Size: 44, IconSize: 23,
 				TestID: "new-project", OnPress: a.openNewProject})
 	} else if page == "prs" {
-		children = append(children, ui.IconButton{Icon: lucide.Folder, Label: "Projects", Size: 44, IconSize: 24,
-			TestID: "mobile-tab-projects", OnPress: func() { a.mobilePage.Set("projects") }})
+		children = append(children, ui.IconButton{Icon: lucide.Folder, Label: i18n.T("Projects"), Size: 44, IconSize: 24,
+			TestID: "mobile-tab-projects", OnPress: func() { a.mobilePage.Set(i18n.T("projects")) }})
 	}
 	var filter core.Node
 	if page == "usage" {
-		filter = ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh usage", Size: 44, IconSize: 24,
+		filter = ui.IconButton{Icon: lucide.RefreshCw, Label: i18n.T("Refresh usage"), Size: 44, IconSize: 24,
 			TestID: "usage-refresh", OnPress: a.loadMobileUsage}
 	} else if page == "prs" {
-		filter = ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh pull requests", Size: 44, IconSize: 24,
+		filter = ui.IconButton{Icon: lucide.RefreshCw, Label: i18n.T("Refresh pull requests"), Size: 44, IconSize: 24,
 			TestID: "mobile-pr-refresh", Disabled: a.mobilePRBusy.Get, OnPress: a.loadMobilePullRequests}
 	} else if page != "settings" {
 		filter = core.Dynamic(func(cx *core.Scope) core.Node {
 			return ui.Menu{TestID: "mobile-filter",
-				Trigger: ui.Button{Icon: lucide.ListFilter, Label: "Filter threads", Side: 44, IconSize: 24, Variant: ui.ButtonGhost},
+				Trigger: ui.Button{Icon: lucide.ListFilter, Label: i18n.T("Filter threads"), Side: 44, IconSize: 24, Variant: ui.ButtonGhost},
 				Children: []core.Node{
 					ui.MenuItem{Text: a.archivedLabel(), Icon: lucide.Archive, TestID: "toggle-archived", OnSelect: a.toggleShowArchived},
-					ui.MenuItem{Text: "Projects", Icon: lucide.Folder, TestID: "mobile-tab-projects",
-						OnSelect: func() { a.mobilePage.Set("projects") }},
-					ui.MenuItem{Text: "Manage environments", Icon: lucide.Network, OnSelect: func() {
+					ui.MenuItem{Text: i18n.T("Projects"), Icon: lucide.Folder, TestID: "mobile-tab-projects",
+						OnSelect: func() { a.mobilePage.Set(i18n.T("projects")) }},
+					ui.MenuItem{Text: i18n.T("Manage environments"), Icon: lucide.Network, OnSelect: func() {
 						a.openSettings()
-						a.openMobileSettingsSection("environments")
+						a.openMobileSettingsSection(i18n.T("environments"))
 					}},
 				}}
 		})
@@ -175,16 +175,16 @@ func (a *app) mobileHeader(cx *core.Scope) core.Node {
 func (a *app) mobileThreadSearchHeader(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
 		FlexShrink: 0, Padding: core.Symmetric(10, 14), Gap: 6}, Children: []core.Node{
-		ui.IconButton{Icon: lucide.ChevronLeft, Label: "Close search", Size: 44, IconSize: 24,
+		ui.IconButton{Icon: lucide.ChevronLeft, Label: i18n.T("Close search"), Size: 44, IconSize: 24,
 			TestID: "mobile-thread-search-back", OnPress: a.closeMobileThreadSearch},
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 			mobileInput{Scope: cx, TestID: "mobile-thread-search", Input: base.Input{
 				Value: a.sidebarQuery.Get, OnChange: a.sidebarQuery.Set, AutoFocus: true,
-				Placeholder: "Search threads", Label: "Search threads"}},
+				Placeholder: i18n.T("Search threads"), Label: i18n.T("Search threads")}},
 		}},
 		core.Show{When: func() bool { return strings.TrimSpace(a.sidebarQuery.Get()) != "" },
 			Then: func(*core.Scope) core.Node {
-				return ui.IconButton{Icon: lucide.X, Label: "Clear thread search", Size: 44, IconSize: 22,
+				return ui.IconButton{Icon: lucide.X, Label: i18n.T("Clear thread search"), Size: 44, IconSize: 22,
 					TestID: "clear-thread-search", OnPress: func() { a.sidebarQuery.Set("") }}
 			}},
 	}}
@@ -227,7 +227,7 @@ func (a *app) mobileThreadList(cx *core.Scope) core.Node {
 	for _, group := range []struct {
 		title string
 		rows  []core.Node
-	}{{"Completed", completed}, {"Working", working}, {"Settled", settled}} {
+	}{{"Completed", completed}, {i18n.T("Working"), working}, {"Settled", settled}} {
 		if len(group.rows) == 0 {
 			continue
 		}
@@ -247,14 +247,14 @@ func (a *app) mobileThreadList(cx *core.Scope) core.Node {
 			if !a.mobileSettledClosed.Get() {
 				icon = lucide.ChevronUp
 			}
-			heading = base.Button{Label: "Toggle settled threads", TestID: "mobile-group-settled",
+			heading = base.Button{Label: i18n.T("Toggle settled threads"), TestID: "mobile-group-settled",
 				Expanded: func() bool { return !a.mobileSettledClosed.Get() },
 				OnPress: func(core.PressEvent) {
 					a.mobileSettledClosed.Set(!a.mobileSettledClosed.GetUntracked())
 				},
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10, MinHeight: core.Pt(44),
 					Padding: core.Symmetric(8, 18)}, Children: []core.Node{
-					ui.Text(fmt.Sprintf("Settled (%d)", len(group.rows)), 12, ui.Medium, colors.Muted),
+					ui.Text(i18n.T("Settled (%d)", len(group.rows)), 12, ui.Medium, colors.Muted),
 					core.View{Style: core.Style{Height: core.Pt(1), FlexGrow: 1, Background: colors.Border()}},
 					ui.Icon(icon, 14, colors.Muted),
 				}}
@@ -266,15 +266,15 @@ func (a *app) mobileThreadList(cx *core.Scope) core.Node {
 		children = append(children, group.rows...)
 	}
 	if len(rows) == 0 {
-		message := "Start a thread in one of your projects, or add a project."
+		message := i18n.T("Start a thread in one of your projects, or add a project.")
 		if a.sidebarQuery.Get() != "" {
-			message = "No threads match your search."
+			message = i18n.T("No threads match your search.")
 		}
 		children = append(children, core.View{Style: core.Style{Padding: core.All(24), Gap: 10}, Children: []core.Node{
-			ui.Text("Your conversations", 18, ui.Semibold, colors.Text),
+			ui.Text(i18n.T("Your conversations"), 18, ui.Semibold, colors.Text),
 			ui.Text(message, 14, ui.Regular, colors.Muted),
-			ui.Button{Text: "Projects", Icon: lucide.FolderOpen, Variant: ui.ButtonSecondary,
-				OnPress: func() { a.mobilePage.Set("projects") }},
+			ui.Button{Text: i18n.T("Projects"), Icon: lucide.FolderOpen, Variant: ui.ButtonSecondary,
+				OnPress: func() { a.mobilePage.Set(i18n.T("projects")) }},
 		}})
 	}
 	return core.View{Style: core.Style{Padding: core.Edges{Top: 6, Bottom: 100}}, Children: children}
@@ -286,7 +286,7 @@ func (a *app) mobileThreadRow(cx *core.Scope, row mobileThread) core.Node {
 	id := session.sidebarID(t.ID)
 	title := t.Title
 	if strings.TrimSpace(title) == "" {
-		title = "Untitled thread"
+		title = i18n.T("Untitled thread")
 	}
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(row.project.Name))
@@ -295,7 +295,7 @@ func (a *app) mobileThreadRow(cx *core.Scope, row mobileThread) core.Node {
 	var status core.Node = ui.Icon(lucide.Check, 14, colors.Faint)
 	switch {
 	case t.Status == proto.ThreadRunning:
-		status = ui.Spinner{Size: 15, Label: "Running"}
+		status = ui.Spinner{Size: 15, Label: i18n.T("Running")}
 	case t.Status == proto.ThreadFailed:
 		status = ui.Icon(lucide.CircleAlert, 16, colors.Danger)
 	case t.Archived:
@@ -308,7 +308,7 @@ func (a *app) mobileThreadRow(cx *core.Scope, row mobileThread) core.Node {
 		subtitle += " · " + session.connectionLabel()
 	}
 	if session.draftFor(t.ID) != "" {
-		subtitle += " · Draft"
+		subtitle += i18n.T(" · Draft")
 	}
 	titleColor := colors.Text
 	if t.Archived || t.Settled {
@@ -340,19 +340,19 @@ func (a *app) mobileThreadRow(cx *core.Scope, row mobileThread) core.Node {
 				ui.Text(relativeTime(t.UpdatedAt), 12, ui.Regular, colors.Muted), status,
 			}},
 		}}
-	pin, archive := "Pin thread", "Archive thread"
+	pin, archive := i18n.T("Pin thread"), i18n.T("Archive thread")
 	if row.pinned {
-		pin = "Unpin thread"
+		pin = i18n.T("Unpin thread")
 	}
 	if t.Archived {
-		archive = "Unarchive thread"
+		archive = i18n.T("Unarchive thread")
 	}
 	return ui.ContextMenu{Trigger: content, Children: []core.Node{
 		ui.MenuItem{Text: pin, TestID: "pin-thread-" + id, OnSelect: func() { session.togglePin(t) }},
 		session.settleMenuItem(t, id),
-		ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread-" + id, OnSelect: session.inEnvironment(func() { session.askRenameThread(t) })},
+		ui.MenuItem{Text: i18n.T("Rename thread…"), TestID: "rename-thread-" + id, OnSelect: session.inEnvironment(func() { session.askRenameThread(t) })},
 		ui.MenuItem{Text: archive, TestID: "archive-thread-" + id, OnSelect: func() { session.setArchived(t, !t.Archived) }},
-		ui.MenuItem{Text: "Delete thread", Variant: ui.MenuItemDanger, TestID: "delete-thread-" + id,
+		ui.MenuItem{Text: i18n.T("Delete thread"), Variant: ui.MenuItemDanger, TestID: "delete-thread-" + id,
 			OnSelect: session.inEnvironment(func() { session.askDeleteThread(t) })},
 	}}
 }
@@ -404,9 +404,9 @@ func (a *app) mobileNavigation(cx *core.Scope) core.Node {
 				func() { a.closeMobileThreadSearch(); a.mobilePage.Set("threads") }),
 			tab(lucide.GitPullRequest, "Pulls", "mobile-tab-prs", func() bool { return a.mobilePage.Get() == "prs" },
 				func() { a.closeMobileThreadSearch(); a.mobilePage.Set("prs"); a.loadMobilePullRequests() }),
-			tab(lucide.ChartColumn, "Usage", "mobile-tab-usage", func() bool { return a.mobilePage.Get() == "usage" },
+			tab(lucide.ChartColumn, i18n.T("Usage"), "mobile-tab-usage", func() bool { return a.mobilePage.Get() == "usage" },
 				func() { a.closeMobileThreadSearch(); a.mobilePage.Set("usage"); a.loadMobileUsage() }),
-			tab(lucide.Settings, "Settings", "settings", func() bool { return a.mobilePage.Get() == "settings" }, a.openSettings),
+			tab(lucide.Settings, i18n.T("Settings"), "settings", func() bool { return a.mobilePage.Get() == "settings" }, a.openSettings),
 		}},
 	}
 	return core.View{TestID: "mobile-navigation", Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
@@ -420,7 +420,7 @@ func (a *app) mobileNewThreadAction(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{Style: core.Style{Height: core.Pt(72), Direction: core.Row, AlignItems: core.AlignCenter,
 		JustifyContent: core.JustifyEnd, Padding: core.Edges{Right: 16}, FlexShrink: 0}, Children: []core.Node{
-		base.Button{Label: "New thread", TestID: "new-thread", OnPress: func(core.PressEvent) { a.openNewThread() },
+		base.Button{Label: i18n.T("New thread"), TestID: "new-thread", OnPress: func(core.PressEvent) { a.openNewThread() },
 			Style: core.Style{Width: core.Pt(56), Height: core.Pt(56), CornerRadius: 18, AlignItems: core.AlignCenter,
 				JustifyContent: core.JustifyCenter},
 			StyleFunc: func() core.Style {

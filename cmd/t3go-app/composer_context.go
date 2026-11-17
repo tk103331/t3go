@@ -8,6 +8,7 @@ import (
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/tk/t3go/internal/i18n"
 )
 
 // slashCommand is one app command the composer offers after a slash.
@@ -54,7 +55,7 @@ func (a *app) composerSuggestions(cx *core.Scope) core.Node {
 		if len(rows) == 0 {
 			return core.View{}
 		}
-		return a.suggestionCard(cx, "Skills & commands", rows)
+		return a.suggestionCard(cx, i18n.T("Skills & commands"), rows)
 	}
 	start, query, ok := activeMention(draft)
 	if !ok {
@@ -62,7 +63,7 @@ func (a *app) composerSuggestions(cx *core.Scope) core.Node {
 	}
 	_ = start
 	if a.fileIndexBusy.Get() && len(a.fileIndex.Get()) == 0 {
-		return a.suggestionCard(cx, "Files", []core.Node{ui.Text("Searching files…", 11.5, ui.Regular, ui.ColorsOf(cx).Faint)})
+		return a.suggestionCard(cx, i18n.T("Files"), []core.Node{ui.Text(i18n.T("Searching files…"), 11.5, ui.Regular, ui.ColorsOf(cx).Faint)})
 	}
 	var rows []core.Node
 	for _, entry := range a.fileIndex.Get() {
@@ -82,7 +83,7 @@ func (a *app) composerSuggestions(cx *core.Scope) core.Node {
 	if len(rows) == 0 {
 		return core.View{}
 	}
-	return a.suggestionCard(cx, "Files", rows)
+	return a.suggestionCard(cx, i18n.T("Files"), rows)
 }
 
 func (a *app) suggestionCard(cx *core.Scope, title string, rows []core.Node) core.Node {
@@ -162,7 +163,7 @@ func (a *app) composerMentions(cx *core.Scope) core.Node {
 			ui.Icon(lucide.FileText, 11, colors.Muted),
 			core.Text{Content: path, MaxLines: 1, Style: core.Style{FontSize: 11, FontFamily: "Menlo, monospace", FlexShrink: 1},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-			ui.IconButton{Icon: lucide.X, Label: "Remove " + path, Size: 17, IconSize: 9, Tint: colors.Faint,
+			ui.IconButton{Icon: lucide.X, Label: i18n.T("Remove ") + path, Size: 17, IconSize: 9, Tint: colors.Faint,
 				TestID: "mention-chip-" + path, OnPress: func() { a.removeMention(path) }},
 		}})
 	}
@@ -208,16 +209,16 @@ func (a *app) insertMention(path string) {
 // slashCommands are T3Go's app-level composer commands.
 func (a *app) slashCommands() []slashCommand {
 	return []slashCommand{
-		{Name: "new", Desc: "Start a thread", Icon: lucide.MessageSquarePlus, Run: a.openNewThread},
-		{Name: "settings", Desc: "Environment defaults", Icon: lucide.Settings, Run: a.openSettings},
-		{Name: "files", Desc: "Browse the checkout", Icon: lucide.Folder, Run: func() { a.showSurface("files") }},
-		{Name: "diff", Desc: "Working tree changes", Icon: lucide.GitCompare, Run: func() { a.showSurface("diff") }},
-		{Name: "graph", Desc: "Commit history", Icon: lucide.GitBranch, Run: func() { a.showSurface("graph") }},
-		{Name: "pr", Desc: "Pull request", Icon: lucide.GitPullRequest, Run: func() { a.showSurface("pr") }},
-		{Name: "terminal", Desc: "Open a shell", Icon: lucide.Terminal, Run: func() { a.showSurface("terminal") }},
-		{Name: "browser", Desc: "Open a web page", Icon: lucide.Globe, Run: func() { a.showSurface("browser") }},
-		{Name: "stop", Desc: "Stop the running turn", Icon: lucide.CircleStop, Run: a.stop},
-		{Name: "archive", Desc: "Archive this thread", Icon: lucide.Archive, Run: a.archiveCurrentThread},
+		{Name: "new", Desc: i18n.T("Start a thread"), Icon: lucide.MessageSquarePlus, Run: a.openNewThread},
+		{Name: "settings", Desc: i18n.T("Environment defaults"), Icon: lucide.Settings, Run: a.openSettings},
+		{Name: "files", Desc: i18n.T("Browse the checkout"), Icon: lucide.Folder, Run: func() { a.showSurface("files") }},
+		{Name: "diff", Desc: i18n.T("Working tree changes"), Icon: lucide.GitCompare, Run: func() { a.showSurface("diff") }},
+		{Name: "graph", Desc: i18n.T("Commit history"), Icon: lucide.GitBranch, Run: func() { a.showSurface("graph") }},
+		{Name: "pr", Desc: i18n.T("Pull request"), Icon: lucide.GitPullRequest, Run: func() { a.showSurface("pr") }},
+		{Name: "terminal", Desc: i18n.T("Open a shell"), Icon: lucide.Terminal, Run: func() { a.showSurface("terminal") }},
+		{Name: "browser", Desc: i18n.T("Open a web page"), Icon: lucide.Globe, Run: func() { a.showSurface("browser") }},
+		{Name: "stop", Desc: i18n.T("Stop the running turn"), Icon: lucide.CircleStop, Run: a.stop},
+		{Name: "archive", Desc: i18n.T("Archive this thread"), Icon: lucide.Archive, Run: a.archiveCurrentThread},
 	}
 }
 

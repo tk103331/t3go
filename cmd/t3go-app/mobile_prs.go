@@ -11,6 +11,7 @@ import (
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/tk/t3go/internal/client"
+	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -133,27 +134,27 @@ func (a *app) mobilePullRequests(cx *core.Scope) core.Node {
 			a.mobileEnvironmentMenu(cx, a.mobilePREnv, "mobile-pr-environment", a.loadMobilePullRequests, false),
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				state := a.mobilePRState.Get()
-				label := map[string]string{"OPEN": "Open", "CLOSED": "Closed", "MERGED": "Merged", "": "All PRs"}[state]
+				label := map[string]string{"OPEN": i18n.T("Open"), "CLOSED": "Closed", "MERGED": "Merged", "": i18n.T("All PRs")}[state]
 				var items []core.Node
 				for _, value := range []string{"OPEN", "CLOSED", "MERGED", ""} {
 					value := value
-					text := map[string]string{"OPEN": "Open", "CLOSED": "Closed", "MERGED": "Merged", "": "All PRs"}[value]
+					text := map[string]string{"OPEN": i18n.T("Open"), "CLOSED": "Closed", "MERGED": "Merged", "": i18n.T("All PRs")}[value]
 					items = append(items, ui.MenuItem{Text: text, TestID: "mobile-pr-state-" + strings.ToLower(text),
 						OnSelect: func() { a.mobilePRState.Set(value) }})
 				}
 				return ui.Menu{TestID: "mobile-pr-state", Trigger: ui.Button{Text: label, Icon: lucide.ChevronDown,
 					Variant: ui.ButtonGhost, Size: controlSize(cx)}, Face: mobileMenuFace(cx, label, nil), Children: items}
 			}),
-			ui.Text("Pull requests associated with your project threads.", 12, ui.Regular, colors.Muted),
+			ui.Text(i18n.T("Pull requests associated with your project threads."), 12, ui.Regular, colors.Muted),
 		}},
 		core.Scroll{Style: ui.FillRest, Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			var rows []core.Node
 			if a.mobilePRBusy.Get() {
-				return core.View{Style: core.Style{Padding: core.All(32)}, Children: []core.Node{ui.Spinner{Size: 22, Label: "Loading pull requests"}}}
+				return core.View{Style: core.Style{Padding: core.All(32)}, Children: []core.Node{ui.Spinner{Size: 22, Label: i18n.T("Loading pull requests")}}}
 			}
 			if err := a.mobilePRErr.Get(); err != "" {
 				rows = append(rows, core.View{TestID: "mobile-pr-error", Style: core.Style{Padding: core.All(18), Gap: 8}, Children: []core.Node{
-					ui.Text("Some projects could not be checked", 14, ui.Semibold, colors.Text),
+					ui.Text(i18n.T("Some projects could not be checked"), 14, ui.Semibold, colors.Text),
 					ui.Text(err, 12, ui.Regular, colors.Danger),
 				}})
 			}
@@ -177,8 +178,8 @@ func (a *app) mobilePullRequests(cx *core.Scope) core.Node {
 			if count == 0 {
 				rows = append(rows, core.View{TestID: "mobile-pr-empty", Style: core.Style{Padding: core.All(28), Gap: 12,
 					AlignItems: core.AlignCenter}, Children: []core.Node{
-					ui.Text("No matching pull requests", 20, ui.Semibold, colors.Text),
-					ui.Text("Pull requests from the selected environments' project threads appear here.", 14, ui.Regular, colors.Muted),
+					ui.Text(i18n.T("No matching pull requests"), 20, ui.Semibold, colors.Text),
+					ui.Text(i18n.T("Pull requests from the selected environments' project threads appear here."), 14, ui.Regular, colors.Muted),
 				}})
 			}
 			return core.View{Style: core.Style{Gap: 4}, Children: rows}

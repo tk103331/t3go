@@ -1,12 +1,11 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/tk/t3go/internal/i18n"
 )
 
 func (a *app) openMobileSettingsSection(section string) {
@@ -56,19 +55,19 @@ func (a *app) mobileSettings(cx *core.Scope) core.Node {
 	return core.Scroll{TestID: "mobile-settings-index", Style: ui.FillRest, Children: []core.Node{
 		core.View{Style: core.Style{Padding: core.All(18), Gap: 22}, Children: []core.Node{
 			core.View{Style: core.Style{CornerRadius: 24, Background: colors.Inset(), Overflow: core.Hidden}, Children: []core.Node{
-				row("Account", "Sign in once to discover your Relay environments", "settings-nav-account", lucide.UserRound,
+				row(i18n.T("Account"), i18n.T("Sign in once to discover your Relay environments"), "settings-nav-account", lucide.UserRound,
 					func() { a.openMobileSettingsSection("account") }),
-				row("Environments", fmt.Sprintf("%d saved · manage connections and names", count), "settings-nav-environments", lucide.Monitor,
-					func() { a.openMobileSettingsSection("environments") }),
-				row("Appearance", "Theme and accent on this client", "settings-nav-general", lucide.Settings,
+				row(i18n.T("Environments"), i18n.T("%d saved · manage connections and names", count), "settings-nav-environments", lucide.Monitor,
+					func() { a.openMobileSettingsSection(i18n.T("environments")) }),
+				row(i18n.T("Appearance"), i18n.T("Theme and accent on this client"), "settings-nav-general", lucide.Settings,
 					func() { a.openMobileSettingsSection("general") }),
-				row("Providers", "CLI status, models and sign in by environment", "settings-nav-providers", lucide.Bot,
+				row(i18n.T("Providers"), i18n.T("CLI status, models and sign in by environment"), "settings-nav-providers", lucide.Bot,
 					func() { a.openMobileSettingsSection("providers") }),
-				row("Worktrees", "Checkouts used by your threads", "settings-nav-worktrees", lucide.GitBranch,
+				row(i18n.T("Worktrees"), i18n.T("Checkouts used by your threads"), "settings-nav-worktrees", lucide.GitBranch,
 					func() { a.openMobileSettingsSection("worktrees") }),
-				row("Projects", "Folders and conversations across environments", "mobile-tab-projects", lucide.Folder,
-					func() { a.mobilePage.Set("projects") }),
-				row("About", "Server and protocol information", "settings-nav-about", lucide.Info,
+				row(i18n.T("Projects"), i18n.T("Folders and conversations across environments"), "mobile-tab-projects", lucide.Folder,
+					func() { a.mobilePage.Set(i18n.T("projects")) }),
+				row(i18n.T("About"), i18n.T("Server and protocol information"), "settings-nav-about", lucide.Info,
 					func() { a.openMobileSettingsSection("about") }),
 			}},
 		}},
@@ -91,12 +90,12 @@ func (a *app) mobileSessions(id string) []*app {
 
 func (a *app) mobileEnvironmentMenu(cx *core.Scope, selected *core.Signal[string], id string, changed func(), iconOnly bool) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		label := "All environments"
+		label := i18n.T("All environments")
 		var choices []core.Node
 		choose := func(env string) func() {
 			return func() { selected.Set(env); changed() }
 		}
-		choices = append(choices, ui.MenuItem{Text: "All environments", TestID: id + "-all", OnSelect: choose("")})
+		choices = append(choices, ui.MenuItem{Text: i18n.T("All environments"), TestID: id + "-all", OnSelect: choose("")})
 		for _, session := range a.mobileSessions("") {
 			env := session.profile.ID
 			name := session.envName()
@@ -108,7 +107,7 @@ func (a *app) mobileEnvironmentMenu(cx *core.Scope, selected *core.Signal[string
 		trigger := ui.Button{Text: label, Icon: lucide.ChevronDown, Variant: ui.ButtonGhost, Size: controlSize(cx)}
 		var face core.Node = mobileMenuFace(cx, label, nil)
 		if iconOnly {
-			trigger = ui.Button{Icon: lucide.ListFilter, Label: "Filter environments", Side: 44, IconSize: 24, Variant: ui.ButtonGhost}
+			trigger = ui.Button{Icon: lucide.ListFilter, Label: i18n.T("Filter environments"), Side: 44, IconSize: 24, Variant: ui.ButtonGhost}
 			face = nil
 		}
 		return ui.Menu{TestID: id, Trigger: trigger, Face: face, MaxHeight: 360, Children: choices}

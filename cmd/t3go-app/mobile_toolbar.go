@@ -1,12 +1,11 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/tk/t3go/internal/i18n"
 )
 
 func mobileToolbarAction(cx *core.Scope, icon func() *core.SVG, title, id string, action func()) core.Node {
@@ -27,30 +26,30 @@ func (a *app) mobileGitMenu(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	open := core.NewSignal(cx, false)
 	choose := func(action func()) func() { return func() { open.Set(false); action() } }
-	return ui.Popover{TestID: "branch-menu", Label: "Git controls", Open: open.Get,
+	return ui.Popover{TestID: "branch-menu", Label: i18n.T("Git controls"), Open: open.Get,
 		OnOpenChange: func(value bool, _ base.Reason) { open.Set(value) },
-		Trigger:      ui.Button{Icon: lucide.GitBranch, Label: "Git controls", Side: 44, IconSize: 24, Variant: ui.ButtonGhost},
+		Trigger:      ui.Button{Icon: lucide.GitBranch, Label: i18n.T("Git controls"), Side: 44, IconSize: 24, Variant: ui.ButtonGhost},
 		Style:        core.Style{Width: core.Pt(290), MaxWidth: core.Pct(94), Background: colors.Surface()}, Children: []core.Node{
-			ui.Text("Git controls", 12, ui.Medium, ui.ColorsOf(cx).Muted),
+			ui.Text(i18n.T("Git controls"), 12, ui.Medium, ui.ColorsOf(cx).Muted),
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				status := a.detail.Get().Git
 				if status == nil || !status.Repo {
-					return ui.Text("This thread is not in a Git repository.", 14, ui.Regular, ui.ColorsOf(cx).Muted)
+					return ui.Text(i18n.T("This thread is not in a Git repository."), 14, ui.Regular, ui.ColorsOf(cx).Muted)
 				}
 				branch := status.Branch
 				if branch == "" {
-					branch = "Detached HEAD"
+					branch = i18n.T("Detached HEAD")
 				}
 				return core.Group{
 					mobileToolbarAction(cx, lucide.GitBranch, branch, "mobile-git-branches", choose(func() {
 						a.loadBranches(a.selected.GetUntracked())
 						a.showBranches.Set(true)
 					})),
-					mobileToolbarAction(cx, lucide.ArrowUp, "Commit & push", "mobile-git-commit-push",
+					mobileToolbarAction(cx, lucide.ArrowUp, i18n.T("Commit & push"), "mobile-git-commit-push",
 						choose(func() { a.openMobileCommit(false) })),
-					mobileToolbarAction(cx, lucide.MessageSquare, "Review changes", "mobile-git-review",
+					mobileToolbarAction(cx, lucide.MessageSquare, i18n.T("Review changes"), "mobile-git-review",
 						choose(func() { a.openMobileSurface("diff") })),
-					mobileToolbarAction(cx, lucide.Ellipsis, "More", "mobile-git-more",
+					mobileToolbarAction(cx, lucide.Ellipsis, i18n.T("More"), "mobile-git-more",
 						choose(func() { a.openMobileSurface("diff") })),
 				}
 			}),
@@ -60,16 +59,16 @@ func (a *app) mobileGitMenu(cx *core.Scope) core.Node {
 func (a *app) mobileTerminalMenu(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	open := core.NewSignal(cx, false)
-	return ui.Popover{TestID: "mobile-open-terminal", Label: "Terminal", Open: open.Get,
+	return ui.Popover{TestID: "mobile-open-terminal", Label: i18n.T("Terminal"), Open: open.Get,
 		OnOpenChange: func(value bool, _ base.Reason) {
 			open.Set(value)
 			if value {
 				a.loadTerminalSessions()
 			}
 		},
-		Trigger: ui.Button{Icon: lucide.Terminal, Label: "Terminal", Side: 44, IconSize: 24, Variant: ui.ButtonGhost},
+		Trigger: ui.Button{Icon: lucide.Terminal, Label: i18n.T("Terminal"), Side: 44, IconSize: 24, Variant: ui.ButtonGhost},
 		Style:   core.Style{Width: core.Pt(290), MaxWidth: core.Pct(94), Background: colors.Surface()}, Children: []core.Node{
-			ui.Text("Terminal", 12, ui.Medium, ui.ColorsOf(cx).Muted),
+			ui.Text(i18n.T("Terminal"), 12, ui.Medium, ui.ColorsOf(cx).Muted),
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				var rows []core.Node
 				if err := a.terminalErr.Get(); err != "" {
@@ -79,7 +78,7 @@ func (a *app) mobileTerminalMenu(cx *core.Scope) core.Node {
 					session := session
 					title := session.Title
 					if title == "" {
-						title = fmt.Sprintf("Terminal %d", i+1)
+						title = i18n.T("Terminal %d", i+1)
 					}
 					rows = append(rows, mobileToolbarAction(cx, lucide.Terminal, title,
 						"mobile-terminal-"+session.ID, func() {
@@ -90,9 +89,9 @@ func (a *app) mobileTerminalMenu(cx *core.Scope) core.Node {
 						}))
 				}
 				if len(rows) == 0 {
-					rows = append(rows, ui.Text("No terminal open", 14, ui.Regular, ui.ColorsOf(cx).Muted))
+					rows = append(rows, ui.Text(i18n.T("No terminal open"), 14, ui.Regular, ui.ColorsOf(cx).Muted))
 				}
-				rows = append(rows, mobileToolbarAction(cx, lucide.Plus, "Open new terminal", "mobile-terminal-new", func() {
+				rows = append(rows, mobileToolbarAction(cx, lucide.Plus, i18n.T("Open new terminal"), "mobile-terminal-new", func() {
 					open.Set(false)
 					a.surface.Set("terminal")
 					a.mobileSurface.Set("terminal")

@@ -6,13 +6,14 @@ import (
 
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/tk/t3go/internal/client"
+	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
 )
 
 func (a *app) settleMenuItem(thread proto.Thread, rowID string) ui.MenuItem {
-	label := "Settle thread"
+	label := i18n.T("Settle thread")
 	if thread.Settled {
-		label = "Unsettle thread"
+		label = i18n.T("Unsettle thread")
 	}
 	return ui.MenuItem{Text: label, TestID: "settle-thread-" + rowID,
 		OnSelect: func() { a.setThreadSettled(thread.ID, !thread.Settled) }}
@@ -28,7 +29,7 @@ func (a *app) setThreadSettled(id string, settled bool) {
 		var err error
 		updated, err = c.UpdateThread(ctx, id, map[string]any{"settled": settled})
 		if err == nil && updated.Settled != settled {
-			return errors.New("This environment needs a newer T3Go server to support Settle.")
+			return errors.New(i18n.T("This environment needs a newer T3Go server to support Settle."))
 		}
 		return err
 	}, func(err error) {

@@ -18,13 +18,14 @@ import (
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/oneo-me/nsgo/ui/commitgraph"
 	uidiff "github.com/oneo-me/nsgo/ui/diff"
+	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
 )
 
 // rightRail is the resize handle and the surfaces panel beside it.
 func (a *app) rightRail(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, FlexShrink: 0}, Children: []core.Node{
-		base.ResizeHandle{Axis: base.Horizontal, Edge: base.HandleLeading, Label: "Resize right panel", TestID: "right-resize",
+		base.ResizeHandle{Axis: base.Horizontal, Edge: base.HandleLeading, Label: i18n.T("Resize right panel"), TestID: "right-resize",
 			Value: func() core.AccessibilityValue {
 				return core.AccessibilityValue{Now: float32(a.rightWidth.GetUntracked()), Min: 300, Max: 680}
 			},
@@ -63,7 +64,7 @@ func (a *app) rightHeader(cx *core.Scope) core.Node {
 	var content core.Node
 	if len(tabNodes) == 0 {
 		content = core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexGrow: 1, FlexShrink: 1, Padding: core.Edges{Left: 4}},
-			Children: []core.Node{core.Text{Content: "Surfaces", MaxLines: 1, Style: core.Style{FontSize: 13, FontWeight: ui.Semibold},
+			Children: []core.Node{core.Text{Content: i18n.T("Surfaces"), MaxLines: 1, Style: core.Style{FontSize: 13, FontWeight: ui.Semibold},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }}}}
 	} else {
 		content = core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 3,
@@ -72,8 +73,8 @@ func (a *app) rightHeader(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2,
 		Padding: core.Edges{Top: 6, Right: 6, Bottom: 6, Left: 6}}, Children: []core.Node{
 		content,
-		ui.IconButton{Icon: lucide.Plus, Label: "Add surface", TestID: "surface-add", OnPress: func() { a.openSurface("") }},
-		ui.IconButton{Icon: lucide.X, Label: "Close right panel", TestID: "close-right-panel",
+		ui.IconButton{Icon: lucide.Plus, Label: i18n.T("Add surface"), TestID: "surface-add", OnPress: func() { a.openSurface("") }},
+		ui.IconButton{Icon: lucide.X, Label: i18n.T("Close right panel"), TestID: "close-right-panel",
 			OnPress: func() { a.setRightOpen(false) }},
 	}}
 }
@@ -111,7 +112,7 @@ func (a *app) surfaceTab(cx *core.Scope, name string, selected bool) core.Node {
 						return core.Style{Color: colors.Muted()}
 					}},
 			}},
-		ui.IconButton{Icon: lucide.X, Label: "Close " + label, Size: 16, IconSize: 9, Tint: colors.Faint,
+		ui.IconButton{Icon: lucide.X, Label: i18n.T("Close ") + label, Size: 16, IconSize: 9, Tint: colors.Faint,
 			TestID: "surface-tab-close-" + name, OnPress: func() { a.closeSurface(name) }},
 	}}
 	return tab
@@ -120,19 +121,19 @@ func (a *app) surfaceTab(cx *core.Scope, name string, selected bool) core.Node {
 func surfaceTitle(name string) string {
 	switch name {
 	case "files":
-		return "Files"
+		return i18n.T("Files")
 	case "diff":
-		return "Diff"
+		return i18n.T("Diff")
 	case "graph":
-		return "Git graph"
+		return i18n.T("Git graph")
 	case "pr":
-		return "Pull request"
+		return i18n.T("Pull request")
 	case "browser":
 		return "Browser"
 	case "preview":
 		return "Preview"
 	case "terminal":
-		return "Terminal"
+		return i18n.T("Terminal")
 	}
 	return name
 }
@@ -198,18 +199,18 @@ func (a *app) surfacePicker(cx *core.Scope) core.Node {
 	rows := []core.Node{
 		a.surfaceRow(cx, "browser", "Browser", lucide.Globe, "B", true),
 		a.surfaceRow(cx, "preview", "Preview", lucide.MonitorPlay, "V", true),
-		a.surfaceRow(cx, "terminal", "Terminal", lucide.Terminal, "T", hasThread),
-		a.surfaceRow(cx, "files", "Files", lucide.Folder, "F", hasThread),
-		a.surfaceRow(cx, "diff", "Diff", lucide.GitCompare, "D", hasThread),
-		a.surfaceRow(cx, "graph", "Git graph", lucide.GitBranch, "G", hasThread),
-		a.surfaceRow(cx, "pr", "Pull request", lucide.GitPullRequest, "P", hasThread),
-		a.surfaceRow(cx, "linked", "Linked pull requests", lucide.Link2, "L", hasThread),
+		a.surfaceRow(cx, "terminal", i18n.T("Terminal"), lucide.Terminal, "T", hasThread),
+		a.surfaceRow(cx, "files", i18n.T("Files"), lucide.Folder, "F", hasThread),
+		a.surfaceRow(cx, "diff", i18n.T("Diff"), lucide.GitCompare, "D", hasThread),
+		a.surfaceRow(cx, "graph", i18n.T("Git graph"), lucide.GitBranch, "G", hasThread),
+		a.surfaceRow(cx, "pr", i18n.T("Pull request"), lucide.GitPullRequest, "P", hasThread),
+		a.surfaceRow(cx, "linked", i18n.T("Linked pull requests"), lucide.Link2, "L", hasThread),
 		a.surfaceRow(cx, "device", "Device", lucide.MonitorSmartphone, "M", true),
-		a.surfaceRow(cx, "chat", "Side chat", lucide.MessageCircleMore, "S", hasThread),
+		a.surfaceRow(cx, "chat", i18n.T("Side chat"), lucide.MessageCircleMore, "S", hasThread),
 	}
-	note := "Open a surface"
+	note := i18n.T("Open a surface")
 	if !hasThread {
-		note = "Pick a thread to open its files, diff and pull request."
+		note = i18n.T("Pick a thread to open its files, diff and pull request.")
 	}
 	return core.View{Style: core.Style{FlexGrow: 1, JustifyContent: core.JustifyCenter, AlignItems: core.AlignCenter,
 		Padding: core.All(20)}, Children: []core.Node{
@@ -262,7 +263,7 @@ func (a *app) scrollWithBar(cx *core.Scope, ref *core.Ref, testID string, scroll
 		scroll,
 		ui.Scrollbar{Scroll: func() *core.Ref { return ref },
 			Mode:  func() base.ScrollbarMode { return base.ScrollbarAlways },
-			Label: "Scroll", TestID: testID},
+			Label: i18n.T("Scroll"), TestID: testID},
 	}}
 }
 
@@ -270,12 +271,12 @@ func (a *app) scrollWithBar(cx *core.Scope, ref *core.Ref, testID string, scroll
 func (a *app) rightFiles(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	if a.selected.Get() == "" {
-		return a.rightNotice(cx, "Pick a thread to browse its files.")
+		return a.rightNotice(cx, i18n.T("Pick a thread to browse its files."))
 	}
 	if selected := a.fileSelected.Get(); selected != "" {
 		file := a.file.Get()
 		head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6, Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
-			ui.IconButton{Icon: lucide.ChevronLeft, Label: "Back to files", TestID: "file-back", OnPress: func() {
+			ui.IconButton{Icon: lucide.ChevronLeft, Label: i18n.T("Back to files"), TestID: "file-back", OnPress: func() {
 				a.fileSelected.Set("")
 				a.file.Set(proto.WorkspaceFile{})
 			}},
@@ -283,7 +284,7 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 			core.Text{Content: humanSize(file.Size), Style: core.Style{FontSize: 10.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-			ui.IconButton{Icon: lucide.ExternalLink, Label: "Open file", TestID: "file-open",
+			ui.IconButton{Icon: lucide.ExternalLink, Label: i18n.T("Open file"), TestID: "file-open",
 				OnPress: func() { a.cx.OpenURL(a.rawFileURL(selected), nil) }},
 		}}
 		kind := fileKind(selected, file.Mime)
@@ -299,12 +300,12 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 		case file.Binary:
 			body = core.View{Style: core.Style{Direction: core.Column, Gap: 8, AlignItems: core.AlignStart}, Children: []core.Node{
 				ui.Icon(lucide.FileText, 24, colors.Faint),
-				ui.Text("No preview for this file.", 12, ui.Regular, colors.Faint),
-				ui.Button{Text: "Open outside T3Go", Icon: lucide.ExternalLink, Variant: ui.ButtonSecondary, Size: controlSize(cx),
+				ui.Text(i18n.T("No preview for this file."), 12, ui.Regular, colors.Faint),
+				ui.Button{Text: i18n.T("Open outside T3Go"), Icon: lucide.ExternalLink, Variant: ui.ButtonSecondary, Size: controlSize(cx),
 					TestID: "file-open-binary", OnPress: func() { a.cx.OpenURL(a.rawFileURL(selected), nil) }},
 			}}
 		case file.Content == "":
-			body = ui.Text("This file is empty.", 12, ui.Regular, colors.Faint)
+			body = ui.Text(i18n.T("This file is empty."), 12, ui.Regular, colors.Faint)
 		default:
 			content := file.Content
 			if strings.EqualFold(filepath.Ext(selected), ".json") {
@@ -332,7 +333,7 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 	}
 	path := a.filesPath.Get()
 	head := []core.Node{
-		ui.IconButton{Icon: lucide.ChevronUp, Label: "Parent folder", TestID: "files-up", Disabled: func() bool { return path == "" },
+		ui.IconButton{Icon: lucide.ChevronUp, Label: i18n.T("Parent folder"), TestID: "files-up", Disabled: func() bool { return path == "" },
 			OnPress: func() {
 				if path == "" {
 					return
@@ -345,7 +346,7 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 			}},
 		core.Text{Content: "/" + path, MaxLines: 1, Style: core.Style{FontSize: 11.5, FlexGrow: 1, FlexShrink: 1, FontFamily: "Menlo, monospace"},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-		ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh files", TestID: "files-refresh", OnPress: func() { a.loadFiles(path) }},
+		ui.IconButton{Icon: lucide.RefreshCw, Label: i18n.T("Refresh files"), TestID: "files-refresh", OnPress: func() { a.loadFiles(path) }},
 	}
 	var rows []core.Node
 	for _, entry := range a.filesEntries.Get() {
@@ -380,12 +381,12 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 			}})
 	}
 	if len(rows) == 0 {
-		rows = append(rows, ui.Text("This folder is empty.", 12, ui.Regular, colors.Faint))
+		rows = append(rows, ui.Text(i18n.T("This folder is empty."), 12, ui.Regular, colors.Faint))
 	}
 	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(10)}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Padding: core.Edges{Bottom: 6}}, Children: head},
 		core.Show{When: func() bool { return a.rightBusy.Get() }, Then: func(*core.Scope) core.Node {
-			return ui.Spinner{Size: 14, Label: "Loading files"}
+			return ui.Spinner{Size: 14, Label: i18n.T("Loading files")}
 		}},
 		a.rightError(cx),
 		a.scrollWithBar(cx, a.filesListScroll, "files-list-scrollbar",
@@ -397,17 +398,17 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 func (a *app) rightDiff(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	if a.selected.Get() == "" {
-		return a.rightNotice(cx, "Pick a thread to read its diff.")
+		return a.rightNotice(cx, i18n.T("Pick a thread to read its diff."))
 	}
 	files := a.workingFiles.Get()
 	split := a.diffSplit.Get()
 	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 3, Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
-		core.Text{Content: "Working tree", MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
+		core.Text{Content: i18n.T("Working tree"), MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-		ui.IconButton{Icon: lucide.Columns2, Label: "Toggle split view", TestID: "diff-split",
+		ui.IconButton{Icon: lucide.Columns2, Label: i18n.T("Toggle split view"), TestID: "diff-split",
 			Selected: func() bool { return split }, OnPress: func() { a.diffSplit.Set(!a.diffSplit.GetUntracked()) }},
-		ui.Button{Text: "Changes…", Variant: ui.ButtonGhost, Size: controlSize(cx), OnPress: a.openDiff},
-		ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh diff", TestID: "right-diff-refresh", OnPress: func() {
+		ui.Button{Text: i18n.T("Changes…"), Variant: ui.ButtonGhost, Size: controlSize(cx), OnPress: a.openDiff},
+		ui.IconButton{Icon: lucide.RefreshCw, Label: i18n.T("Refresh diff"), TestID: "right-diff-refresh", OnPress: func() {
 			if id := a.selected.GetUntracked(); id != "" {
 				a.loadWorkingDiff(id)
 			}
@@ -418,7 +419,7 @@ func (a *app) rightDiff(cx *core.Scope) core.Node {
 		file := file
 		detail := fmt.Sprintf("+%d −%d", file.Additions, file.Deletions)
 		if file.Staged {
-			detail += " · staged"
+			detail += i18n.T(" · staged")
 		}
 		rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2,
 			Padding: core.Symmetric(2, 4), CornerRadius: 5}, Children: []core.Node{
@@ -433,19 +434,19 @@ func (a *app) rightDiff(cx *core.Scope) core.Node {
 				}},
 			core.Text{Content: detail, MaxLines: 1, Style: core.Style{FontSize: 9.5, FlexShrink: 0},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-			ui.IconButton{Icon: lucide.Check, Label: "Stage " + file.Path, Size: 20, IconSize: 11,
+			ui.IconButton{Icon: lucide.Check, Label: i18n.T("Stage ") + file.Path, Size: 20, IconSize: 11,
 				TestID: "diff-stage-" + file.Path, Disabled: func() bool { return file.Staged },
 				OnPress: func() { a.stagePath(file.Path, true) }},
-			ui.IconButton{Icon: lucide.Undo2, Label: "Discard " + file.Path, Size: 20, IconSize: 11,
+			ui.IconButton{Icon: lucide.Undo2, Label: i18n.T("Discard ") + file.Path, Size: 20, IconSize: 11,
 				Tint: colors.Danger, TestID: "diff-discard-" + file.Path,
 				OnPress: func() { a.diffDiscard.Set(file.Path) }},
 		}})
 	}
 	list := core.View{Style: core.Style{Direction: core.Column, Gap: 1, Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Padding: core.Symmetric(2, 4)}, Children: []core.Node{
-			ui.Text(fmt.Sprintf("%d changed files", len(files)), 10.5, ui.Semibold, colors.Muted),
+			ui.Text(i18n.T("%d changed files", len(files)), 10.5, ui.Semibold, colors.Muted),
 			ui.Spacer{},
-			ui.Text("stage or discard a file", 9.5, ui.Regular, colors.Faint),
+			ui.Text(i18n.T("stage or discard a file"), 9.5, ui.Regular, colors.Faint),
 		}},
 		core.Scroll{Style: core.Style{MaxHeight: core.Pt(150)}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: rows},
@@ -454,7 +455,7 @@ func (a *app) rightDiff(cx *core.Scope) core.Node {
 	var body core.Node
 	if len(files) == 0 {
 		body = core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter}, Children: []core.Node{
-			ui.Text("Working tree clean.", 12, ui.Regular, colors.Faint),
+			ui.Text(i18n.T("Working tree clean."), 12, ui.Regular, colors.Faint),
 		}}
 	} else {
 		body = core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Overflow: core.Hidden, Background: colors.Inset(), CornerRadius: 8},
@@ -472,14 +473,14 @@ func (a *app) rightDiff(cx *core.Scope) core.Node {
 func (a *app) rightLinkedPRs(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	if a.selected.Get() == "" {
-		return a.rightNotice(cx, "Pick a thread to see its pull requests.")
+		return a.rightNotice(cx, i18n.T("Pick a thread to see its pull requests."))
 	}
 	if a.prViewNumber.Get() > 0 {
 		return a.rightPullRequestDetail(cx)
 	}
 	pulls := a.pullRequests.Get()
 	detail := a.prListDetail.Get()
-	if strings.Contains(strings.ToLower(detail), "no pull requests") {
+	if strings.Contains(strings.ToLower(detail), i18n.T("no pull requests")) {
 		detail = ""
 	}
 	var rows []core.Node
@@ -487,20 +488,20 @@ func (a *app) rightLinkedPRs(cx *core.Scope) core.Node {
 		pr := pr
 		meta := fmt.Sprintf("#%d · %s", pr.Number, strings.ToLower(pr.State))
 		if pr.Draft {
-			meta += " · draft"
+			meta += i18n.T(" · draft")
 		}
 		rows = append(rows, core.View{Style: core.Style{Direction: core.Column, Gap: 3, Padding: core.Symmetric(7, 9),
 			Background: colors.Inset(), CornerRadius: 7}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
 				core.Text{Content: pr.Title, MaxLines: 2, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, LineHeight: 16, FlexGrow: 1},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-				ui.IconButton{Icon: lucide.ChevronRight, Label: "Details", TestID: "open-linked-pr-" + fmt.Sprint(pr.Number),
+				ui.IconButton{Icon: lucide.ChevronRight, Label: i18n.T("Details"), TestID: "open-linked-pr-" + fmt.Sprint(pr.Number),
 					OnPress: func() { a.openPullRequest(pr.Number) }},
 			}},
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 				core.Text{Content: meta, MaxLines: 1, Style: core.Style{FontSize: 10.5, FlexGrow: 1},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-				ui.Button{Text: "Open", Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: controlSize(cx),
+				ui.Button{Text: i18n.T("Open"), Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: controlSize(cx),
 					TestID: "open-linked-pr-url-" + fmt.Sprint(pr.Number), OnPress: func() { a.cx.OpenURL(pr.URL, nil) }},
 			}},
 			core.Text{Content: pr.HeadBranch + " → " + pr.BaseBranch, MaxLines: 1, Style: core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
@@ -508,16 +509,16 @@ func (a *app) rightLinkedPRs(cx *core.Scope) core.Node {
 		}})
 	}
 	if len(rows) == 0 {
-		rows = append(rows, ui.Text("No pull requests for this branch.", 11.5, ui.Regular, colors.Faint))
+		rows = append(rows, ui.Text(i18n.T("No pull requests for this branch."), 11.5, ui.Regular, colors.Faint))
 	}
 	if detail != "" {
 		rows = append(rows, core.Text{Content: detail, MaxLines: 3, Style: core.Style{FontSize: 10.5},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 	}
 	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
-		core.Text{Content: fmt.Sprintf("%d linked", len(pulls)), MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
+		core.Text{Content: i18n.T("%d linked", len(pulls)), MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-		ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh pull requests", TestID: "linked-pr-refresh",
+		ui.IconButton{Icon: lucide.RefreshCw, Label: i18n.T("Refresh pull requests"), TestID: "linked-pr-refresh",
 			OnPress: func() { a.loadPullRequests(a.selected.GetUntracked()) }},
 	}}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 6, Padding: core.All(10), FlexGrow: 1, MinHeight: core.Pt(0)},
@@ -539,7 +540,7 @@ func (a *app) sideAttachmentChips(cx *core.Scope) core.Node {
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 				core.Text{Content: humanSize(file.Size), Style: core.Style{FontSize: 9.5},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-				ui.IconButton{Icon: lucide.X, Label: "Remove " + file.Name, Size: 18, IconSize: 10,
+				ui.IconButton{Icon: lucide.X, Label: i18n.T("Remove ") + file.Name, Size: 18, IconSize: 10,
 					TestID: "side-attachment-remove-" + file.ID, Tint: colors.Faint,
 					OnPress: func() { a.removeSideAttachment(file.ID) }},
 			}})
@@ -552,18 +553,18 @@ func (a *app) sideAttachmentChips(cx *core.Scope) core.Node {
 func (a *app) rightSideChat(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	if a.selected.Get() == "" {
-		return a.rightNotice(cx, "Pick a thread to ask a side question.")
+		return a.rightNotice(cx, i18n.T("Pick a thread to ask a side question."))
 	}
 	thread := a.sideChat.Get()
 	if thread.ID == "" {
-		note := "A side chat keeps this thread's conversation out of the way."
+		note := i18n.T("A side chat keeps this thread's conversation out of the way.")
 		if message := a.sideErr.Get(); message != "" {
 			note = message
 		}
-		var action core.Node = ui.Button{Text: "Start side chat", Icon: lucide.MessageCircleMore, Variant: ui.ButtonPrimary,
+		var action core.Node = ui.Button{Text: i18n.T("Start side chat"), Icon: lucide.MessageCircleMore, Variant: ui.ButtonPrimary,
 			Size: controlSize(cx), TestID: "side-start", OnPress: a.openSideChat}
 		if a.sideBusy.Get() {
-			action = ui.Spinner{Size: 14, Label: "Starting side chat"}
+			action = ui.Spinner{Size: 14, Label: i18n.T("Starting side chat")}
 		}
 		return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
 			Gap: 8, Padding: core.All(18)}, Children: []core.Node{
@@ -611,17 +612,17 @@ func (a *app) rightSideChat(cx *core.Scope) core.Node {
 		}
 	}
 	if len(rows) == 0 {
-		rows = append(rows, core.Text{Content: "Ask a question about this thread.", MaxLines: 2,
+		rows = append(rows, core.Text{Content: i18n.T("Ask a question about this thread."), MaxLines: 2,
 			Style: core.Style{FontSize: 11}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 	}
 	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
 		Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
-		core.Text{Content: "Side chat", MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
+		core.Text{Content: i18n.T("Side chat"), MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 		core.Show{When: func() bool { return a.sideBusy.Get() }, Then: func(*core.Scope) core.Node {
-			return ui.Spinner{Size: 12, Label: "Working on the side chat"}
+			return ui.Spinner{Size: 12, Label: i18n.T("Working on the side chat")}
 		}},
-		ui.Button{Text: "Reset", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "side-reset",
+		ui.Button{Text: i18n.T("Reset"), Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "side-reset",
 			OnPress: func() { a.resetSideChat(); a.sideFor.Set(""); a.openSideChat() }},
 	}}
 	var modelItems []core.Node
@@ -642,7 +643,7 @@ func (a *app) rightSideChat(cx *core.Scope) core.Node {
 	var modelControl core.Node = ui.Text(modelLabel, 10.5, ui.Regular, colors.Faint)
 	if len(modelItems) > 0 {
 		modelControl = ui.Menu{TestID: "side-model", MaxHeight: 320,
-			Trigger:  ui.Button{Text: modelLabel, Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Side chat model"},
+			Trigger:  ui.Button{Text: modelLabel, Variant: ui.ButtonGhost, Size: controlSize(cx), Label: i18n.T("Side chat model")},
 			Children: modelItems}
 	}
 	var permissionItems []core.Node
@@ -654,14 +655,14 @@ func (a *app) rightSideChat(cx *core.Scope) core.Node {
 			OnSelect: func() { a.setSidePermission(permission) }})
 	}
 	permissionControl := ui.Menu{TestID: "side-permission", MaxHeight: 240,
-		Trigger:  ui.Button{Text: string(thread.Permission), Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Side chat permission"},
+		Trigger:  ui.Button{Text: string(thread.Permission), Variant: ui.ButtonGhost, Size: controlSize(cx), Label: i18n.T("Side chat permission")},
 		Children: permissionItems}
 	var submit core.Node
 	if a.sideRunning.Get() {
-		submit = ui.Button{Text: "Stop", Variant: ui.ButtonSecondary, Size: controlSize(cx), TestID: "side-stop",
+		submit = ui.Button{Text: i18n.T("Stop"), Variant: ui.ButtonSecondary, Size: controlSize(cx), TestID: "side-stop",
 			OnPress: a.stopSideChat}
 	} else {
-		submit = ui.Button{Text: "Send", Icon: lucide.Send, Variant: ui.ButtonPrimary, Size: controlSize(cx), TestID: "side-send",
+		submit = ui.Button{Text: i18n.T("Send"), Icon: lucide.Send, Variant: ui.ButtonPrimary, Size: controlSize(cx), TestID: "side-send",
 			Disabled: func() bool { return strings.TrimSpace(a.sideDraft.Get()) == "" }, OnPress: a.sendSideChat}
 	}
 	if message := a.sideErr.Get(); message != "" {
@@ -675,12 +676,12 @@ func (a *app) rightSideChat(cx *core.Scope) core.Node {
 				return a.sideAttachmentChips(cx)
 			}},
 			mobileInput{Scope: cx, Input: base.Input{Multiline: true, Value: a.sideDraft.Get, OnChange: a.sideDraft.Set,
-				Placeholder: "Ask a side question…", Label: "Side question", TestID: "side-input"}},
+				Placeholder: i18n.T("Ask a side question…"), Label: i18n.T("Side question"), TestID: "side-input"}},
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
 				modelControl,
 				permissionControl,
 				ui.Spacer{},
-				ui.IconButton{Icon: lucide.Paperclip, Label: "Attach files", TestID: "side-attach", OnPress: a.pickSideAttachments},
+				ui.IconButton{Icon: lucide.Paperclip, Label: i18n.T("Attach files"), TestID: "side-attach", OnPress: a.pickSideAttachments},
 				submit,
 			}},
 		}}
@@ -704,19 +705,19 @@ func (a *app) rightDevices(cx *core.Scope) core.Node {
 			selected = device
 		}
 	}
-	selector := "Choose a device"
+	selector := i18n.T("Choose a device")
 	if selected.Name != "" {
 		selector = selected.Name
 	}
 	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
 		Padding: core.Edges{Top: 4, Right: 10, Bottom: 4, Left: 10}}, Children: []core.Node{
 		ui.Button{Text: selector, Icon: lucide.MonitorSmartphone, Variant: ui.ButtonGhost, Size: controlSize(cx),
-			Label: "Devices", TestID: "device-select", OnPress: func() { a.showDevices.Set(true) }},
+			Label: i18n.T("Devices"), TestID: "device-select", OnPress: func() { a.showDevices.Set(true) }},
 		core.Text{Content: strings.ToLower(selected.State), MaxLines: 1, Style: core.Style{FontSize: 10},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 		ui.Spacer{},
 		core.Show{When: func() bool { return a.deviceBusy.Get() }, Then: func(*core.Scope) core.Node {
-			return ui.Spinner{Size: 12, Label: "Working with the simulator"}
+			return ui.Spinner{Size: 12, Label: i18n.T("Working with the simulator")}
 		}},
 		ui.IconButton{IconFunc: func() *core.SVG {
 			if a.deviceLive.Get() {
@@ -725,11 +726,11 @@ func (a *app) rightDevices(cx *core.Scope) core.Node {
 			return lucide.Play()
 		}, LabelFunc: func() string {
 			if a.deviceLive.Get() {
-				return "Pause live screen"
+				return i18n.T("Pause live screen")
 			}
-			return "Resume live screen"
+			return i18n.T("Resume live screen")
 		}, TestID: "device-live", OnPress: func() { a.setDeviceLive(!a.deviceLive.GetUntracked()) }},
-		ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh devices", TestID: "devices-refresh",
+		ui.IconButton{Icon: lucide.RefreshCw, Label: i18n.T("Refresh devices"), TestID: "devices-refresh",
 			OnPress: a.loadDevices},
 	}}
 	body := []core.Node{head, a.rightError(cx),
@@ -743,7 +744,7 @@ func (a *app) rightDevices(cx *core.Scope) core.Node {
 	case len(devices) == 0:
 		detail := a.deviceDetail.Get()
 		if detail == "" {
-			detail = "No simulators found."
+			detail = i18n.T("No simulators found.")
 		}
 		body = append(body, core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
 			Padding: core.All(16)}, Children: []core.Node{core.Text{Content: detail, MaxLines: 6,
@@ -751,22 +752,22 @@ func (a *app) rightDevices(cx *core.Scope) core.Node {
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }}}})
 	case selected.ID == "":
 		body = append(body, core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-			Children: []core.Node{ui.Text("Choose a simulator above.", 11.5, ui.Regular, colors.Faint)}})
+			Children: []core.Node{ui.Text(i18n.T("Choose a simulator above."), 11.5, ui.Regular, colors.Faint)}})
 	case strings.ToLower(selected.State) == "booted":
 		body = append(body, core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0),
 			Padding: core.Edges{Top: 2, Right: 10, Bottom: 10, Left: 10}}, Children: []core.Node{
 			core.View{Style: core.Style{FlexGrow: 1, MinHeight: core.Pt(0), Background: colors.Inset(),
 				CornerRadius: 8, Overflow: core.Hidden}, Children: []core.Node{
 				core.Image{Source: core.ImageSource{Data: a.deviceImage.Get()},
-					ResizeMode: core.Contain, Label: selected.Name + " screen", TestID: "device-screen",
+					ResizeMode: core.Contain, Label: selected.Name + i18n.T(" screen"), TestID: "device-screen",
 					Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0),
 						Width: core.Pct(100)}},
 			}},
 			core.View{Style: core.Style{Direction: core.Row, Gap: 4, Padding: core.Edges{Top: 6}}, Children: []core.Node{
-				ui.Button{Text: "Refresh screen", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: controlSize(cx),
+				ui.Button{Text: i18n.T("Refresh screen"), Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: controlSize(cx),
 					TestID: "device-refresh", OnPress: a.refreshDeviceShot},
 				ui.Spacer{},
-				ui.Button{Text: "Shut down", Icon: lucide.Power, Variant: ui.ButtonGhost, Size: controlSize(cx),
+				ui.Button{Text: i18n.T("Shut down"), Icon: lucide.Power, Variant: ui.ButtonGhost, Size: controlSize(cx),
 					TestID: "device-shutdown", OnPress: func() { a.shutdownDevice(selected.ID) }},
 			}},
 		}})
@@ -777,7 +778,7 @@ func (a *app) rightDevices(cx *core.Scope) core.Node {
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 			core.Text{Content: selected.OS + " · " + strings.ToLower(selected.State), Style: core.Style{FontSize: 10.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-			ui.Button{Text: "Boot", Icon: lucide.Play, Variant: ui.ButtonPrimary, Size: controlSize(cx),
+			ui.Button{Text: i18n.T("Boot"), Icon: lucide.Play, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 				TestID: "device-boot", OnPress: func() { a.bootDevice(selected.ID) }},
 		}})
 	}
@@ -791,11 +792,11 @@ func (a *app) rightPullRequestDetail(cx *core.Scope) core.Node {
 	detail := a.prView.Get()
 	pr := detail.PullRequest
 	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 3, Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
-		ui.IconButton{Icon: lucide.ChevronLeft, Label: "All pull requests", TestID: "pr-back", OnPress: a.closePullRequest},
+		ui.IconButton{Icon: lucide.ChevronLeft, Label: i18n.T("All pull requests"), TestID: "pr-back", OnPress: a.closePullRequest},
 		core.Text{Content: fmt.Sprintf("#%d", pr.Number), MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-		core.Show{When: a.prViewBusy.Get, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 13, Label: "Loading pull request"} }},
-		ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh pull request", TestID: "pr-detail-refresh",
+		core.Show{When: a.prViewBusy.Get, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 13, Label: i18n.T("Loading pull request")} }},
+		ui.IconButton{Icon: lucide.RefreshCw, Label: i18n.T("Refresh pull request"), TestID: "pr-detail-refresh",
 			OnPress: func() { a.openPullRequest(pr.Number) }},
 	}}
 	var fields []core.Node
@@ -805,7 +806,7 @@ func (a *app) rightPullRequestDetail(cx *core.Scope) core.Node {
 	)
 	meta := strings.ToLower(pr.State)
 	if pr.Draft {
-		meta += " · draft"
+		meta += i18n.T(" · draft")
 	}
 	if detail.Mergeable != "" {
 		meta += " · " + strings.ToLower(detail.Mergeable)
@@ -815,12 +816,12 @@ func (a *app) rightPullRequestDetail(cx *core.Scope) core.Node {
 	}
 	fields = append(fields, core.Text{Content: meta, Style: core.Style{FontSize: 11},
 		StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }})
-	fields = append(fields, core.Text{Content: fmt.Sprintf("%s → %s · +%d −%d · %d files",
+	fields = append(fields, core.Text{Content: i18n.T("%s → %s · +%d −%d · %d files",
 		pr.HeadBranch, pr.BaseBranch, detail.Additions, detail.Deletions, detail.ChangedFiles),
 		MaxLines: 2, Style: core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
 		StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 	if detail.Author != "" {
-		fields = append(fields, core.Text{Content: "by " + detail.Author, Style: core.Style{FontSize: 11},
+		fields = append(fields, core.Text{Content: i18n.T("by ") + detail.Author, Style: core.Style{FontSize: 11},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }})
 	}
 	if detail.Body != "" {
@@ -829,7 +830,7 @@ func (a *app) rightPullRequestDetail(cx *core.Scope) core.Node {
 				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }}}})
 	}
 	if len(detail.Checks) > 0 {
-		fields = append(fields, ui.Text("Checks", 10.5, ui.Semibold, colors.Faint))
+		fields = append(fields, ui.Text(i18n.T("Checks"), 10.5, ui.Semibold, colors.Faint))
 		var checks []core.Node
 		for _, check := range detail.Checks {
 			color := colors.Muted
@@ -853,7 +854,7 @@ func (a *app) rightPullRequestDetail(cx *core.Scope) core.Node {
 		fields = append(fields, core.View{Style: core.Style{Direction: core.Column, Gap: 2}, Children: checks})
 	}
 	if len(detail.Reviews) > 0 {
-		fields = append(fields, ui.Text("Reviews", 10.5, ui.Semibold, colors.Faint))
+		fields = append(fields, ui.Text(i18n.T("Reviews"), 10.5, ui.Semibold, colors.Faint))
 		var reviews []core.Node
 		for _, review := range detail.Reviews {
 			label := review.Author + " · " + strings.ToLower(review.State)
@@ -863,7 +864,7 @@ func (a *app) rightPullRequestDetail(cx *core.Scope) core.Node {
 		fields = append(fields, core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: reviews})
 	}
 	if len(detail.Comments) > 0 {
-		fields = append(fields, ui.Text("Comments", 10.5, ui.Semibold, colors.Faint))
+		fields = append(fields, ui.Text(i18n.T("Comments"), 10.5, ui.Semibold, colors.Faint))
 		for _, comment := range detail.Comments {
 			label := comment.Author
 			if comment.CreatedAt != "" {
@@ -880,27 +881,27 @@ func (a *app) rightPullRequestDetail(cx *core.Scope) core.Node {
 		}
 	}
 	if strings.EqualFold(pr.State, "open") {
-		fields = append(fields, ui.Text("Review or comment", 10.5, ui.Semibold, colors.Faint),
+		fields = append(fields, ui.Text(i18n.T("Review or comment"), 10.5, ui.Semibold, colors.Faint),
 			mobileInput{Scope: cx, Input: base.Input{Multiline: true, Value: a.prNote.Get, OnChange: a.prNote.Set,
-				Placeholder: "Leave a note…", Label: "Note", TestID: "pr-note"}},
+				Placeholder: i18n.T("Leave a note…"), Label: i18n.T("Note"), TestID: "pr-note"}},
 			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: []core.Node{
-				ui.Button{Text: "Approve", Icon: lucide.CircleCheck, Variant: ui.ButtonPrimary, Size: controlSize(cx),
+				ui.Button{Text: i18n.T("Approve"), Icon: lucide.CircleCheck, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 					TestID: "pr-review-approve", OnPress: func() { a.submitPRReview("approve") }},
-				ui.Button{Text: "Request changes", Variant: ui.ButtonSecondary, Size: controlSize(cx),
+				ui.Button{Text: i18n.T("Request changes"), Variant: ui.ButtonSecondary, Size: controlSize(cx),
 					TestID: "pr-review-request-changes", OnPress: func() { a.submitPRReview("request-changes") }},
-				ui.Button{Text: "Add comment", Icon: lucide.MessageCircle, Variant: ui.ButtonGhost, Size: controlSize(cx),
+				ui.Button{Text: i18n.T("Add comment"), Icon: lucide.MessageCircle, Variant: ui.ButtonGhost, Size: controlSize(cx),
 					TestID: "pr-comment", OnPress: a.submitPRComment},
 			}},
 		)
 	}
 	var actions []core.Node
 	if pr.URL != "" {
-		actions = append(actions, ui.Button{Text: "Open on GitHub", Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: controlSize(cx),
+		actions = append(actions, ui.Button{Text: i18n.T("Open on GitHub"), Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: controlSize(cx),
 			TestID: "pr-open-url", OnPress: func() { a.cx.OpenURL(pr.URL, nil) }})
 	}
 	if strings.EqualFold(pr.State, "open") {
 		if pr.Draft {
-			actions = append(actions, ui.Button{Text: "Ready", Variant: ui.ButtonSecondary, Size: controlSize(cx),
+			actions = append(actions, ui.Button{Text: i18n.T("Ready"), Variant: ui.ButtonSecondary, Size: controlSize(cx),
 				TestID: "pr-action-ready", OnPress: func() { a.changePullRequestState("ready") }})
 		} else if detail.Mergeable == "MERGEABLE" || detail.Mergeable == "" {
 			for _, method := range []string{"merge", "squash", "rebase"} {
@@ -909,19 +910,19 @@ func (a *app) rightPullRequestDetail(cx *core.Scope) core.Node {
 					TestID: "pr-merge-" + method, OnPress: func() { a.mergePullRequest(method) }})
 			}
 		}
-		actions = append(actions, ui.Button{Text: "Close", Variant: ui.ButtonGhost, Size: controlSize(cx),
+		actions = append(actions, ui.Button{Text: i18n.T("Close"), Variant: ui.ButtonGhost, Size: controlSize(cx),
 			TestID: "pr-action-close", OnPress: func() { a.changePullRequestState("close") }})
 	} else {
-		actions = append(actions, ui.Button{Text: "Reopen", Variant: ui.ButtonSecondary, Size: controlSize(cx),
+		actions = append(actions, ui.Button{Text: i18n.T("Reopen"), Variant: ui.ButtonSecondary, Size: controlSize(cx),
 			TestID: "pr-action-reopen", OnPress: func() { a.changePullRequestState("reopen") }})
 	}
 	if len(actions) > 0 {
 		fields = append(fields, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4, Padding: core.Edges{Top: 4}}, Children: actions})
 	}
 	if strings.EqualFold(pr.State, "open") {
-		deleteLabel := "Keep branch"
+		deleteLabel := i18n.T("Keep branch")
 		if a.prDeleteBranch.Get() {
-			deleteLabel = "Delete branch"
+			deleteLabel = i18n.T("Delete branch")
 		}
 		fields = append(fields, ui.Button{Text: deleteLabel, Variant: ui.ButtonGhost, Size: controlSize(cx),
 			TestID: "pr-delete-branch", OnPress: func() { a.prDeleteBranch.Set(!a.prDeleteBranch.GetUntracked()) }})
@@ -935,14 +936,14 @@ func (a *app) rightPullRequestDetail(cx *core.Scope) core.Node {
 func (a *app) rightPullRequest(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	if a.selected.Get() == "" {
-		return a.rightNotice(cx, "Pick a thread to read its pull request.")
+		return a.rightNotice(cx, i18n.T("Pick a thread to read its pull request."))
 	}
 	pr := a.pullRequest.Get()
 	fields := []core.Node{
 		a.rightError(cx),
 		core.Show{When: func() bool { return a.gitBusy.Get() }, Then: func(*core.Scope) core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-				ui.Spinner{Size: 14, Label: "Running git action"}, ui.Text("Working…", 12, ui.Regular, colors.Faint),
+				ui.Spinner{Size: 14, Label: i18n.T("Running git action")}, ui.Text(i18n.T("Working…"), 12, ui.Regular, colors.Faint),
 			}}
 		}},
 	}
@@ -958,21 +959,21 @@ func (a *app) rightPullRequest(cx *core.Scope) core.Node {
 			core.Text{Content: pr.URL, MaxLines: 2, Selectable: core.SelectableOn, Style: core.Style{FontSize: 11.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Accent()} }},
 			core.View{Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Edges{Top: 4}}, Children: []core.Node{
-				ui.Button{Text: "Open pull request", Icon: lucide.GitPullRequest, Variant: ui.ButtonPrimary, Size: controlSize(cx),
+				ui.Button{Text: i18n.T("Open pull request"), Icon: lucide.GitPullRequest, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 					TestID: "right-pr-open", OnPress: func() { a.cx.OpenURL(pr.URL, nil) }},
-				ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh pull request", TestID: "right-pr-refresh",
+				ui.IconButton{Icon: lucide.RefreshCw, Label: i18n.T("Refresh pull request"), TestID: "right-pr-refresh",
 					OnPress: func() { a.loadPullRequest(a.selected.GetUntracked()) }},
 			}},
 		)
 	} else {
 		detail := a.prDetail.Get()
-		if strings.Contains(strings.ToLower(detail), "no pull requests") {
+		if strings.Contains(strings.ToLower(detail), i18n.T("no pull requests")) {
 			detail = ""
 		}
 		fields = append(fields,
-			core.Text{Content: "No open pull request", Style: core.Style{FontSize: 13, FontWeight: ui.Semibold},
+			core.Text{Content: i18n.T("No open pull request"), Style: core.Style{FontSize: 13, FontWeight: ui.Semibold},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-			core.Text{Content: "Commit and push this branch, then open a pull request with GitHub CLI.", MaxLines: 3,
+			core.Text{Content: i18n.T("Commit and push this branch, then open a pull request with GitHub CLI."), MaxLines: 3,
 				Style:     core.Style{FontSize: 12, LineHeight: 17},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 		)
@@ -981,9 +982,9 @@ func (a *app) rightPullRequest(cx *core.Scope) core.Node {
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 		}
 		fields = append(fields, core.View{Style: core.Style{Direction: core.Row, Gap: 6, Padding: core.Edges{Top: 4}}, Children: []core.Node{
-			ui.Button{Text: "Create PR", Icon: lucide.GitPullRequest, Variant: ui.ButtonPrimary, Size: controlSize(cx),
+			ui.Button{Text: i18n.T("Create PR"), Icon: lucide.GitPullRequest, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 				TestID: "right-pr-create", Disabled: a.gitBusy.Get, OnPress: func() { a.runGitAction(proto.GitCommitPR) }},
-			ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh pull request", TestID: "right-pr-refresh",
+			ui.IconButton{Icon: lucide.RefreshCw, Label: i18n.T("Refresh pull request"), TestID: "right-pr-refresh",
 				OnPress: func() { a.loadPullRequest(a.selected.GetUntracked()) }},
 		}})
 	}
@@ -1009,7 +1010,7 @@ func (a *app) rightError(cx *core.Scope) core.Node {
 func (a *app) rightTerminal(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	if a.selected.Get() == "" {
-		return a.rightNotice(cx, "Pick a thread to open its terminal.")
+		return a.rightNotice(cx, i18n.T("Pick a thread to open its terminal."))
 	}
 	sessions := a.terminals.Get()
 	session := a.terminalSession.Get()
@@ -1023,9 +1024,9 @@ func (a *app) rightTerminal(cx *core.Scope) core.Node {
 	if session.ID != "" && session.Exited {
 		body = append(body, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
 			Padding: core.Symmetric(4, 10), Background: colors.Inset()}, Children: []core.Node{
-			core.Text{Content: "Shell exited", MaxLines: 1, Style: core.Style{FontSize: 11.5, FlexGrow: 1},
+			core.Text{Content: i18n.T("Shell exited"), MaxLines: 1, Style: core.Style{FontSize: 11.5, FlexGrow: 1},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
-			ui.Button{Text: "Restart", Icon: lucide.RotateCcw, Variant: ui.ButtonGhost, Size: controlSize(cx),
+			ui.Button{Text: i18n.T("Restart"), Icon: lucide.RotateCcw, Variant: ui.ButtonGhost, Size: controlSize(cx),
 				TestID: "terminal-restart-exited", OnPress: a.restartTerminal},
 		}})
 	}
@@ -1040,13 +1041,13 @@ func (a *app) rightTerminal(cx *core.Scope) core.Node {
 	case len(sessions) == 0 && !a.terminalBusy.Get():
 		body = append(body, core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8},
 			Children: []core.Node{
-				ui.Text("No terminal open", 12.5, ui.Regular, colors.Faint),
-				ui.Button{Text: "New terminal", Icon: lucide.Plus, Variant: ui.ButtonPrimary, Size: controlSize(cx),
+				ui.Text(i18n.T("No terminal open"), 12.5, ui.Regular, colors.Faint),
+				ui.Button{Text: i18n.T("New terminal"), Icon: lucide.Plus, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 					TestID: "terminal-start", OnPress: a.newTerminal},
 			}})
 	default:
 		body = append(body, core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-			Children: []core.Node{ui.Text("Starting shell…", 12, ui.Regular, colors.Faint)}})
+			Children: []core.Node{ui.Text(i18n.T("Starting shell…"), 12, ui.Regular, colors.Faint)}})
 	}
 	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Overflow: core.Hidden},
 		Children: body}
@@ -1058,13 +1059,13 @@ func (a *app) rightPreview(cx *core.Scope) core.Node {
 	servers := a.previewServers.Get()
 	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
 		Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
-		core.Text{Content: fmt.Sprintf("Local servers · %d", len(servers)), MaxLines: 1,
+		core.Text{Content: i18n.T("Local servers · %d", len(servers)), MaxLines: 1,
 			Style:     core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 		core.Show{When: func() bool { return a.previewBusy.Get() }, Then: func(*core.Scope) core.Node {
-			return ui.Spinner{Size: 12, Label: "Looking for local servers"}
+			return ui.Spinner{Size: 12, Label: i18n.T("Looking for local servers")}
 		}},
-		ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh local servers", TestID: "preview-refresh",
+		ui.IconButton{Icon: lucide.RefreshCw, Label: i18n.T("Refresh local servers"), TestID: "preview-refresh",
 			OnPress: a.loadPreviewServers},
 	}}
 	var rows []core.Node
@@ -1072,7 +1073,7 @@ func (a *app) rightPreview(cx *core.Scope) core.Node {
 		server := server
 		name := server.Process
 		if name == "" {
-			name = "Server"
+			name = i18n.T("Server")
 		}
 		rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
 			Padding: core.Symmetric(6, 8), Background: colors.Inset(), CornerRadius: 7}, Children: []core.Node{
@@ -1084,7 +1085,7 @@ func (a *app) rightPreview(cx *core.Scope) core.Node {
 				core.Text{Content: server.URL, MaxLines: 1, Style: core.Style{FontSize: 10, FontFamily: "Menlo, monospace"},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 			}},
-			ui.Button{Text: "Open", Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: controlSize(cx),
+			ui.Button{Text: i18n.T("Open"), Icon: lucide.ExternalLink, Variant: ui.ButtonGhost, Size: controlSize(cx),
 				TestID:  fmt.Sprintf("preview-open-%d", server.Port),
 				OnPress: func() { a.openPreviewServer(server.URL) }},
 		}})
@@ -1092,7 +1093,7 @@ func (a *app) rightPreview(cx *core.Scope) core.Node {
 	if len(rows) == 0 {
 		detail := a.previewDetail.Get()
 		if detail == "" {
-			detail = "No local servers found. Start a dev server, then refresh."
+			detail = i18n.T("No local servers found. Start a dev server, then refresh.")
 		}
 		rows = append(rows, core.Text{Content: detail, MaxLines: 5, Style: core.Style{FontSize: 11},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
@@ -1140,17 +1141,17 @@ func (a *app) rightBrowser(cx *core.Scope) core.Node {
 func (a *app) browserToolbar(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2,
 		Padding: core.Edges{Top: 6, Right: 10, Bottom: 6, Left: 10}}, Children: []core.Node{
-		ui.IconButton{Icon: lucide.ChevronLeft, Label: "Back", TestID: "browser-back", Size: 24, IconSize: 13,
+		ui.IconButton{Icon: lucide.ChevronLeft, Label: i18n.T("Back"), TestID: "browser-back", Size: 24, IconSize: 13,
 			Disabled: func() bool { return !a.browserBack.Get() }, OnPress: func() { a.browserRef.GoBack() }},
-		ui.IconButton{Icon: lucide.ChevronRight, Label: "Forward", TestID: "browser-forward", Size: 24, IconSize: 13,
+		ui.IconButton{Icon: lucide.ChevronRight, Label: i18n.T("Forward"), TestID: "browser-forward", Size: 24, IconSize: 13,
 			Disabled: func() bool { return !a.browserNext.Get() }, OnPress: func() { a.browserRef.GoForward() }},
-		ui.IconButton{Icon: lucide.RefreshCw, Label: "Reload", TestID: "browser-reload", Size: 24, IconSize: 13,
+		ui.IconButton{Icon: lucide.RefreshCw, Label: i18n.T("Reload"), TestID: "browser-reload", Size: 24, IconSize: 13,
 			OnPress: func() { a.browserRef.Reload() }},
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 			mobileInput{Scope: cx, Input: base.Input{Value: a.browserInput.Get, OnChange: a.browserInput.Set,
-				Placeholder: "https://example.com", Label: "Address"}},
+				Placeholder: "https://example.com", Label: i18n.T("Address")}},
 		}},
-		ui.IconButton{Icon: lucide.ArrowRight, Label: "Go", TestID: "browser-go", Size: 24, IconSize: 13,
+		ui.IconButton{Icon: lucide.ArrowRight, Label: i18n.T("Go"), TestID: "browser-go", Size: 24, IconSize: 13,
 			OnPress: func() { a.goBrowser(a.browserInput.GetUntracked()) }},
 	}}
 }
@@ -1168,8 +1169,8 @@ func (a *app) browserStart(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
 		Padding: core.All(20), Gap: 8}, Children: []core.Node{
 		ui.Icon(lucide.Globe, 28, colors.Faint),
-		ui.Text("Open a page", 13, ui.Semibold, colors.Text),
-		ui.Text("Type an address above, or open a local dev server.", 11.5, ui.Regular, colors.Faint),
+		ui.Text(i18n.T("Open a page"), 13, ui.Semibold, colors.Text),
+		ui.Text(i18n.T("Type an address above, or open a local dev server."), 11.5, ui.Regular, colors.Faint),
 		core.View{Style: core.Style{Direction: core.Column, Gap: 2, AlignItems: core.AlignCenter, Padding: core.Edges{Top: 6}}, Children: quick},
 	}}
 }
@@ -1178,10 +1179,10 @@ func (a *app) browserStart(cx *core.Scope) core.Node {
 func (a *app) rightGraph(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	if a.selected.Get() == "" {
-		return a.rightNotice(cx, "Pick a thread to see its commit graph.")
+		return a.rightNotice(cx, i18n.T("Pick a thread to see its commit graph."))
 	}
 	commits := a.graph.Get()
-	view := commitgraph.View{Label: "Commits", TestID: "git-graph", Empty: ui.Text("No commits yet.", 12, ui.Regular, colors.Faint),
+	view := commitgraph.View{Label: i18n.T("Commits"), TestID: "git-graph", Empty: ui.Text(i18n.T("No commits yet."), 12, ui.Regular, colors.Faint),
 		Style: ui.FillRest, Ref: a.graphScroll,
 		Commits: func() []commitgraph.Commit {
 			list := a.graph.Get()
@@ -1204,9 +1205,9 @@ func (a *app) rightGraph(cx *core.Scope) core.Node {
 			return out
 		}}
 	head := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Padding: core.Edges{Bottom: 6}}, Children: []core.Node{
-		core.Text{Content: fmt.Sprintf("%d commits", len(commits)), MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
+		core.Text{Content: i18n.T("%d commits", len(commits)), MaxLines: 1, Style: core.Style{FontSize: 12, FontWeight: ui.Semibold, FlexGrow: 1},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-		ui.IconButton{Icon: lucide.RefreshCw, Label: "Refresh graph", TestID: "git-graph-refresh",
+		ui.IconButton{Icon: lucide.RefreshCw, Label: i18n.T("Refresh graph"), TestID: "git-graph-refresh",
 			OnPress: func() { a.loadGraph(a.selected.GetUntracked()) }},
 	}}
 	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(10)}, Children: []core.Node{
@@ -1216,7 +1217,7 @@ func (a *app) rightGraph(cx *core.Scope) core.Node {
 			view,
 			ui.Scrollbar{Scroll: func() *core.Ref { return a.graphScroll },
 				Mode:  func() base.ScrollbarMode { return base.ScrollbarAlways },
-				Label: "Scroll commits", TestID: "git-graph-scrollbar"},
+				Label: i18n.T("Scroll commits"), TestID: "git-graph-scrollbar"},
 		}},
 	}}
 }
@@ -1252,18 +1253,18 @@ func (a *app) editMessageDialog(cx *core.Scope) core.Node {
 		if !open {
 			a.cancelEditMessage()
 		}
-	}, Title: "Edit message", Description: "The thread branches before this message, then sends the edited prompt.", TestID: "edit-message-dialog",
+	}, Title: i18n.T("Edit message"), Description: i18n.T("The thread branches before this message, then sends the edited prompt."), TestID: "edit-message-dialog",
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: []core.Node{
 				mobileInput{Scope: cx, Input: base.Input{Multiline: true, Value: a.editDraft.Get, OnChange: a.editDraft.Set,
-					Label: "Message", Placeholder: "Edit the prompt"}},
-				core.Text{Content: "The new thread copies the transcript before this message.", Style: core.Style{FontSize: 11},
+					Label: i18n.T("Message"), Placeholder: i18n.T("Edit the prompt")}},
+				core.Text{Content: i18n.T("The new thread copies the transcript before this message."), Style: core.Style{FontSize: 11},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 			}}
 		})},
 		Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, TestID: "cancel-edit-message", OnPress: a.cancelEditMessage},
-			ui.Button{Text: "Save & send", Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "confirm-edit-message",
+			ui.Button{Text: i18n.T("Cancel"), Variant: ui.ButtonGhost, TestID: "cancel-edit-message", OnPress: a.cancelEditMessage},
+			ui.Button{Text: i18n.T("Save & send"), Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "confirm-edit-message",
 				OnPress: a.confirmEditMessage},
 		}}
 }
@@ -1276,11 +1277,11 @@ func (a *app) discardDialog(cx *core.Scope) core.Node {
 		if !open {
 			a.diffDiscard.Set("")
 		}
-	}, Title: "Discard changes?", TestID: "discard-dialog",
-		Description: path + " will be restored to HEAD, or removed when it is untracked. This cannot be undone.",
+	}, Title: i18n.T("Discard changes?"), TestID: "discard-dialog",
+		Description: path + i18n.T(" will be restored to HEAD, or removed when it is untracked. This cannot be undone."),
 		Actions: []ui.AlertAction{
-			{Text: "Cancel", Variant: ui.ButtonGhost, TestID: "cancel-discard", OnPress: func() { a.diffDiscard.Set("") }},
-			{Text: "Discard", Variant: ui.ButtonPrimary, Color: func() core.Color { return colors.Danger() }, TestID: "confirm-discard",
+			{Text: i18n.T("Cancel"), Variant: ui.ButtonGhost, TestID: "cancel-discard", OnPress: func() { a.diffDiscard.Set("") }},
+			{Text: i18n.T("Discard"), Variant: ui.ButtonPrimary, Color: func() core.Color { return colors.Danger() }, TestID: "confirm-discard",
 				OnPress: func() {
 					a.diffDiscard.Set("")
 					a.stagePath(path, false)

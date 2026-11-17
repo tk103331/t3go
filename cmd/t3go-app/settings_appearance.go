@@ -8,6 +8,7 @@ import (
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/tk/t3go/internal/i18n"
 )
 
 type clientAppearance struct {
@@ -58,6 +59,15 @@ func (a *app) settingsAppearance(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	prefs := a.appearance.Get()
 	var themes, accents []core.Node
+	var languages []core.Node
+	for _, lang := range i18n.Languages() {
+		variant := ui.ButtonSecondary
+		if i18n.Current() == lang {
+			variant = ui.ButtonPrimary
+		}
+		languages = append(languages, ui.Button{Text: lang.Name(), TestID: "settings-language-" + string(lang),
+			Variant: variant, Size: controlSize(cx), OnPress: func() { a.setClientLanguage(lang) }})
+	}
 	for _, theme := range []string{"system", "light", "dark"} {
 		variant := ui.ButtonSecondary
 		if prefs.Theme == theme {
@@ -97,12 +107,14 @@ func (a *app) settingsAppearance(cx *core.Scope) core.Node {
 			}})
 	}
 	return core.View{TestID: "settings-appearance", Style: core.Style{Gap: 12}, Children: []core.Node{
-		settingsSectionTitle(cx, "Appearance", "Saved automatically on this client, across all environments."),
+		settingsSectionTitle(cx, i18n.T("Appearance"), i18n.T("Saved automatically on this client, across all environments.")),
 		core.Text{Content: a.settingsSaveErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 12},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }},
-		ui.Text("Theme", 12, ui.Semibold, colors.Muted),
+		ui.Text(i18n.T("Language"), 12, ui.Semibold, colors.Muted),
+		core.View{Style: core.Style{Direction: core.Row, Gap: 6, Wrap: core.Wrap}, Children: languages},
+		ui.Text(i18n.T("Theme"), 12, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Gap: 6, Wrap: core.Wrap}, Children: themes},
-		ui.Text("Accent", 12, ui.Semibold, colors.Muted),
+		ui.Text(i18n.T("Accent"), 12, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Gap: 6, Wrap: core.Wrap}, Children: accents},
 	}}
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -17,16 +18,20 @@ type settingsNavItem struct {
 	Icon  func() *core.SVG
 }
 
-var settingsNav = []settingsNavItem{
-	{ID: "general", Label: "Appearance", Icon: lucide.Settings},
-	{ID: "account", Label: "Account", Icon: lucide.UserRound},
-	{ID: "environments", Label: "Environments", Icon: lucide.Network},
-	{ID: "providers", Label: "Providers", Icon: lucide.Bot},
-	{ID: "access", Label: "Access", Icon: lucide.Smartphone},
-	{ID: "usage", Label: "Usage", Icon: lucide.ChartColumn},
-	{ID: "worktrees", Label: "Worktrees", Icon: lucide.GitBranch},
-	{ID: "shortcuts", Label: "Shortcuts", Icon: lucide.Keyboard},
-	{ID: "about", Label: "About", Icon: lucide.Info},
+// settingsNavItems lists the settings pages. The labels are translated
+// when the page is built, so the language can change at any time.
+func settingsNavItems() []settingsNavItem {
+	return []settingsNavItem{
+		{ID: "general", Label: i18n.T("Appearance"), Icon: lucide.Settings},
+		{ID: "account", Label: i18n.T("Account"), Icon: lucide.UserRound},
+		{ID: "environments", Label: i18n.T("Environments"), Icon: lucide.Network},
+		{ID: "providers", Label: i18n.T("Providers"), Icon: lucide.Bot},
+		{ID: "access", Label: i18n.T("Access"), Icon: lucide.Smartphone},
+		{ID: "usage", Label: i18n.T("Usage"), Icon: lucide.ChartColumn},
+		{ID: "worktrees", Label: i18n.T("Worktrees"), Icon: lucide.GitBranch},
+		{ID: "shortcuts", Label: i18n.T("Shortcuts"), Icon: lucide.Keyboard},
+		{ID: "about", Label: i18n.T("About"), Icon: lucide.Info},
+	}
 }
 
 // compactSettings is the phone layout: sections on chips above the page.
@@ -39,7 +44,7 @@ func (a *app) settingsBody(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	section := a.settingsSection.Get()
 	var nav []core.Node
-	for _, item := range settingsNav {
+	for _, item := range settingsNavItems() {
 		item := item
 		if item.ID == "access" && a.localSettingsTarget() == nil {
 			continue
@@ -75,7 +80,7 @@ func (a *app) settingsBody(cx *core.Scope) core.Node {
 	page := core.Dynamic(a.settingsPage)
 	if compactSettings(cx) {
 		var chips []core.Node
-		for _, item := range settingsNav {
+		for _, item := range settingsNavItems() {
 			item := item
 			if item.ID == "usage" || item.ID == "access" {
 				continue
@@ -129,12 +134,12 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 		color := colors.Up
 		switch {
 		case !provider.Installed:
-			status = "Not found on PATH"
+			status = i18n.T("Not found on PATH")
 			color = colors.Danger
 		case provider.AuthStatus == "authenticated":
-			status = "Installed · signed in"
+			status = i18n.T("Installed · signed in")
 		case provider.AuthStatus == "unauthenticated":
-			status = "Installed · signed out"
+			status = i18n.T("Installed · signed out")
 			color = colors.Muted
 		}
 		var labels []core.Node
@@ -144,7 +149,7 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 			}
 			label := model.Name
 			if model.Default {
-				label += " · default"
+				label += i18n.T(" · default")
 			}
 			if model.ContextWindow > 0 {
 				label += " · " + humanTokens(int64(model.ContextWindow))
@@ -153,7 +158,7 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 				Style:     core.Style{FontSize: 10.5, FlexShrink: 1, MinWidth: core.Pt(0)},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }}}
 			if model.Custom {
-				children = append(children, ui.IconButton{Icon: lucide.X, Label: "Remove " + model.Name, Size: 16, IconSize: 9,
+				children = append(children, ui.IconButton{Icon: lucide.X, Label: i18n.T("Remove ") + model.Name, Size: 16, IconSize: 9,
 					TestID: "settings-remove-model-" + provider.ID + "-" + model.ID, Tint: colors.Faint,
 					OnPress: func() { a.removeCustomModel(provider.ID, model.ID) }})
 			}
@@ -195,14 +200,14 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 			body = append(body, core.Text{Content: provider.Path, MaxLines: 2, Style: core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 		}
-		if provider.Error != "" && !strings.EqualFold(provider.Error, "not installed") {
+		if provider.Error != "" && !strings.EqualFold(provider.Error, i18n.T("not installed")) {
 			body = append(body, core.Text{Content: provider.Error, MaxLines: 2, Style: core.Style{FontSize: 10.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }})
 		}
 		if len(labels) > 0 {
 			body = append(body, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 3, Padding: core.Edges{Top: 2}}, Children: labels})
 		} else if provider.Installed {
-			body = append(body, ui.Text("No models reported yet.", 10.5, ui.Regular, colors.Faint))
+			body = append(body, ui.Text(i18n.T("No models reported yet."), 10.5, ui.Regular, colors.Faint))
 		}
 		if provider.AuthStatus == "unauthenticated" || provider.AuthStatus == "unknown" {
 			if provider.LoginCommand != "" {
@@ -216,39 +221,39 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 			body = append(body, core.Text{Content: provider.InstallCommand, MaxLines: 2,
 				Style:     core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace"},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
-			actions = append(actions, ui.Button{Text: "Install", Icon: lucide.Download, Variant: ui.ButtonSecondary,
+			actions = append(actions, ui.Button{Text: i18n.T("Install"), Icon: lucide.Download, Variant: ui.ButtonSecondary,
 				Size: controlSize(cx), TestID: "settings-install-" + provider.ID,
 				OnPress: func() { owner.runSettingsProviderCommand(a, provider.InstallCommand) }})
 		}
 		if provider.Installed && provider.CanAuthenticate && provider.AuthStatus != "authenticated" && provider.LoginCommand != "" {
-			actions = append(actions, ui.Button{Text: "Sign in", Icon: lucide.LogIn, Variant: ui.ButtonSecondary,
+			actions = append(actions, ui.Button{Text: i18n.T("Sign in"), Icon: lucide.LogIn, Variant: ui.ButtonSecondary,
 				Size: controlSize(cx), TestID: "settings-login-" + provider.ID,
 				OnPress: func() { owner.runSettingsProviderCommand(a, provider.LoginCommand) }})
 		}
-		actions = append(actions, ui.Button{Text: "Add model", Icon: lucide.Plus, Variant: ui.ButtonGhost, Size: controlSize(cx),
+		actions = append(actions, ui.Button{Text: i18n.T("Add model"), Icon: lucide.Plus, Variant: ui.ButtonGhost, Size: controlSize(cx),
 			TestID: "settings-add-model-" + provider.ID, OnPress: func() { a.openCustomModelDialog(provider.ID) }})
 		body = append(body, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4,
 			Padding: core.Edges{Top: 2}}, Children: actions})
 		cards = append(cards, core.View{TestID: "settings-provider-card-" + provider.ID, Style: core.Style{Direction: core.Column, Gap: 5, Padding: core.Symmetric(8, 10),
 			Background: colors.Inset(), CornerRadius: 8}, Children: body})
 	}
-	refresh := ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: controlSize(cx),
+	refresh := ui.Button{Text: i18n.T("Refresh"), Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: controlSize(cx),
 		TestID: "settings-refresh-providers", OnPress: a.refreshProviders, Disabled: a.providersBusy.Get}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: []core.Node{
-		settingsSectionTitle(cx, "Providers", "Configure ACP agents for this environment, then detect their installed models."),
+		settingsSectionTitle(cx, i18n.T("Providers"), i18n.T("Configure ACP agents for this environment, then detect their installed models.")),
 		core.Show{When: a.providersBusy.Get, Then: func(*core.Scope) core.Node {
-			return ui.Spinner{Size: 14, Label: "Detecting providers on " + a.envName()}
+			return ui.Spinner{Size: 14, Label: i18n.T("Detecting providers on ") + a.envName()}
 		}},
 		core.Text{Content: a.providersErr.Get(), TestID: "settings-providers-error", MaxLines: 3,
 			Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter}, Children: []core.Node{
-			core.Text{Content: fmt.Sprintf("%d providers · %d models · %s", len(providers), len(models), a.envName()),
+			core.Text{Content: i18n.T("%d providers · %d models · %s", len(providers), len(models), a.envName()),
 				MaxLines: 2, Style: core.Style{FontSize: 11.5, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 			refresh,
 		}},
 		a.providerSettingsSection(cx),
-		ui.Text("Detected providers", 11, ui.Semibold, colors.Muted),
+		ui.Text(i18n.T("Detected providers"), 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Column, Gap: 6}, Children: cards},
 	}}
 }
@@ -302,20 +307,20 @@ func (a *app) settingsUsage(cx *core.Scope) core.Node {
 				Background: colors.Inset(), CornerRadius: 6}, Children: []core.Node{
 				core.Text{Content: provider.Provider, MaxLines: 1, Style: core.Style{FontSize: 11.5, FontWeight: ui.Medium, FlexGrow: 1},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-				core.Text{Content: fmt.Sprintf("%d runs", provider.Runs), Style: core.Style{FontSize: 10.5},
+				core.Text{Content: i18n.T("%d runs", provider.Runs), Style: core.Style{FontSize: 10.5},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-				core.Text{Content: humanTokens(provider.Tokens) + " tokens", Style: core.Style{FontSize: 10.5},
+				core.Text{Content: humanTokens(provider.Tokens) + i18n.T(" tokens"), Style: core.Style{FontSize: 10.5},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 				core.Text{Content: fmt.Sprintf("$%.2f", provider.Cost), Style: core.Style{FontSize: 10.5},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 			}})
 	}
 	var body []core.Node
-	body = append(body, settingsSectionTitle(cx, "Usage", "Tokens and cost of the runs this environment recorded."),
+	body = append(body, settingsSectionTitle(cx, i18n.T("Usage"), i18n.T("Tokens and cost of the runs this environment recorded.")),
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4}, Children: []core.Node{
-			ui.Text(report.Since+" – today", 11, ui.Regular, colors.Faint), ui.Spacer{},
+			ui.Text(report.Since+i18n.T(" – today"), 11, ui.Regular, colors.Faint), ui.Spacer{},
 			core.Show{When: func() bool { return a.usageBusy.Get() }, Then: func(*core.Scope) core.Node {
-				return ui.Spinner{Size: 12, Label: "Loading usage"}
+				return ui.Spinner{Size: 12, Label: i18n.T("Loading usage")}
 			}},
 			core.View{Style: core.Style{Direction: core.Row, Gap: 4}, Children: ranges},
 		}},
@@ -323,13 +328,13 @@ func (a *app) settingsUsage(cx *core.Scope) core.Node {
 	if report.Totals.Runs > 0 {
 		body = append(body, chart)
 	} else {
-		body = append(body, ui.Text("No usage recorded in this range.", 11.5, ui.Regular, colors.Faint))
+		body = append(body, ui.Text(i18n.T("No usage recorded in this range."), 11.5, ui.Regular, colors.Faint))
 	}
 	if a.usageErr.Get() != "" {
 		body = append(body, ui.Text(a.usageErr.Get(), 11, ui.Regular, colors.Danger))
 	}
 	if len(providers) > 0 {
-		body = append(body, ui.Text("Providers", 11, ui.Semibold, colors.Muted))
+		body = append(body, ui.Text(i18n.T("Providers"), 11, ui.Semibold, colors.Muted))
 		body = append(body, core.View{Style: core.Style{Direction: core.Column, Gap: 4}, Children: providers})
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: body}
@@ -367,12 +372,12 @@ func (a *app) settingsWorktrees(cx *core.Scope) core.Node {
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 		}})
 	}
-	note := "New threads can run in the project directory or in their own worktree. T3Go keeps managed worktrees until their thread is deleted."
+	note := i18n.T("New threads can run in the project directory or in their own worktree. T3Go keeps managed worktrees until their thread is deleted.")
 	if len(rows) == 0 {
-		rows = append(rows, ui.Text("No thread is using a worktree.", 11.5, ui.Regular, colors.Faint))
+		rows = append(rows, ui.Text(i18n.T("No thread is using a worktree."), 11.5, ui.Regular, colors.Faint))
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: []core.Node{
-		settingsSectionTitle(cx, "Worktrees", note),
+		settingsSectionTitle(cx, i18n.T("Worktrees"), note),
 		core.View{Style: core.Style{Direction: core.Column, Gap: 6}, Children: rows},
 	}}
 }
@@ -381,14 +386,14 @@ func (a *app) settingsWorktrees(cx *core.Scope) core.Node {
 func (a *app) settingsShortcuts(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	shortcuts := [][2]string{
-		{"⌘K", "Search threads and actions"},
-		{"⌘N", "New thread"},
-		{"⌘⇧N", "New project"},
-		{"⌘,", "Settings"},
-		{"⌘B", "Toggle sidebar"},
-		{"↑ / ↓", "Move through lists"},
-		{"Return", "Open the selected item"},
-		{"Esc", "Close a dialog"},
+		{"⌘K", i18n.T("Search threads and actions")},
+		{"⌘N", i18n.T("New thread")},
+		{"⌘⇧N", i18n.T("New project")},
+		{"⌘,", i18n.T("Settings")},
+		{"⌘B", i18n.T("Toggle sidebar")},
+		{"↑ / ↓", i18n.T("Move through lists")},
+		{"Return", i18n.T("Open the selected item")},
+		{"Esc", i18n.T("Close a dialog")},
 	}
 	var rows []core.Node
 	for _, shortcut := range shortcuts {
@@ -404,7 +409,7 @@ func (a *app) settingsShortcuts(cx *core.Scope) core.Node {
 		}})
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 4}, Children: []core.Node{
-		settingsSectionTitle(cx, "Shortcuts", "Keyboard shortcuts on this platform; Ctrl replaces ⌘ outside Apple platforms."),
+		settingsSectionTitle(cx, i18n.T("Shortcuts"), i18n.T("Keyboard shortcuts on this platform; Ctrl replaces ⌘ outside Apple platforms.")),
 		core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: rows},
 	}}
 }
@@ -415,49 +420,49 @@ func (a *app) settingsAbout(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	target := a.localSettingsTarget()
 	rows := []core.Node{
-		a.aboutRow(cx, "Client", "T3Go "+appVersion, "settings-about-client"),
-		a.aboutRow(cx, "Build", appBuildNumber, "settings-about-build"),
-		a.aboutRow(cx, "Go", goRuntimeVersion(), "settings-about-go"),
+		a.aboutRow(cx, i18n.T("Client"), i18n.T("T3Go ")+appVersion, "settings-about-client"),
+		a.aboutRow(cx, i18n.T("Build"), appBuildNumber, "settings-about-build"),
+		a.aboutRow(cx, i18n.T("Go"), goRuntimeVersion(), "settings-about-go"),
 		a.aboutRow(cx, "NSGo", nsgoVersion(), "settings-about-nsgo"),
-		a.aboutRow(cx, "Protocol", fmt.Sprintf("API v%d", proto.ProtocolVersion), "settings-about-protocol"),
+		a.aboutRow(cx, i18n.T("Protocol"), i18n.T("API v%d", proto.ProtocolVersion), "settings-about-protocol"),
 	}
 	if target != nil {
 		server := target.serverVersion.Get()
 		if server == "" {
-			server = "Unknown"
+			server = i18n.T("Unknown")
 		}
 		rows = append(rows,
-			a.aboutRow(cx, "Server", server, "settings-about-server"),
-			a.aboutRow(cx, "Local URL", target.serverURL.Get(), "settings-about-url"),
-			a.aboutRow(cx, "Machine", target.envName(), "settings-about-machine"),
+			a.aboutRow(cx, i18n.T("Server"), server, "settings-about-server"),
+			a.aboutRow(cx, i18n.T("Local URL"), target.serverURL.Get(), "settings-about-url"),
+			a.aboutRow(cx, i18n.T("Machine"), target.envName(), "settings-about-machine"),
 		)
 		if target.profile.Hostname != "" {
-			rows = append(rows, a.aboutRow(cx, "Hostname", target.profile.Hostname, "settings-about-hostname"))
+			rows = append(rows, a.aboutRow(cx, i18n.T("Hostname"), target.profile.Hostname, "settings-about-hostname"))
 		}
 		if target.profile.System != nil {
 			system := strings.TrimSpace(target.profile.System.OS + " " + target.profile.System.OSVersion)
 			if target.profile.System.Arch != "" {
 				system = strings.TrimSpace(system + " · " + target.profile.System.Arch)
 			}
-			rows = append(rows, a.aboutRow(cx, "System", system, "settings-about-system"))
+			rows = append(rows, a.aboutRow(cx, i18n.T("System"), system, "settings-about-system"))
 		}
 		if target.offline.Get() {
-			rows = append(rows, ui.Text("The local event stream is reconnecting.", 11.5, ui.Regular, colors.Danger))
+			rows = append(rows, ui.Text(i18n.T("The local event stream is reconnecting."), 11.5, ui.Regular, colors.Danger))
 		}
 	} else {
-		rows = append(rows, ui.Text("No local T3Go environment is connected on this machine.", 11.5, ui.Regular, colors.Muted))
+		rows = append(rows, ui.Text(i18n.T("No local T3Go environment is connected on this machine."), 11.5, ui.Regular, colors.Muted))
 	}
 	body := []core.Node{
-		settingsSectionTitle(cx, "About T3Go", "Client and local environment build information."),
+		settingsSectionTitle(cx, i18n.T("About T3Go"), i18n.T("Client and local environment build information.")),
 		core.View{Style: core.Style{Direction: core.Column, Gap: 4}, Children: rows},
 	}
 	body = append(body,
-		core.Text{Content: "Remote environments are managed under Environments. This page reports only the client and the T3Go server running on this machine.",
+		core.Text{Content: i18n.T("Remote environments are managed under Environments. This page reports only the client and the T3Go server running on this machine."),
 			MaxLines: 4, Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 	)
 	if a.manager != nil {
-		body = append(body, ui.Button{Text: "Manage environments", Variant: ui.ButtonGhost, Size: controlSize(cx),
-			TestID: "settings-manage-environments", OnPress: func() { a.setSettingsSection("environments") }})
+		body = append(body, ui.Button{Text: i18n.T("Manage environments"), Variant: ui.ButtonGhost, Size: controlSize(cx),
+			TestID: "settings-manage-environments", OnPress: func() { a.setSettingsSection(i18n.T("environments")) }})
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: body}
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/tk/t3go/internal/i18n"
 )
 
 // mobileComposer is the phone composer. Its send icon is a fixed node whose
@@ -128,9 +129,9 @@ func (m mobileComposer) Render(cx *core.Scope) core.Node {
 		},
 		LabelFunc: func() string {
 			if m.Running != nil && m.Running() && strings.TrimSpace(draft()) == "" {
-				return "Stop"
+				return i18n.T("Stop")
 			}
-			return "Send"
+			return i18n.T("Send")
 		},
 		Variant: ui.IconButtonPrimary, Size: 38, IconSize: 19, TestID: sendTestID, Disabled: m.Disabled,
 		OnPress: func() {

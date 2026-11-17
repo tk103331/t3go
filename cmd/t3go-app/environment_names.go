@@ -6,6 +6,7 @@ import (
 
 	"github.com/tk/t3go/internal/client"
 	"github.com/tk/t3go/internal/environment"
+	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -53,7 +54,7 @@ func environmentBaseName(p client.EnvironmentProfile) string {
 		return host
 	}
 	if p.ID != "" {
-		return "Environment"
+		return i18n.T("Environment")
 	}
 	return "T3Go"
 }

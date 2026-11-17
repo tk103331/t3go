@@ -7,6 +7,7 @@ import (
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/tk/t3go/internal/i18n"
 )
 
 func (m *environmentManager) relayAccountDialog(cx *core.Scope) core.Node {
@@ -18,15 +19,15 @@ func (m *environmentManager) relayAccountDialog(cx *core.Scope) core.Node {
 			}
 		},
 		NoCloseOnBackdropPress: compactSettings(cx),
-		Title:                  "Relay account",
-		Description:            "Sign in once, then discover and open every environment owned by this account.",
+		Title:                  i18n.T("Relay account"),
+		Description:            i18n.T("Sign in once, then discover and open every environment owned by this account."),
 		TestID:                 "relay-account-dialog",
 		Style:                  dialogWidth(cx, 560),
 		Children: []core.Node{core.Scroll{StyleFunc: func() core.Style {
 			height := (cx.Env().Window().Height - cx.Env().KeyboardHeight()) * 0.72
 			return core.Style{MaxHeight: core.Pt(height)}
 		}, Children: []core.Node{core.Dynamic(m.relayAccountPanel)}}},
-		Footer: []core.Node{ui.Button{Text: "Close", Variant: ui.ButtonGhost, Size: controlSize(cx),
+		Footer: []core.Node{ui.Button{Text: i18n.T("Close"), Variant: ui.ButtonGhost, Size: controlSize(cx),
 			Disabled: m.accountBusy.Get, OnPress: func() { m.accountOpen.Set(false) }}},
 	}
 }
@@ -42,19 +43,19 @@ func (m *environmentManager) relayAccountPanel(cx *core.Scope) core.Node {
 		mode = "login"
 	}
 	body := []core.Node{
-		core.Text{Content: "Use one Relay account to find your computers across networks.",
+		core.Text{Content: i18n.T("Use one Relay account to find your computers across networks."),
 			Style:     core.Style{FontSize: 13, FontWeight: ui.Semibold},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-		ui.Text("Environments are added automatically after sign-in. Direct LAN pairing remains available without an account.", 12, ui.Regular, colors.Muted),
+		ui.Text(i18n.T("Environments are added automatically after sign-in. Direct LAN pairing remains available without an account."), 12, ui.Regular, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Gap: 6}, Children: []core.Node{
-			ui.Button{Text: "Sign in", Variant: func() ui.ButtonVariant {
+			ui.Button{Text: i18n.T("Sign in"), Variant: func() ui.ButtonVariant {
 				if mode == "login" {
 					return ui.ButtonPrimary
 				}
 				return ui.ButtonSecondary
 			}(), Size: controlSize(cx), TestID: "relay-account-mode-login",
 				OnPress: func() { m.accountMode.Set("login"); m.accountErr.Set("") }},
-			ui.Button{Text: "Create account", Variant: func() ui.ButtonVariant {
+			ui.Button{Text: i18n.T("Create account"), Variant: func() ui.ButtonVariant {
 				if mode == "register" {
 					return ui.ButtonPrimary
 				}
@@ -63,33 +64,33 @@ func (m *environmentManager) relayAccountPanel(cx *core.Scope) core.Node {
 				OnPress: func() { m.accountMode.Set("register"); m.accountErr.Set("") }},
 		}},
 		mobileInput{Scope: cx, Input: base.Input{Value: m.accountServer.Get, OnChange: m.accountServer.Set,
-			Placeholder: "https://relay.example.com", Label: "Relay server URL",
+			Placeholder: "https://relay.example.com", Label: i18n.T("Relay server URL"),
 			NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone},
 			TestID: "relay-account-server"},
 		mobileInput{Scope: cx, Input: base.Input{Value: m.accountEmail.Get, OnChange: m.accountEmail.Set,
-			Placeholder: "you@example.com", Label: "Email",
+			Placeholder: "you@example.com", Label: i18n.T("Email"),
 			NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone},
 			TestID: "relay-account-email"},
 		mobileInput{Scope: cx, Input: base.Input{Value: m.accountPassword.Get, OnChange: m.accountPassword.Set,
-			Placeholder: "At least 8 characters", Label: "Password", Masked: true,
+			Placeholder: i18n.T("At least 8 characters"), Label: i18n.T("Password"), Masked: true,
 			NoAutoCorrect: true, AutoCapitalize: core.AutoCapitalizeNone,
 			SubmitBehavior: core.SubmitBehaviorSubmit, OnSubmit: func(string) { m.signInRelayAccount() }},
 			TestID: "relay-account-password"},
 	}
 	if mode == "register" {
 		body = append(body, mobileInput{Scope: cx, Input: base.Input{Value: m.accountName.Get,
-			OnChange: m.accountName.Set, Placeholder: "Optional display name", Label: "Display name",
+			OnChange: m.accountName.Set, Placeholder: i18n.T("Optional display name"), Label: i18n.T("Display name"),
 			AutoCapitalize: core.AutoCapitalizeWords}, TestID: "relay-account-name"})
 	}
 	body = append(body,
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Column, Gap: 1, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
 				Children: []core.Node{
-					core.Text{Content: "Allow insecure HTTP", Style: core.Style{FontSize: 11.5, FontWeight: ui.Medium},
+					core.Text{Content: i18n.T("Allow insecure HTTP"), Style: core.Style{FontSize: 11.5, FontWeight: ui.Medium},
 						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-					ui.Text("Use only for a trusted private Relay.", 10.5, ui.Regular, colors.Faint),
+					ui.Text(i18n.T("Use only for a trusted private Relay."), 10.5, ui.Regular, colors.Faint),
 				}},
-			settingsSwitch(cx, "Allow insecure HTTP Relay", "relay-account-allow-http",
+			settingsSwitch(cx, i18n.T("Allow insecure HTTP Relay"), "relay-account-allow-http",
 				m.accountAllowHTTP.Get, m.accountAllowHTTP.Set),
 		}},
 	)
@@ -99,13 +100,13 @@ func (m *environmentManager) relayAccountPanel(cx *core.Scope) core.Node {
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }})
 	}
 	if m.accountBusy.Get() {
-		body = append(body, ui.Spinner{Size: 16, Label: "Signing in and discovering environments"})
+		body = append(body, ui.Spinner{Size: 16, Label: i18n.T("Signing in and discovering environments")})
 	} else {
 		body = append(body, ui.Button{Text: func() string {
 			if mode == "register" {
-				return "Create account and discover"
+				return i18n.T("Create account and discover")
 			}
-			return "Sign in and discover"
+			return i18n.T("Sign in and discover")
 		}(), Icon: lucide.LogIn, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 			TestID: "relay-account-submit", OnPress: m.signInRelayAccount})
 	}
@@ -136,7 +137,7 @@ func (m *environmentManager) signedInRelayAccount(cx *core.Scope, colors ui.Colo
 						core.Text{Content: status, Style: core.Style{FontSize: 10.5},
 							StyleFunc: func() core.Style { return core.Style{Color: statusColor} }},
 					}},
-				ui.Button{Text: "Open", Variant: ui.ButtonSecondary, Size: controlSize(cx),
+				ui.Button{Text: i18n.T("Open"), Variant: ui.ButtonSecondary, Size: controlSize(cx),
 					TestID: "relay-account-open-environment-" + environment.EnvironmentID,
 					OnPress: func() {
 						m.activate(environment.EnvironmentID)
@@ -147,8 +148,8 @@ func (m *environmentManager) signedInRelayAccount(cx *core.Scope, colors ui.Colo
 	if len(rows) == 0 {
 		rows = append(rows, core.View{Style: core.Style{Gap: 4, Padding: core.All(14),
 			Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{
-			ui.Text("No environments found", 13, ui.Semibold, colors.Text),
-			ui.Text("Open Access on a desktop with this account to register that computer.", 12, ui.Regular, colors.Muted),
+			ui.Text(i18n.T("No environments found"), 13, ui.Semibold, colors.Text),
+			ui.Text(i18n.T("Open Access on a desktop with this account to register that computer."), 12, ui.Regular, colors.Muted),
 		}})
 	}
 	return core.View{TestID: "relay-account-signed-in", Style: core.Style{Gap: 10}, Children: []core.Node{
@@ -166,15 +167,15 @@ func (m *environmentManager) signedInRelayAccount(cx *core.Scope, colors ui.Colo
 				}},
 		}},
 		core.View{Style: core.Style{Direction: core.Row, Gap: 6, Wrap: core.Wrap}, Children: []core.Node{
-			ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonSecondary,
+			ui.Button{Text: i18n.T("Refresh"), Icon: lucide.RefreshCw, Variant: ui.ButtonSecondary,
 				Size: controlSize(cx), Disabled: m.accountBusy.Get, TestID: "relay-account-refresh",
 				OnPress: func() { m.refreshRelayAccount(false) }},
-			ui.Button{Text: "Sign out", Icon: lucide.LogOut, Variant: ui.ButtonGhost,
+			ui.Button{Text: i18n.T("Sign out"), Icon: lucide.LogOut, Variant: ui.ButtonGhost,
 				Size: controlSize(cx), Disabled: m.accountBusy.Get, TestID: "relay-account-sign-out",
 				OnPress: m.signOutRelayAccount},
 		}},
-		ui.Text("Discovered environments", 12, ui.Semibold, colors.Muted),
+		ui.Text(i18n.T("Discovered environments"), 12, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Gap: 6}, Children: rows},
-		ui.Text("Account access is signed by Relay for each request. The account token is not the environment token used by LAN pairing.", 10.5, ui.Regular, colors.Faint),
+		ui.Text(i18n.T("Account access is signed by Relay for each request. The account token is not the environment token used by LAN pairing."), 10.5, ui.Regular, colors.Faint),
 	}}
 }

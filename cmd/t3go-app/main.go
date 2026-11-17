@@ -13,6 +13,7 @@ import (
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -26,6 +27,9 @@ func Root(cx *core.Scope) core.Node {
 	// insets, faint text). Set it before the environments answer, so the
 	// first frame is not painted without them.
 	cx.SetTheme(ui.DefaultTheme())
+	// The language is a client choice, so it is loaded before the first
+	// frame is drawn.
+	initClientLanguage(cx, cx.Storage())
 	manager := newEnvironmentManager(cx)
 	manager.start()
 	return manager.view(cx)
@@ -48,7 +52,7 @@ func (manager *environmentManager) view(cx *core.Scope) core.Node {
 						}
 						if !ready {
 							return core.View{Style: core.Style{FlexGrow: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
-								Children: []core.Node{ui.Spinner{Size: 20, Label: "Connecting environments"}}}
+								Children: []core.Node{ui.Spinner{Size: 20, Label: i18n.T("Connecting environments")}}}
 						}
 					}
 				}
@@ -85,34 +89,34 @@ func (a *app) connectView(cx *core.Scope) core.Node {
 				core.View{Style: core.Style{Gap: 3}, Children: []core.Node{
 					core.Text{Content: "T3Go", Style: core.Style{FontSize: 21, FontWeight: ui.Bold},
 						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-					core.Text{Content: "Your coding workspace", Style: core.Style{FontSize: 12},
+					core.Text{Content: i18n.T("Your coding workspace"), Style: core.Style{FontSize: 12},
 						StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 				}},
 			}},
-			core.Text{Content: "Connect to an environment", Style: core.Style{FontSize: 15, FontWeight: ui.Semibold},
+			core.Text{Content: i18n.T("Connect to an environment"), Style: core.Style{FontSize: 15, FontWeight: ui.Semibold},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-			core.Text{Content: "Enter the server address and access token to open your projects and threads.", Style: core.Style{FontSize: 12.5, LineHeight: 18},
+			core.Text{Content: i18n.T("Enter the server address and access token to open your projects and threads."), Style: core.Style{FontSize: 12.5, LineHeight: 18},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 			core.Show{When: func() bool { return a.manager != nil }, Then: func(cx *core.Scope) core.Node {
-				return ui.Button{Text: "Sign in to Relay", Icon: lucide.UserRound, Variant: ui.ButtonSecondary,
+				return ui.Button{Text: i18n.T("Sign in to Relay"), Icon: lucide.UserRound, Variant: ui.ButtonSecondary,
 					Size: controlSize(cx), TestID: "relay-account-open",
 					OnPress: func() { a.manager.accountOpen.Set(true) }}
 			}},
 			core.Show{When: func() bool { return a.manager != nil && a.manager.localStarting.Get() }, Then: func(*core.Scope) core.Node {
-				return ui.Text("Starting the local environment…", 12, ui.Regular, colors.Muted)
+				return ui.Text(i18n.T("Starting the local environment…"), 12, ui.Regular, colors.Muted)
 			}},
 			core.Show{When: func() bool { return a.manager != nil && a.manager.localErr.Get() != "" }, Then: func(*core.Scope) core.Node {
 				return ui.Text(a.manager.localErr.Get(), 12, ui.Regular, colors.Danger)
 			}},
-			mobileInput{Scope: cx, Input: base.Input{Value: a.serverURL.Get, OnChange: a.serverURL.Set, Placeholder: "Server, e.g. http://127.0.0.1:4870",
-				Label: "Server address", SubmitBehavior: core.SubmitBehaviorSubmit, OnSubmit: func(string) { a.connect(a.serverURL.Get(), a.token.Get()) }}},
-			mobileInput{Scope: cx, Input: base.Input{Value: a.token.Get, OnChange: a.token.Set, Placeholder: "Token, or paste a t3go:// pair link",
-				Label: "Token", Masked: true, SubmitBehavior: core.SubmitBehaviorSubmit,
+			mobileInput{Scope: cx, Input: base.Input{Value: a.serverURL.Get, OnChange: a.serverURL.Set, Placeholder: i18n.T("Server, e.g. http://127.0.0.1:4870"),
+				Label: i18n.T("Server address"), SubmitBehavior: core.SubmitBehaviorSubmit, OnSubmit: func(string) { a.connect(a.serverURL.Get(), a.token.Get()) }}},
+			mobileInput{Scope: cx, Input: base.Input{Value: a.token.Get, OnChange: a.token.Set, Placeholder: i18n.T("Token, or paste a t3go:// pair link"),
+				Label: i18n.T("Token"), Masked: true, SubmitBehavior: core.SubmitBehaviorSubmit,
 				OnSubmit: func(string) { a.connect(a.serverURL.Get(), a.token.Get()) }}},
 			core.Show{
 				When: func() bool { return ui.Touch(cx) && cx.Env().CanTakePhoto() },
 				Then: func(cx *core.Scope) core.Node {
-					return ui.Button{Text: "Scan QR code", Icon: lucide.ScanQrCode, Variant: ui.ButtonSecondary,
+					return ui.Button{Text: i18n.T("Scan QR code"), Icon: lucide.ScanQrCode, Variant: ui.ButtonSecondary,
 						Size: controlSize(cx), TestID: "environment-scan-qr", Flex: 1,
 						OnPress: func() { a.scanEnvironmentQR(cx) }}
 				},
@@ -132,10 +136,10 @@ func (a *app) connectView(cx *core.Scope) core.Node {
 				TestID:   "connect-environment",
 				OnPress:  func() { a.connect(a.serverURL.Get(), a.token.Get()) },
 				Disabled: a.connecting.Get, Flex: 1},
-			core.Text{Content: "Find the token in the environment data directory, or run `t3go pair`.",
+			core.Text{Content: i18n.T("Find the token in the environment data directory, or run `t3go pair`."),
 				Style: core.Style{FontSize: 11, LineHeight: 16}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 			core.Show{When: func() bool { return a.manager == nil || a.manager.pending.Get() != a }, Then: func(*core.Scope) core.Node {
-				return ui.Button{Text: "Saved environments", Icon: lucide.Network, Variant: ui.ButtonGhost,
+				return ui.Button{Text: i18n.T("Saved environments"), Icon: lucide.Network, Variant: ui.ButtonGhost,
 					TestID: "environments", Size: controlSize(cx), OnPress: func() { a.showEnvironments.Set(true) }}
 			}},
 		}},
@@ -159,7 +163,7 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 			Open:  a.sidebarOpen.Get,
 			Width: a.sidebarWidth.Get, OnWidthChange: a.setSidebarWidth,
 			DefaultWidth: 260, MinWidth: 220, MaxWidth: 380,
-			ResizeLabel: "Resize sidebar",
+			ResizeLabel: i18n.T("Resize sidebar"),
 		}
 	} else {
 		layout = core.Dynamic(a.narrowView)
@@ -196,7 +200,7 @@ func (a *app) errorBanner(cx *core.Scope) core.Node {
 		Padding: core.Symmetric(6, 12), Background: colors.Inset()}, Children: []core.Node{
 		core.Text{Content: a.connErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 12, FlexGrow: 1},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }},
-		ui.Button{Text: "Dismiss", Variant: ui.ButtonGhost, Size: controlSize(cx), OnPress: func() { a.connErr.Set("") }},
+		ui.Button{Text: i18n.T("Dismiss"), Variant: ui.ButtonGhost, Size: controlSize(cx), OnPress: func() { a.connErr.Set("") }},
 	}}
 }
 
@@ -209,7 +213,7 @@ func (a *app) sidebar(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
 		core.View{Style: core.Style{Padding: core.Edges{Top: 4, Right: 10, Bottom: 2, Left: 10}}, Children: []core.Node{
 			mobileInput{Scope: cx, Input: base.Input{Value: a.sidebarQuery.Get, OnChange: a.sidebarQuery.Set,
-				Placeholder: "Search threads", Label: "Search threads"}},
+				Placeholder: i18n.T("Search threads"), Label: i18n.T("Search threads")}},
 		}},
 		core.View{Style: ui.FillRest, Children: []core.Node{
 			scopedSidebar{Sections: func() []ui.SidebarSection { return a.sidebarInboxSections(cx) },
@@ -325,7 +329,7 @@ func (a *app) sidebarInboxSections(cx *core.Scope) []ui.SidebarSection {
 		name    string
 		threads []inboxThread
 	}{
-		{name: "Working", threads: working},
+		{name: i18n.T("Working"), threads: working},
 		{name: "Settled", threads: settled},
 	} {
 		items := itemsFor(group.threads)
@@ -354,11 +358,11 @@ func (a *app) sidebarInboxSections(cx *core.Scope) []ui.SidebarSection {
 			menu := ui.Menu{
 				TestID: "project-menu-" + rowID,
 				Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost, Size: controlSize(cx),
-					Label: "Project actions", TestID: "project-actions-" + rowID},
+					Label: i18n.T("Project actions"), TestID: "project-actions-" + rowID},
 				Children: []core.Node{
-					ui.MenuItem{Text: "New thread…", TestID: "new-thread-in-" + rowID, OnSelect: owner.inEnvironment(func() { owner.openNewThreadIn(project.ID) })},
-					ui.MenuItem{Text: "Rename project…", TestID: "rename-project-" + rowID, OnSelect: owner.inEnvironment(func() { owner.askRenameProject(project) })},
-					ui.MenuItem{Text: "Delete project", Variant: ui.MenuItemDanger,
+					ui.MenuItem{Text: i18n.T("New thread…"), TestID: "new-thread-in-" + rowID, OnSelect: owner.inEnvironment(func() { owner.openNewThreadIn(project.ID) })},
+					ui.MenuItem{Text: i18n.T("Rename project…"), TestID: "rename-project-" + rowID, OnSelect: owner.inEnvironment(func() { owner.askRenameProject(project) })},
+					ui.MenuItem{Text: i18n.T("Delete project"), Variant: ui.MenuItemDanger,
 						TestID: "delete-project-" + rowID, OnSelect: owner.inEnvironment(func() { owner.askDeleteProject(project) })},
 				},
 			}
@@ -382,20 +386,20 @@ func (a *app) sidebarInboxSections(cx *core.Scope) []ui.SidebarSection {
 			})
 		}
 		sections = append(sections, ui.SidebarSection{
-			Title: "Projects", Items: items, Collapsible: true,
+			Title: i18n.T("Projects"), Items: items, Collapsible: true,
 			Open: func() bool {
-				return !a.statusSectionCollapsed("projects")
+				return !a.statusSectionCollapsed(i18n.T("projects"))
 			},
 			OnOpenChange: func(open bool) {
-				a.setStatusSectionCollapsed("projects", !open)
+				a.setStatusSectionCollapsed(i18n.T("projects"), !open)
 			},
 			Trailing: ui.Text(strconv.Itoa(len(items)), 10.5, ui.Regular, colors.Faint),
 			TestID:   "sidebar-project-management",
 		})
 	}
 	if len(sections) == 0 && query != "" {
-		sections = append(sections, ui.SidebarSection{Title: "Threads", TestID: "sidebar-no-results",
-			Note: ui.Text("No threads match your search.", 12, ui.Regular, colors.Faint)})
+		sections = append(sections, ui.SidebarSection{Title: i18n.T("Threads"), TestID: "sidebar-no-results",
+			Note: ui.Text(i18n.T("No threads match your search."), 12, ui.Regular, colors.Faint)})
 	}
 	return sections
 }
@@ -429,8 +433,8 @@ func (a *app) sidebarSections(cx *core.Scope) []ui.SidebarSection {
 		sections = append(sections, groups...)
 	}
 	if len(sections) == 0 && query != "" {
-		sections = append(sections, ui.SidebarSection{Title: "Projects", TestID: "sidebar-no-results",
-			Note: ui.Text("No threads match your search.", 12, ui.Regular, ui.ColorsOf(cx).Faint)})
+		sections = append(sections, ui.SidebarSection{Title: i18n.T("Projects"), TestID: "sidebar-no-results",
+			Note: ui.Text(i18n.T("No threads match your search."), 12, ui.Regular, ui.ColorsOf(cx).Faint)})
 	}
 	return sections
 }
@@ -523,19 +527,19 @@ func (a *app) projectSections(cx *core.Scope, query string, showArchived bool) [
 		}
 		section.Actions = ui.Menu{
 			TestID:  "project-menu-" + a.sidebarID(p.ID),
-			Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Project actions", TestID: "project-actions-" + a.sidebarID(p.ID)},
+			Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost, Size: controlSize(cx), Label: i18n.T("Project actions"), TestID: "project-actions-" + a.sidebarID(p.ID)},
 			Children: []core.Node{
-				ui.MenuItem{Text: "New thread…", TestID: "new-thread-in-" + a.sidebarID(p.ID), OnSelect: a.inEnvironment(func() { a.openNewThreadIn(p.ID) })},
-				ui.MenuItem{Text: "Rename project…", TestID: "rename-project-" + a.sidebarID(p.ID), OnSelect: a.inEnvironment(func() { a.askRenameProject(p) })},
-				ui.MenuItem{Text: "Delete project", Variant: ui.MenuItemDanger,
+				ui.MenuItem{Text: i18n.T("New thread…"), TestID: "new-thread-in-" + a.sidebarID(p.ID), OnSelect: a.inEnvironment(func() { a.openNewThreadIn(p.ID) })},
+				ui.MenuItem{Text: i18n.T("Rename project…"), TestID: "rename-project-" + a.sidebarID(p.ID), OnSelect: a.inEnvironment(func() { a.askRenameProject(p) })},
+				ui.MenuItem{Text: i18n.T("Delete project"), Variant: ui.MenuItemDanger,
 					TestID: "delete-project-" + a.sidebarID(p.ID), OnSelect: a.inEnvironment(func() { a.askDeleteProject(p) })},
 			},
 		}
 		if len(items) == 0 {
-			note := "No threads yet"
+			note := i18n.T("No threads yet")
 			for _, t := range allThreads {
 				if t.ProjectID == p.ID {
-					note = "No threads shown"
+					note = i18n.T("No threads shown")
 					break
 				}
 			}
@@ -547,36 +551,36 @@ func (a *app) projectSections(cx *core.Scope, query string, showArchived bool) [
 		if query != "" && a.manager != nil {
 			return nil
 		}
-		note := "Add a project to start."
+		note := i18n.T("Add a project to start.")
 		switch {
 		case query != "":
-			note = "No threads match your search."
+			note = i18n.T("No threads match your search.")
 		case len(projects) > 0:
-			note = "No threads yet."
+			note = i18n.T("No threads yet.")
 		}
-		sections = append(sections, ui.SidebarSection{Title: "Projects", TestID: "projects-empty-" + a.profile.ID,
+		sections = append(sections, ui.SidebarSection{Title: i18n.T("Projects"), TestID: "projects-empty-" + a.profile.ID,
 			Note: ui.Text(note, 12, ui.Regular, colors.Faint)})
 	}
 	return sections
 }
 
 func (a *app) sidebarThreadItem(t proto.Thread) ui.SidebarItem {
-	archiveText := "Archive thread"
+	archiveText := i18n.T("Archive thread")
 	if t.Archived {
-		archiveText = "Unarchive thread"
+		archiveText = i18n.T("Unarchive thread")
 	}
-	pinText := "Pin thread"
+	pinText := i18n.T("Pin thread")
 	if a.threadPinned(t.ID) {
-		pinText = "Unpin thread"
+		pinText = i18n.T("Unpin thread")
 	}
 	rowID := a.sidebarID(t.ID)
 	return ui.SidebarItem{ID: a.threadKey(t.ID), Text: t.Title, TestID: "thread-" + rowID,
 		Menu: []core.Node{
 			ui.MenuItem{Text: pinText, TestID: "pin-thread-" + rowID, OnSelect: func() { a.togglePin(t) }},
 			a.settleMenuItem(t, rowID),
-			ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread-" + rowID, OnSelect: a.inEnvironment(func() { a.askRenameThread(t) })},
+			ui.MenuItem{Text: i18n.T("Rename thread…"), TestID: "rename-thread-" + rowID, OnSelect: a.inEnvironment(func() { a.askRenameThread(t) })},
 			ui.MenuItem{Text: archiveText, TestID: "archive-thread-" + rowID, OnSelect: func() { a.setArchived(t, !t.Archived) }},
-			ui.MenuItem{Text: "Delete thread", Variant: ui.MenuItemDanger,
+			ui.MenuItem{Text: i18n.T("Delete thread"), Variant: ui.MenuItemDanger,
 				TestID: "delete-thread-" + rowID, OnSelect: a.inEnvironment(func() { a.askDeleteThread(t) })},
 		}}
 }
@@ -586,7 +590,7 @@ func (a *app) sidebarThreadItem(t proto.Thread) ui.SidebarItem {
 func (a *app) threadRow(cx *core.Scope, t proto.Thread, colors ui.Colors, projectName string) core.Node {
 	title := t.Title
 	if strings.TrimSpace(title) == "" {
-		title = "Untitled thread"
+		title = i18n.T("Untitled thread")
 	}
 	titleColor := colors.Text
 	if t.Archived || t.Settled {
@@ -595,7 +599,7 @@ func (a *app) threadRow(cx *core.Scope, t proto.Thread, colors ui.Colors, projec
 	head := []core.Node{}
 	switch {
 	case t.Status == proto.ThreadRunning:
-		head = append(head, ui.Spinner{Size: 11, Label: "Running"})
+		head = append(head, ui.Spinner{Size: 11, Label: i18n.T("Running")})
 	case t.Status == proto.ThreadFailed:
 		head = append(head, ui.Icon(lucide.CircleAlert, 12, colors.Danger))
 	case a.threadUnread(t):
@@ -619,10 +623,10 @@ func (a *app) threadRow(cx *core.Scope, t proto.Thread, colors ui.Colors, projec
 		Then: func(*core.Scope) core.Node {
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2,
 				FlexShrink: 0}, Children: []core.Node{
-				ui.IconButton{Icon: lucide.Pencil, Label: "Rename thread", TestID: "rename-thread-" + a.sidebarID(t.ID),
+				ui.IconButton{Icon: lucide.Pencil, Label: i18n.T("Rename thread"), TestID: "rename-thread-" + a.sidebarID(t.ID),
 					Size: 22, IconSize: 13, Variant: ui.IconButtonGhost,
 					OnPress: func() { a.inEnvironment(func() { a.askRenameThread(t) })() }},
-				ui.IconButton{Icon: lucide.Trash, Label: "Delete thread", TestID: "delete-thread-" + a.sidebarID(t.ID),
+				ui.IconButton{Icon: lucide.Trash, Label: i18n.T("Delete thread"), TestID: "delete-thread-" + a.sidebarID(t.ID),
 					Size: 22, IconSize: 13, Variant: ui.IconButtonGhost,
 					OnPress: func() { a.inEnvironment(func() { a.askDeleteThread(t) })() }},
 			}}
@@ -632,7 +636,7 @@ func (a *app) threadRow(cx *core.Scope, t proto.Thread, colors ui.Colors, projec
 	preview := oneLine(t.Summary, 80)
 	previewColor := colors.Faint
 	if draft != "" {
-		preview, previewColor = "Draft: "+oneLine(draft, 72), colors.Accent
+		preview, previewColor = i18n.T("Draft: ")+oneLine(draft, 72), colors.Accent
 	} else if preview == "" {
 		preview = t.Provider
 	}
@@ -700,15 +704,15 @@ func relativeTime(at time.Time) string {
 
 func (a *app) archivedLabel() string {
 	if a.showArchived.Get() {
-		return "Hide archived"
+		return i18n.T("Hide archived")
 	}
 	return "Archived"
 }
 
 func (a *app) sidebarFooter(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Direction: core.Row, Width: core.Pct(100), Padding: core.Symmetric(6, 4), Gap: 4, AlignItems: core.AlignCenter}, Children: []core.Node{
-		ui.IconButton{Icon: lucide.FolderPlus, Label: "New project", Size: iconButtonSize(cx), TestID: "new-project", OnPress: a.openNewProject},
-		ui.IconButton{Icon: lucide.MessageSquarePlus, Label: "New thread", Size: iconButtonSize(cx), TestID: "new-thread", OnPress: a.openNewThread},
+		ui.IconButton{Icon: lucide.FolderPlus, Label: i18n.T("New project"), Size: iconButtonSize(cx), TestID: "new-project", OnPress: a.openNewProject},
+		ui.IconButton{Icon: lucide.MessageSquarePlus, Label: i18n.T("New thread"), Size: iconButtonSize(cx), TestID: "new-thread", OnPress: a.openNewThread},
 		ui.Spacer{},
 		ui.IconButton{IconFunc: func() *core.SVG {
 			if a.showArchived.Get() {
@@ -716,8 +720,8 @@ func (a *app) sidebarFooter(cx *core.Scope) core.Node {
 			}
 			return lucide.Archive()
 		}, LabelFunc: a.archivedLabel, Size: iconButtonSize(cx), TestID: "toggle-archived", OnPress: a.toggleShowArchived},
-		ui.IconButton{Icon: lucide.Search, Label: "Search", Size: iconButtonSize(cx), TestID: "open-palette", OnPress: a.openPalette},
-		ui.IconButton{Icon: lucide.Settings, Label: "Settings", Size: iconButtonSize(cx), TestID: "settings", OnPress: a.openSettings},
+		ui.IconButton{Icon: lucide.Search, Label: i18n.T("Search"), Size: iconButtonSize(cx), TestID: "open-palette", OnPress: a.openPalette},
+		ui.IconButton{Icon: lucide.Settings, Label: i18n.T("Settings"), Size: iconButtonSize(cx), TestID: "settings", OnPress: a.openSettings},
 	}}
 }
 
@@ -729,9 +733,9 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 			a.sidebarToggle(),
 			brandWordmark(cx, 17),
 			ui.Text("/", 12, ui.Regular, colors.Faint),
-			ui.Text("New thread", 12.5, ui.Medium, colors.Text),
+			ui.Text(i18n.T("New thread"), 12.5, ui.Medium, colors.Text),
 			ui.Spacer{},
-			ui.IconButton{Icon: lucide.X, Label: "Cancel new thread", TestID: "cancel-thread",
+			ui.IconButton{Icon: lucide.X, Label: i18n.T("Cancel new thread"), TestID: "cancel-thread",
 				Size: 34, IconSize: 17, Disabled: a.threadBusy.Get,
 				OnPress: func() { a.showNewThread.Set(false) }},
 			a.rightToggle(),
@@ -756,20 +760,20 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 		// A phone row has no space for every action beside the title.
 		return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, MinWidth: core.Pt(0)}, Children: []core.Node{
 			title,
-			ui.IconButton{Icon: lucide.GitBranch, Label: "Branches", TestID: "branch-menu",
+			ui.IconButton{Icon: lucide.GitBranch, Label: i18n.T("Branches"), TestID: "branch-menu",
 				OnPress: func() { a.showBranches.Set(true) }},
 			ui.Menu{TestID: "thread-actions", Open: a.threadMenuOpen.Get,
 				OnOpenChange: func(open bool, _ base.Reason) {
 					a.threadMenuGuard.change(open, a.threadMenuOpen.Set)
 				},
 				Trigger: ui.Button{Text: "⋯", Variant: ui.ButtonGhost,
-					Size: controlSize(cx), Label: "Thread actions", TestID: "thread-actions"},
+					Size: controlSize(cx), Label: i18n.T("Thread actions"), TestID: "thread-actions"},
 				Children: []core.Node{
-					ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread", OnSelect: func() { a.askRenameThread(d.Thread) }},
-					ui.MenuItem{Text: "Run history", TestID: "history", OnSelect: a.openRuns},
-					ui.MenuItem{Text: "Open in editor", TestID: "open-editor", OnSelect: a.openInEditor},
-					ui.MenuItem{Text: "Changes in this thread", TestID: "open-diff", OnSelect: a.openDiff},
-					ui.MenuItem{Text: "Delete thread", Variant: ui.MenuItemDanger, TestID: "delete-thread",
+					ui.MenuItem{Text: i18n.T("Rename thread…"), TestID: "rename-thread", OnSelect: func() { a.askRenameThread(d.Thread) }},
+					ui.MenuItem{Text: i18n.T("Run history"), TestID: "history", OnSelect: a.openRuns},
+					ui.MenuItem{Text: i18n.T("Open in editor"), TestID: "open-editor", OnSelect: a.openInEditor},
+					ui.MenuItem{Text: i18n.T("Changes in this thread"), TestID: "open-diff", OnSelect: a.openDiff},
+					ui.MenuItem{Text: i18n.T("Delete thread"), Variant: ui.MenuItemDanger, TestID: "delete-thread",
 						OnSelect: func() { a.askDeleteThread(d.Thread) }},
 				}},
 		}}
@@ -783,12 +787,12 @@ func (a *app) contentHeader(cx *core.Scope) core.Node {
 			OnOpenChange: func(open bool, _ base.Reason) {
 				a.threadMenuGuard.change(open, a.threadMenuOpen.Set)
 			},
-			Trigger: ui.Button{Icon: lucide.Ellipsis, Label: "Thread actions",
+			Trigger: ui.Button{Icon: lucide.Ellipsis, Label: i18n.T("Thread actions"),
 				Side: 34, IconSize: 18, Variant: ui.ButtonGhost},
 			Children: []core.Node{
-				ui.MenuItem{Text: "Run history", TestID: "history", OnSelect: a.openRuns},
-				ui.MenuItem{Text: "Open in editor", TestID: "open-editor", OnSelect: a.openInEditor},
-				ui.MenuItem{Text: "Changes in this thread", TestID: "open-diff", OnSelect: a.openDiff},
+				ui.MenuItem{Text: i18n.T("Run history"), TestID: "history", OnSelect: a.openRuns},
+				ui.MenuItem{Text: i18n.T("Open in editor"), TestID: "open-editor", OnSelect: a.openInEditor},
+				ui.MenuItem{Text: i18n.T("Changes in this thread"), TestID: "open-diff", OnSelect: a.openDiff},
 			}},
 		a.rightToggle(),
 	}}
@@ -800,7 +804,7 @@ func (a *app) sidebarToggle() core.Node {
 	if a.cx.Env().Window().Width < 760 {
 		return core.View{}
 	}
-	return ui.IconButton{Icon: lucide.PanelLeft, Label: "Toggle sidebar", TestID: "toggle-sidebar",
+	return ui.IconButton{Icon: lucide.PanelLeft, Label: i18n.T("Toggle sidebar"), TestID: "toggle-sidebar",
 		Selected: a.sidebarOpen.Get, OnPress: func() { a.setSidebarOpen(!a.sidebarOpen.GetUntracked()) }}
 }
 
@@ -809,7 +813,7 @@ func (a *app) rightToggle() core.Node {
 	if a.cx.Env().Window().Width < 760 {
 		return core.View{}
 	}
-	return ui.IconButton{Icon: lucide.PanelRight, Label: "Toggle right panel", TestID: "toggle-right-panel",
+	return ui.IconButton{Icon: lucide.PanelRight, Label: i18n.T("Toggle right panel"), TestID: "toggle-right-panel",
 		Selected: a.rightOpen.Get, OnPress: func() { a.setRightOpen(!a.rightOpen.GetUntracked()) }}
 }
 
@@ -823,7 +827,7 @@ func (a *app) branchMenu(cx *core.Scope, detail proto.ThreadDetail) core.Node {
 		branch = "detached"
 	}
 	return ui.Button{Text: branch, Icon: lucide.GitBranch, Variant: ui.ButtonGhost, Size: controlSize(cx),
-		Label: "Branch", TestID: "branch-menu", OnPress: func() { a.showBranches.Set(true) }}
+		Label: i18n.T("Branch"), TestID: "branch-menu", OnPress: func() { a.showBranches.Set(true) }}
 }
 
 func (a *app) content(cx *core.Scope) core.Node {
@@ -840,15 +844,15 @@ func (a *app) welcome(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	phone := cx.Env().Window().Width < 520
 	projectCount := len(a.projects.Get())
-	message := "Create a project to give your agent a workspace, or start a thread in one you already have."
+	message := i18n.T("Create a project to give your agent a workspace, or start a thread in one you already have.")
 	if projectCount > 0 {
-		message = fmt.Sprintf("You have %d %s ready. Pick a thread from the sidebar or start a fresh one.",
-			projectCount, plural(projectCount, "project", "projects"))
+		message = i18n.T("You have %d %s ready. Pick a thread from the sidebar or start a fresh one.",
+			projectCount, plural(projectCount, i18n.T("project"), i18n.T("projects")))
 	}
 	buttons := []core.Node{
-		ui.Button{Text: "New thread", Icon: lucide.MessageSquarePlus, Variant: ui.ButtonPrimary,
+		ui.Button{Text: i18n.T("New thread"), Icon: lucide.MessageSquarePlus, Variant: ui.ButtonPrimary,
 			TestID: "welcome-new-thread", Flex: 1, OnPress: a.openNewThread},
-		ui.Button{Text: "New project", Icon: lucide.FolderPlus, Variant: ui.ButtonSecondary,
+		ui.Button{Text: i18n.T("New project"), Icon: lucide.FolderPlus, Variant: ui.ButtonSecondary,
 			TestID: "welcome-new-project", Flex: 1, OnPress: a.openNewProject},
 	}
 	buttonStyle := core.Style{Direction: core.Row, Gap: 8, Width: core.Pct(100)}
@@ -861,7 +865,7 @@ func (a *app) welcome(cx *core.Scope) core.Node {
 			Gap: 12, Padding: core.All(24), CornerRadius: 14, BorderWidth: 1,
 			BorderColor: ui.Alpha(colors.Muted(), 0.16), Background: colors.Inset()}, Children: []core.Node{
 			brandWordmark(cx, 24),
-			core.Text{Content: "Welcome to " + a.envName(), MaxLines: 1,
+			core.Text{Content: i18n.T("Welcome to ") + a.envName(), MaxLines: 1,
 				Style:     core.Style{FontSize: 19, FontWeight: ui.Bold},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 			core.Text{Content: message, Style: core.Style{FontSize: 12.5, LineHeight: 19, TextAlign: core.TextAlignCenter},
@@ -946,10 +950,10 @@ func (a *app) approvalDialog(cx *core.Scope) core.Node {
 		return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: func() bool { return false }}
 	}
 	request := approvals[0]
-	description := "A supervised agent wants to use " + request.Tool + "."
+	description := i18n.T("A supervised agent wants to use ") + request.Tool + "."
 	for _, t := range a.threads.Get() {
 		if t.ID == request.ThreadID {
-			description = "In " + t.Title + ", the agent wants to use " + request.Tool + "."
+			description = i18n.T("In ") + t.Title + i18n.T(", the agent wants to use ") + request.Tool + "."
 			break
 		}
 	}
@@ -962,20 +966,20 @@ func (a *app) approvalDialog(cx *core.Scope) core.Node {
 		}})
 	}
 	if len(approvals) > 1 {
-		children = append(children, ui.Text(fmt.Sprintf("%d more waiting", len(approvals)-1), 11.5, ui.Regular, colors.Faint))
+		children = append(children, ui.Text(i18n.T("%d more waiting", len(approvals)-1), 11.5, ui.Regular, colors.Faint))
 	}
 	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx),
 		Open:         func() bool { return len(a.approvals.Get()) > 0 },
 		OnOpenChange: func(bool, base.Reason) {},
-		Title:        "Allow tool call?",
+		Title:        i18n.T("Allow tool call?"),
 		Description:  description,
 		Children:     children,
 		TestID:       "approval-dialog",
 		Footer: []core.Node{
-			ui.Button{Text: "Deny", Icon: lucide.X, Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "approval-deny", OnPress: func() {
-				a.resolveApproval(request.ID, false, "Denied by the person running T3Go.")
+			ui.Button{Text: i18n.T("Deny"), Icon: lucide.X, Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "approval-deny", OnPress: func() {
+				a.resolveApproval(request.ID, false, i18n.T("Denied by the person running T3Go."))
 			}},
-			ui.Button{Text: "Allow", Icon: lucide.Check, Variant: ui.ButtonPrimary, Size: controlSize(cx), TestID: "approval-allow", OnPress: func() {
+			ui.Button{Text: i18n.T("Allow"), Icon: lucide.Check, Variant: ui.ButtonPrimary, Size: controlSize(cx), TestID: "approval-allow", OnPress: func() {
 				a.resolveApproval(request.ID, true, "")
 			}},
 		},
@@ -999,8 +1003,8 @@ func (a *app) paletteDialog(cx *core.Scope) core.Node {
 		OnQueryChange: a.searchMessages,
 		Loading:       func() bool { return a.searchBusy.Get() },
 		Error:         func() string { return a.searchErr.Get() },
-		Placeholder:   "Search threads, messages and actions…", SearchLabel: "Search commands",
-		Empty: "No threads, messages or commands match.", Label: "Commands", TestID: "palette-command",
+		Placeholder:   i18n.T("Search threads, messages and actions…"), SearchLabel: i18n.T("Search commands"),
+		Empty: i18n.T("No threads, messages or commands match."), Label: i18n.T("Commands"), TestID: "palette-command",
 		OnCancel: func() { a.showPalette.Set(false) },
 	}
 	style := core.Style{}
@@ -1010,13 +1014,13 @@ func (a *app) paletteDialog(cx *core.Scope) core.Node {
 		// bottom of the window on phones. A sheet swipe would take the
 		// list's drags, so phones close the palette with this button.
 		style.MarginEnv = core.EnvEdges{Bottom: core.EnvKeyboard}
-		footer = []core.Node{ui.Button{Text: "Close", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "palette-close",
+		footer = []core.Node{ui.Button{Text: i18n.T("Close"), Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "palette-close",
 			OnPress: func() { a.showPalette.Set(false) }}}
 	} else {
 		style.Width = core.Pt(720)
 	}
 	return ui.Dialog{Open: a.showPalette.Get, OnOpenChange: closeDialog(a.showPalette),
-		TestID: "palette", Label: "Commands", Bare: true, Style: style, Footer: footer,
+		TestID: "palette", Label: i18n.T("Commands"), Bare: true, Style: style, Footer: footer,
 		// Let a tap outside dismiss the palette on phones too. The command
 		// field may have the IME focused, so relying on the system back action
 		// alone can leave the sheet visible after the keyboard is dismissed.
@@ -1029,33 +1033,33 @@ func (a *app) newProjectDialog(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	browseLabel := "Browse…"
 	if compactSettings(cx) || ui.Touch(cx) {
-		browseLabel = "Browse host…"
+		browseLabel = i18n.T("Browse host…")
 	}
-	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showNewProject.Get, OnOpenChange: closeDialog(a.showNewProject), Title: "New project",
-		Description: "Register a directory the agent can work in. The folder must already exist.",
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showNewProject.Get, OnOpenChange: closeDialog(a.showNewProject), Title: i18n.T("New project"),
+		Description: i18n.T("Register a directory the agent can work in. The folder must already exist."),
 		TestID:      "new-project-dialog", Style: dialogWidth(cx, 520), Children: []core.Node{
 			core.Dynamic(a.projectEnvironmentSelector),
 			mobileInput{Scope: cx, Input: base.Input{Value: a.newProjectName.Get, OnChange: a.newProjectName.Set,
-				Placeholder: "Defaults to the folder's name", Label: "Project name"}},
+				Placeholder: i18n.T("Defaults to the folder's name"), Label: i18n.T("Project name")}},
 			core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{
 				core.View{Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
 					mobileInput{Scope: cx, Input: base.Input{Value: a.newProjectPath.Get, OnChange: a.newProjectPath.Set,
-						Placeholder: "/path/to/project", Label: "Project path", SubmitBehavior: core.SubmitBehaviorSubmit,
+						Placeholder: "/path/to/project", Label: i18n.T("Project path"), SubmitBehavior: core.SubmitBehaviorSubmit,
 						OnSubmit: func(string) { a.createProject() }}},
 				}},
 				ui.Button{Text: browseLabel, Icon: lucide.FolderOpen, Variant: ui.ButtonSecondary,
 					TestID: "browse-project", Disabled: a.projectBusy.Get, OnPress: a.browseProject},
 			}},
-			core.Text{Content: "The project's path is used for diffs, files, terminals and worktrees.",
+			core.Text{Content: i18n.T("The project's path is used for diffs, files, terminals and worktrees."),
 				Style:     core.Style{FontSize: 11},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 			core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node {
 				return ui.Text(a.connErr.Get(), 12, ui.Regular, colors.Danger)
 			}},
 		}, Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "cancel-project",
+			ui.Button{Text: i18n.T("Cancel"), Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "cancel-project",
 				OnPress: func() { a.showNewProject.Set(false) }},
-			ui.Button{Text: "Add project", Icon: lucide.FolderPlus, Variant: ui.ButtonPrimary, Size: controlSize(cx),
+			ui.Button{Text: i18n.T("Add project"), Icon: lucide.FolderPlus, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 				TestID: "create-project", Disabled: func() bool { return a.projectBusy.Get() }, OnPress: a.createProject},
 		}}
 }
@@ -1088,8 +1092,8 @@ func (a *app) desktopNewThreadBody(cx *core.Scope) core.Node {
 							core.Dynamic(a.desktopNewThreadHero),
 							mobileComposer{
 								Draft: a.newThreadPrompt.Get, OnDraftChange: a.newThreadPrompt.Set,
-								Label:       "New thread message",
-								Placeholder: "Ask anything. @ files, $ skills, / commands",
+								Label:       i18n.T("New thread message"),
+								Placeholder: i18n.T("Ask anything. @ files, $ skills, / commands"),
 								TestID:      "new-thread-composer", SendTestID: "create-thread",
 								EditorMinHeight: 104, EditorFocusedHeight: 104, EditorMaxHeight: 190,
 								AllowEmptySend: true,
@@ -1099,7 +1103,7 @@ func (a *app) desktopNewThreadBody(cx *core.Scope) core.Node {
 									a.createPreparedThread(strings.TrimSpace(a.newThreadPrompt.GetUntracked()) != "")
 								},
 								Accessory: func(cx *core.Scope) core.Node {
-									return ui.IconButton{Icon: lucide.Paperclip, Label: "Attach files",
+									return ui.IconButton{Icon: lucide.Paperclip, Label: i18n.T("Attach files"),
 										TestID: "new-thread-attach", Size: 34, IconSize: 18,
 										OnPress: a.pickNewThreadAttachments}
 								},
@@ -1127,15 +1131,15 @@ func (a *app) desktopNewThreadHero(cx *core.Scope) core.Node {
 			break
 		}
 	}
-	subtitle := "Choose a project below to give the agent a workspace."
+	subtitle := i18n.T("Choose a project below to give the agent a workspace.")
 	if project != "" {
-		subtitle = "Start a new thread in " + project + "."
+		subtitle = i18n.T("Start a new thread in ") + project + "."
 	}
 	return core.View{Style: core.Style{AlignItems: core.AlignCenter, Gap: 5, Padding: core.Edges{Bottom: 4}},
 		Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignBaseline, JustifyContent: core.JustifyCenter,
 				Gap: 0, Wrap: core.Wrap}, Children: []core.Node{
-				core.Text{Content: "What should we build in",
+				core.Text{Content: i18n.T("What should we build in"),
 					Style:     core.Style{FontSize: 28, FontWeight: ui.Semibold, TextAlign: core.TextAlignCenter},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 				core.View{Style: core.Style{Padding: core.Edges{Left: 8}}, Children: []core.Node{brandWordmark(cx, 30)}},
@@ -1167,7 +1171,7 @@ func (a *app) newThreadAgentMenu(cx *core.Scope, compact bool) core.Node {
 		}
 		itemLabel := candidate.Name
 		if !candidate.Installed {
-			itemLabel += " (missing)"
+			itemLabel += i18n.T(" (missing)")
 		}
 		items = append(items, ui.MenuItem{Text: itemLabel, TestID: "new-thread-provider-" + candidate.ID,
 			Checked:  func() bool { return a.newThreadProv.Get() == candidate.ID },
@@ -1185,7 +1189,7 @@ func (a *app) newThreadAgentMenu(cx *core.Scope, compact bool) core.Node {
 			}})
 	}
 	return ui.Menu{TestID: "new-thread-agent-menu", MaxHeight: 320,
-		Trigger: newThreadControlTrigger(cx, compact, lucide.Bot, label, "Agent: "+label, "new-thread-agent"),
+		Trigger: newThreadControlTrigger(cx, compact, lucide.Bot, label, i18n.T("Agent: ")+label, "new-thread-agent"),
 		Face: newThreadControlFace(compact, lucide.Bot, func() string {
 			provider := a.newThreadProv.Get()
 			for _, candidate := range a.providers.Get() {
@@ -1215,10 +1219,10 @@ func (a *app) newThreadModelMenu(cx *core.Scope, compact bool) core.Node {
 			OnSelect: func() { a.newThreadModel.Set(model.ID) }})
 	}
 	if len(items) == 0 {
-		return ui.Text("No models for this provider", 12, ui.Regular, colors.Faint)
+		return ui.Text(i18n.T("No models for this provider"), 12, ui.Regular, colors.Faint)
 	}
 	return ui.Menu{TestID: "new-thread-model", MaxHeight: 320,
-		Trigger: newThreadControlTrigger(cx, compact, lucide.Sparkles, modelLabel, "Model: "+modelLabel, "new-thread-model-trigger"),
+		Trigger: newThreadControlTrigger(cx, compact, lucide.Sparkles, modelLabel, i18n.T("Model: ")+modelLabel, "new-thread-model-trigger"),
 		Face: newThreadControlFace(compact, lucide.Sparkles, func() string {
 			provider := a.newThreadProv.Get()
 			modelID := a.newThreadModel.Get()
@@ -1243,7 +1247,7 @@ func (a *app) newThreadModeMenu(cx *core.Scope, compact bool) core.Node {
 	}
 	label := string(permission)
 	return ui.Menu{TestID: "new-thread-mode-menu", MaxHeight: 280,
-		Trigger: newThreadControlTrigger(cx, compact, lucide.ShieldCheck, label, "Mode: "+label, "new-thread-mode"),
+		Trigger: newThreadControlTrigger(cx, compact, lucide.ShieldCheck, label, i18n.T("Mode: ")+label, "new-thread-mode"),
 		Face: newThreadControlFace(compact, lucide.ShieldCheck, func() string {
 			return string(a.newThreadPerm.Get())
 		}, "Mode", "new-thread-mode"), Children: items}
@@ -1270,7 +1274,7 @@ func newThreadControlTrigger(cx *core.Scope, compact bool, icon func() *core.SVG
 func (a *app) desktopNewThreadContext(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	projectID := a.newThreadProj.Get()
-	projectLabel := "Choose project"
+	projectLabel := i18n.T("Choose project")
 	gitProject := false
 	var projectItems []core.Node
 	for _, project := range a.projects.Get() {
@@ -1287,12 +1291,12 @@ func (a *app) desktopNewThreadContext(cx *core.Scope) core.Node {
 			}})
 	}
 	projectItems = append(projectItems, ui.MenuSeparator{},
-		ui.MenuItem{Text: "New project", Icon: lucide.FolderPlus,
+		ui.MenuItem{Text: i18n.T("New project"), Icon: lucide.FolderPlus,
 			TestID: "new-thread-new-project", OnSelect: a.openNewProjectForThread})
 	children := []core.Node{
 		ui.Menu{TestID: "new-thread-project-menu", MaxHeight: 320,
 			Trigger: ui.Button{Text: projectLabel, Icon: lucide.Folder, Variant: ui.ButtonGhost,
-				Size: controlSize(cx), Label: "Project: " + projectLabel},
+				Size: controlSize(cx), Label: i18n.T("Project: ") + projectLabel},
 			Children: projectItems},
 	}
 	if !gitProject {
@@ -1301,12 +1305,12 @@ func (a *app) desktopNewThreadContext(cx *core.Scope) core.Node {
 	}
 
 	existingWorktree := a.newThreadExistingWT.Get()
-	worktreeLabel := "Current checkout"
+	worktreeLabel := i18n.T("Current checkout")
 	worktreeVariant := ui.ButtonGhost
 	if a.newThreadWT.Get() {
-		worktreeLabel, worktreeVariant = "New worktree", ui.ButtonSecondary
+		worktreeLabel, worktreeVariant = i18n.T("New worktree"), ui.ButtonSecondary
 	} else if existingWorktree != "" {
-		worktreeLabel, worktreeVariant = "Previous worktree", ui.ButtonSecondary
+		worktreeLabel, worktreeVariant = i18n.T("Previous worktree"), ui.ButtonSecondary
 	}
 	branches := a.newThreadBranches.Get()
 	options := make([]ui.Option[string], 0, len(branches))
@@ -1314,7 +1318,7 @@ func (a *app) desktopNewThreadContext(cx *core.Scope) core.Node {
 		options = append(options, ui.Option[string]{Value: branch.Name, Label: branch.Name})
 	}
 	worktreeItems := []core.Node{
-		ui.MenuItem{Text: "Current checkout", TestID: "new-thread-worktree-current",
+		ui.MenuItem{Text: i18n.T("Current checkout"), TestID: "new-thread-worktree-current",
 			Checked: func() bool {
 				return !a.newThreadWT.Get() && a.newThreadExistingWT.Get() == ""
 			},
@@ -1322,7 +1326,7 @@ func (a *app) desktopNewThreadContext(cx *core.Scope) core.Node {
 				a.newThreadWT.Set(false)
 				a.newThreadExistingWT.Set("")
 			}},
-		ui.MenuItem{Text: "New worktree", TestID: "new-thread-worktree-new",
+		ui.MenuItem{Text: i18n.T("New worktree"), TestID: "new-thread-worktree-new",
 			Checked: func() bool { return a.newThreadWT.Get() },
 			OnSelect: func() {
 				a.newThreadWT.Set(true)
@@ -1339,7 +1343,7 @@ func (a *app) desktopNewThreadContext(cx *core.Scope) core.Node {
 			worktreeItems = append(worktreeItems, ui.MenuSeparator{})
 		}
 		worktreeItems = append(worktreeItems, ui.MenuItem{
-			Text: "Previous worktree · " + branch.Name, Icon: lucide.Clock,
+			Text: i18n.T("Previous worktree · ") + branch.Name, Icon: lucide.Clock,
 			TestID: fmt.Sprintf("new-thread-worktree-existing-%d", existingIndex),
 			Checked: func() bool {
 				return a.newThreadExistingWT.Get() == branch.WorktreePath
@@ -1354,14 +1358,14 @@ func (a *app) desktopNewThreadContext(cx *core.Scope) core.Node {
 	children = append(children,
 		ui.Menu{TestID: "toggle-worktree", MaxHeight: 320,
 			Trigger: ui.Button{Text: worktreeLabel, Icon: lucide.GitFork, Variant: worktreeVariant,
-				Size: controlSize(cx), Label: "Worktree: " + worktreeLabel},
+				Size: controlSize(cx), Label: i18n.T("Worktree: ") + worktreeLabel},
 			Children: worktreeItems},
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(220)}, Children: []core.Node{
 			ui.Select[string]{TestID: "new-thread-branch", Options: options,
 				Value: a.newThreadBase.Get, OnChange: a.newThreadBase.Set,
-				Placeholder: "Choose a branch", Searchable: true,
-				SearchPlaceholder: "Search branches", Empty: "No branches found",
-				Label: "Branch", Disabled: func() bool {
+				Placeholder: i18n.T("Choose a branch"), Searchable: true,
+				SearchPlaceholder: i18n.T("Search branches"), Empty: i18n.T("No branches found"),
+				Label: i18n.T("Branch"), Disabled: func() bool {
 					return a.newThreadExistingWT.Get() != "" || a.newThreadBranchesBusy.Get()
 				}, Style: core.Style{FlexGrow: 1, MinWidth: core.Pt(0)}},
 		}},
@@ -1370,17 +1374,17 @@ func (a *app) desktopNewThreadContext(cx *core.Scope) core.Node {
 	statusColor := colors.Faint
 	switch {
 	case a.newThreadBranchesBusy.Get():
-		status = "Loading branches…"
+		status = i18n.T("Loading branches…")
 	case a.newThreadBranchesErr.Get() != "":
 		status, statusColor = a.newThreadBranchesErr.Get(), colors.Danger
 	case len(options) == 0:
-		status = "This project has no local branches."
+		status = i18n.T("This project has no local branches.")
 	case a.newThreadExistingWT.Get() != "":
-		status = "This thread will reuse the selected worktree."
+		status = i18n.T("This thread will reuse the selected worktree.")
 	case !a.newThreadWT.Get():
-		status = "The selected branch will be checked out in the project."
+		status = i18n.T("The selected branch will be checked out in the project.")
 	default:
-		status = "The new worktree branch is named from the thread title."
+		status = i18n.T("The new worktree branch is named from the thread title.")
 	}
 	children = append(children, core.View{Style: core.Style{Direction: core.Row, FlexBasis: core.Pct(100),
 		AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
@@ -1405,15 +1409,15 @@ func (a *app) settingsDialog(cx *core.Scope) core.Node {
 			a.closeSettings()
 		}
 	}, NoCloseOnBackdropPress: compactSettings(cx),
-		Title: "Settings", Description: "Manage environments and workspace preferences.",
+		Title: i18n.T("Settings"), Description: i18n.T("Manage environments and workspace preferences."),
 		TestID: "settings-dialog", Style: settingsDialogStyle(cx), Children: []core.Node{core.Dynamic(a.settingsBody)},
 		Footer: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			if !settingsSectionSaves(a.settingsSection.Get()) {
-				return ui.Button{Text: "Close", Variant: ui.ButtonGhost, TestID: "settings-close", OnPress: a.closeSettings}
+				return ui.Button{Text: i18n.T("Close"), Variant: ui.ButtonGhost, TestID: "settings-close", OnPress: a.closeSettings}
 			}
 			target := a.settingsTarget()
 			if target == nil || !target.settingsConnectionReady() {
-				return ui.Button{Text: "Close", Variant: ui.ButtonGhost, TestID: "settings-close", OnPress: a.closeSettings}
+				return ui.Button{Text: i18n.T("Close"), Variant: ui.ButtonGhost, TestID: "settings-close", OnPress: a.closeSettings}
 			}
 			return core.View{Style: core.Style{Direction: core.Row, Gap: 8, Width: core.Pct(100)}, Children: settingsFooter(cx, a, target)}
 		})}}
@@ -1449,7 +1453,7 @@ func dialogWidth(cx *core.Scope, width core.Points) core.Style {
 
 // settingsFooter saves only the current environment's preference draft.
 func settingsFooter(cx *core.Scope, a, target *app) []core.Node {
-	save := ui.Button{Text: "Save", Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "settings-save",
+	save := ui.Button{Text: i18n.T("Save"), Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "settings-save",
 		Size:     controlSize(cx),
 		Disabled: a.settingsSaveBusy.Get, OnPress: func() { a.saveTargetSettings(target) }}
 	if compactSettings(cx) {
@@ -1458,14 +1462,14 @@ func settingsFooter(cx *core.Scope, a, target *app) []core.Node {
 		}
 		return []core.Node{core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
 			Gap: 8, Width: core.Pct(100)}, Children: []core.Node{
-			ui.Button{Text: "Close", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "settings-close", OnPress: a.closeSettings},
+			ui.Button{Text: i18n.T("Close"), Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "settings-close", OnPress: a.closeSettings},
 			ui.Spacer{},
 			save,
 		}}}
 	}
 	return []core.Node{
 		ui.Spacer{},
-		ui.Button{Text: "Close", Variant: ui.ButtonGhost, TestID: "settings-close", OnPress: a.closeSettings},
+		ui.Button{Text: i18n.T("Close"), Variant: ui.ButtonGhost, TestID: "settings-close", OnPress: a.closeSettings},
 		save,
 	}
 }
@@ -1490,7 +1494,7 @@ func (a *app) settingsEnvironmentDefaults(cx *core.Scope) core.Node {
 		}
 		label := p.Name
 		if !p.Installed {
-			label += " (missing)"
+			label += i18n.T(" (missing)")
 		}
 		providerButtons = append(providerButtons, ui.Button{Text: label, Variant: variant, Size: controlSize(cx),
 			Disabled: func() bool { return !p.Installed }, TestID: "settings-provider-" + p.ID, OnPress: func() {
@@ -1507,7 +1511,7 @@ func (a *app) settingsEnvironmentDefaults(cx *core.Scope) core.Node {
 			}})
 	}
 	var modelItems []core.Node
-	modelLabel := "Choose model"
+	modelLabel := i18n.T("Choose model")
 	for _, m := range a.allModels() {
 		if m.Provider != provider {
 			continue
@@ -1520,7 +1524,7 @@ func (a *app) settingsEnvironmentDefaults(cx *core.Scope) core.Node {
 			Checked:  func() bool { return a.settingsDraft.Get().DefaultModel == m.ID },
 			OnSelect: func() { update(func(s *proto.Settings) { s.DefaultModel = m.ID }) }})
 	}
-	var modelField core.Node = ui.Text("No models for this provider", 12, ui.Regular, colors.Faint)
+	var modelField core.Node = ui.Text(i18n.T("No models for this provider"), 12, ui.Regular, colors.Faint)
 	if len(modelItems) > 0 {
 		modelField = ui.Menu{TestID: "settings-model",
 			Trigger:   ui.Button{Text: modelLabel, Variant: ui.ButtonSecondary, Size: controlSize(cx)},
@@ -1555,17 +1559,17 @@ func (a *app) settingsEnvironmentDefaults(cx *core.Scope) core.Node {
 	}
 	fields := []core.Node{
 		mobileInput{Scope: cx, Input: base.Input{Value: a.settingsTitle.Get, OnChange: a.settingsTitle.Set,
-			Placeholder: "Environment name", Label: "Environment name"}},
-		ui.Text("Default provider", 11, ui.Semibold, colors.Muted),
+			Placeholder: i18n.T("Environment name"), Label: i18n.T("Environment name")}},
+		ui.Text(i18n.T("Default provider"), 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: providerButtons},
-		ui.Text("Default model", 11, ui.Semibold, colors.Muted),
+		ui.Text(i18n.T("Default model"), 11, ui.Semibold, colors.Muted),
 		modelField,
-		ui.Text("Default permission", 11, ui.Semibold, colors.Muted),
+		ui.Text(i18n.T("Default permission"), 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: permButtons},
-		ui.Text("Editor", 11, ui.Semibold, colors.Muted),
+		ui.Text(i18n.T("Editor"), 11, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: editorButtons},
 		core.View{Style: core.Style{Direction: core.Row, Gap: 8, AlignItems: core.AlignCenter}, Children: []core.Node{
-			core.Text{Content: "Server", Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+			core.Text{Content: i18n.T("Server"), Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 			core.Text{Content: a.serverURL.Get(), MaxLines: 1,
 				Style:     core.Style{FontSize: 12, FlexShrink: 1, MinWidth: core.Pt(0)},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
@@ -1610,16 +1614,16 @@ func (a *app) promptArgsDialog(cx *core.Scope) core.Node {
 		}))
 	}
 	if len(rows) == 0 {
-		rows = append(rows, ui.Text("This prompt takes no arguments.", 11.5, ui.Regular, colors.Faint))
+		rows = append(rows, ui.Text(i18n.T("This prompt takes no arguments."), 11.5, ui.Regular, colors.Faint))
 	}
 	name := a.promptName.Get()
 	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showPromptArgs.Get, OnOpenChange: closeDialog(a.showPromptArgs),
-		Title: "Run " + name, Description: "Fill in the prompt's arguments; empty ones are skipped.",
+		Title: i18n.T("Run ") + name, Description: i18n.T("Fill in the prompt's arguments; empty ones are skipped."),
 		TestID: "prompt-args-dialog", Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Column, Gap: 8}, Children: rows},
 		}, Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showPromptArgs.Set(false) }},
-			ui.Button{Text: "Insert", Variant: ui.ButtonPrimary, TestID: "confirm-prompt-args",
+			ui.Button{Text: i18n.T("Cancel"), Variant: ui.ButtonGhost, OnPress: func() { a.showPromptArgs.Set(false) }},
+			ui.Button{Text: i18n.T("Insert"), Variant: ui.ButtonPrimary, TestID: "confirm-prompt-args",
 				OnPress: a.submitPromptArgs},
 		}}
 }
@@ -1644,32 +1648,32 @@ func (a *app) branchesDialog(cx *core.Scope) core.Node {
 			}})
 	}
 	if len(rows) == 0 {
-		rows = append(rows, ui.Text("No local branches.", 11.5, ui.Regular, colors.Faint))
+		rows = append(rows, ui.Text(i18n.T("No local branches."), 11.5, ui.Regular, colors.Faint))
 	}
-	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showBranches.Get, OnOpenChange: closeDialog(a.showBranches), Title: "Branches",
-		Description: "Switch this thread's checkout, or make a new branch.", TestID: "branches-dialog",
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showBranches.Get, OnOpenChange: closeDialog(a.showBranches), Title: i18n.T("Branches"),
+		Description: i18n.T("Switch this thread's checkout, or make a new branch."), TestID: "branches-dialog",
 		Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(300)}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Column, Gap: 3, Padding: core.Edges{Right: 12}}, Children: rows},
 		}}}, Footer: []core.Node{
-			ui.Button{Text: "Pull", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, TestID: "branch-pull",
+			ui.Button{Text: i18n.T("Pull"), Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, TestID: "branch-pull",
 				OnPress: func() { a.showBranches.Set(false); a.pullBranch() }},
-			ui.Button{Text: "New branch…", Icon: lucide.GitBranch, Variant: ui.ButtonSecondary, TestID: "branch-new",
+			ui.Button{Text: i18n.T("New branch…"), Icon: lucide.GitBranch, Variant: ui.ButtonSecondary, TestID: "branch-new",
 				OnPress: func() { a.showBranches.Set(false); a.openNewBranch() }},
-			ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: func() { a.showBranches.Set(false) }},
+			ui.Button{Text: i18n.T("Close"), Variant: ui.ButtonGhost, OnPress: func() { a.showBranches.Set(false) }},
 		}}
 }
 
 // restoreDialog confirms reverting tracked files to a checkpoint.
 func (a *app) restoreDialog(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showRestore.Get, OnOpenChange: closeDialog(a.showRestore), Title: "Restore files?",
-		Description: "Tracked files go back to this run's checkpoint. Untracked files stay, and the current files are saved as a backup checkpoint first.",
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showRestore.Get, OnOpenChange: closeDialog(a.showRestore), Title: i18n.T("Restore files?"),
+		Description: i18n.T("Tracked files go back to this run's checkpoint. Untracked files stay, and the current files are saved as a backup checkpoint first."),
 		TestID:      "restore-dialog", Children: []core.Node{
-			core.Text{Content: "This changes the working tree; commit anything you want to keep first.",
+			core.Text{Content: i18n.T("This changes the working tree; commit anything you want to keep first."),
 				Style: core.Style{FontSize: 11.5}, StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 		}, Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showRestore.Set(false) }},
-			ui.Button{Text: "Restore files", Icon: lucide.RotateCcw, Variant: ui.ButtonPrimary,
+			ui.Button{Text: i18n.T("Cancel"), Variant: ui.ButtonGhost, OnPress: func() { a.showRestore.Set(false) }},
+			ui.Button{Text: i18n.T("Restore files"), Icon: lucide.RotateCcw, Variant: ui.ButtonPrimary,
 				TestID: "confirm-restore-run", OnPress: a.restoreRun},
 		}}
 }
@@ -1679,20 +1683,20 @@ func (a *app) customModelDialog(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	provider := a.customModelProvider.Get()
 	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showCustomModel.Get, OnOpenChange: closeDialog(a.showCustomModel),
-		Title: "Add model to " + provider, Description: "Use the model id the CLI expects.",
+		Title: i18n.T("Add model to ") + provider, Description: i18n.T("Use the model id the CLI expects."),
 		TestID: "custom-model-dialog", Style: dialogWidth(cx, 520), Children: []core.Node{
 			a.environmentContext(cx, "custom-model-environment"),
 			mobileInput{Scope: cx, Input: base.Input{Value: a.customModelID.Get, OnChange: a.customModelID.Set,
-				Placeholder: "model-id", Label: "Model id", TestID: "custom-model-id"}},
+				Placeholder: "model-id", Label: i18n.T("Model id"), TestID: "custom-model-id"}},
 			mobileInput{Scope: cx, Input: base.Input{Value: a.customModelName.Get, OnChange: a.customModelName.Set,
-				Placeholder: "Display name (optional)", Label: "Model name", TestID: "custom-model-name"}},
+				Placeholder: i18n.T("Display name (optional)"), Label: i18n.T("Model name"), TestID: "custom-model-name"}},
 			core.Show{When: func() bool { return a.customModelErr.Get() != "" }, Then: func(*core.Scope) core.Node {
 				return core.Text{Content: a.customModelErr.Get(), MaxLines: 2, Style: core.Style{FontSize: 11.5},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }}
 			}},
 		}, Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showCustomModel.Set(false) }},
-			ui.Button{Text: "Add model", Icon: lucide.Plus, Variant: ui.ButtonPrimary, TestID: "confirm-custom-model",
+			ui.Button{Text: i18n.T("Cancel"), Variant: ui.ButtonGhost, OnPress: func() { a.showCustomModel.Set(false) }},
+			ui.Button{Text: i18n.T("Add model"), Icon: lucide.Plus, Variant: ui.ButtonPrimary, TestID: "confirm-custom-model",
 				OnPress: a.addCustomModel},
 		}}
 }
@@ -1731,39 +1735,39 @@ func (a *app) devicesDialog(cx *core.Scope) core.Node {
 			}})
 	}
 	if len(rows) == 0 {
-		rows = append(rows, ui.Text("No simulators found.", 11.5, ui.Regular, colors.Faint))
+		rows = append(rows, ui.Text(i18n.T("No simulators found."), 11.5, ui.Regular, colors.Faint))
 	}
-	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showDevices.Get, OnOpenChange: closeDialog(a.showDevices), Title: "Devices",
-		Description: "Pick a simulator to see its screen.", TestID: "devices-dialog",
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showDevices.Get, OnOpenChange: closeDialog(a.showDevices), Title: i18n.T("Devices"),
+		Description: i18n.T("Pick a simulator to see its screen."), TestID: "devices-dialog",
 		Children: []core.Node{core.Scroll{Style: core.Style{MaxHeight: core.Pt(300)}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Column, Gap: 2, Padding: core.Edges{Right: 12}}, Children: rows},
 		}}}, Footer: []core.Node{
-			ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, TestID: "devices-dialog-refresh",
+			ui.Button{Text: i18n.T("Refresh"), Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, TestID: "devices-dialog-refresh",
 				OnPress: a.loadDevices},
-			ui.Button{Text: "Close", Variant: ui.ButtonGhost, OnPress: func() { a.showDevices.Set(false) }},
+			ui.Button{Text: i18n.T("Close"), Variant: ui.ButtonGhost, OnPress: func() { a.showDevices.Set(false) }},
 		}}
 }
 
 // newBranchDialog asks for a branch to create and check out.
 func (a *app) newBranchDialog(cx *core.Scope) core.Node {
-	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showBranch.Get, OnOpenChange: closeDialog(a.showBranch), Title: "New branch",
-		Description: "Create a branch in this thread's checkout and switch to it.", TestID: "new-branch-dialog",
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showBranch.Get, OnOpenChange: closeDialog(a.showBranch), Title: i18n.T("New branch"),
+		Description: i18n.T("Create a branch in this thread's checkout and switch to it."), TestID: "new-branch-dialog",
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			return mobileInput{Scope: cx, Input: base.Input{Value: a.branchName.Get, OnChange: a.branchName.Set,
-				Placeholder: "t3go/<slug>", Label: "Branch name"}}
+				Placeholder: "t3go/<slug>", Label: i18n.T("Branch name")}}
 		})}, Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: func() { a.showBranch.Set(false) }},
-			ui.Button{Text: "Create branch", Icon: lucide.GitBranch, Variant: ui.ButtonPrimary, TestID: "confirm-new-branch",
+			ui.Button{Text: i18n.T("Cancel"), Variant: ui.ButtonGhost, OnPress: func() { a.showBranch.Set(false) }},
+			ui.Button{Text: i18n.T("Create branch"), Icon: lucide.GitBranch, Variant: ui.ButtonPrimary, TestID: "confirm-new-branch",
 				OnPress: a.createBranch},
 		}}
 }
 
 func (a *app) diffDialog(cx *core.Scope) core.Node {
-	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showDiff.Get, OnOpenChange: closeDialog(a.showDiff), Title: "Changes",
-		Description: "Commit, push, and open a pull request for this thread's checkout.", TestID: "diff-dialog",
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showDiff.Get, OnOpenChange: closeDialog(a.showDiff), Title: i18n.T("Changes"),
+		Description: i18n.T("Commit, push, and open a pull request for this thread's checkout."), TestID: "diff-dialog",
 		Children: []core.Node{core.Dynamic(a.diffBody)},
 		Footer: []core.Node{
-			ui.Button{Text: "Close", Variant: ui.ButtonSecondary, OnPress: func() { a.showDiff.Set(false) }},
+			ui.Button{Text: i18n.T("Close"), Variant: ui.ButtonSecondary, OnPress: func() { a.showDiff.Set(false) }},
 		}}
 }
 
@@ -1776,23 +1780,23 @@ func (a *app) diffBody(cx *core.Scope) core.Node {
 	var status core.Node
 	switch {
 	case git == nil:
-		status = ui.Text("This thread is not in a git repository.", 12, ui.Regular, colors.Faint)
+		status = ui.Text(i18n.T("This thread is not in a git repository."), 12, ui.Regular, colors.Faint)
 	case git.Error != "":
 		status = ui.Text(git.Error, 12, ui.Regular, colors.Danger)
 	default:
 		branch := git.Branch
 		if branch == "" {
-			branch = "detached HEAD"
+			branch = i18n.T("detached HEAD")
 		}
 		var detail []string
 		if git.Dirty {
-			detail = append(detail, "uncommitted changes")
+			detail = append(detail, i18n.T("uncommitted changes"))
 		}
 		if git.Ahead > 0 {
-			detail = append(detail, fmt.Sprintf("%d ahead", git.Ahead))
+			detail = append(detail, i18n.T("%d ahead", git.Ahead))
 		}
 		if git.Behind > 0 {
-			detail = append(detail, fmt.Sprintf("%d behind", git.Behind))
+			detail = append(detail, i18n.T("%d behind", git.Behind))
 		}
 		var branchField core.Node = ui.Text(branch, 12, ui.Semibold, colors.Text)
 		if refs := a.branches.Get(); len(refs) > 1 {
@@ -1820,20 +1824,20 @@ func (a *app) diffBody(cx *core.Scope) core.Node {
 		}}
 	}
 	buttons := core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
-		ui.Button{Text: "Commit", Icon: lucide.Check, Variant: ui.ButtonSecondary, Size: controlSize(cx),
+		ui.Button{Text: i18n.T("Commit"), Icon: lucide.Check, Variant: ui.ButtonSecondary, Size: controlSize(cx),
 			TestID: "git-commit", Disabled: a.gitBusy.Get, OnPress: func() { a.runGitAction(proto.GitCommit) }},
-		ui.Button{Text: "Push", Icon: lucide.ArrowUp, Variant: ui.ButtonSecondary, Size: controlSize(cx),
+		ui.Button{Text: i18n.T("Push"), Icon: lucide.ArrowUp, Variant: ui.ButtonSecondary, Size: controlSize(cx),
 			TestID: "git-push", Disabled: a.gitBusy.Get, OnPress: func() { a.runGitAction(proto.GitPush) }},
-		ui.Button{Text: "Commit & push", Icon: lucide.ArrowUp, Variant: ui.ButtonSecondary, Size: controlSize(cx),
+		ui.Button{Text: i18n.T("Commit & push"), Icon: lucide.ArrowUp, Variant: ui.ButtonSecondary, Size: controlSize(cx),
 			TestID: "git-commit-push", Disabled: a.gitBusy.Get, OnPress: func() { a.runGitAction(proto.GitCommitPush) }},
-		ui.Button{Text: "Create PR", Icon: lucide.GitPullRequest, Variant: ui.ButtonPrimary, Size: controlSize(cx),
+		ui.Button{Text: i18n.T("Create PR"), Icon: lucide.GitPullRequest, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 			TestID: "git-pr", Disabled: a.gitBusy.Get, OnPress: func() { a.runGitAction(proto.GitCommitPR) }},
-		core.Show{When: a.gitBusy.Get, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 14, Label: "Running git action"} }},
+		core.Show{When: a.gitBusy.Get, Then: func(*core.Scope) core.Node { return ui.Spinner{Size: 14, Label: i18n.T("Running git action")} }},
 	}}
 	fields := []core.Node{
 		status,
 		mobileInput{Scope: cx, Input: base.Input{Value: a.gitMessage.Get, OnChange: a.gitMessage.Set,
-			Placeholder: "Commit message (defaults to an update)", Label: "Commit message"}},
+			Placeholder: i18n.T("Commit message (defaults to an update)"), Label: i18n.T("Commit message")}},
 		buttons,
 	}
 	if note := a.gitNote.Get(); note != "" {
@@ -1844,7 +1848,7 @@ func (a *app) diffBody(cx *core.Scope) core.Node {
 		fields = append(fields, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, MinWidth: core.Pt(0)}, Children: []core.Node{
 			core.Text{Content: pr, MaxLines: 1, Style: core.Style{FontSize: 11.5, FlexGrow: 1},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Accent()} }},
-			ui.Button{Text: "Open", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "git-open-pr",
+			ui.Button{Text: i18n.T("Open"), Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "git-open-pr",
 				OnPress: a.openPR},
 		}})
 	}
@@ -1876,7 +1880,7 @@ func (a *app) runsDialog(cx *core.Scope) core.Node {
 		meta += " · " + r.Model
 		if r.Usage != nil {
 			if r.Usage.TotalTokens > 0 {
-				meta += fmt.Sprintf(" · %d tokens", r.Usage.TotalTokens)
+				meta += i18n.T(" · %d tokens", r.Usage.TotalTokens)
 			}
 			if r.Usage.CostUSD > 0 {
 				meta += fmt.Sprintf(" · $%.2f", r.Usage.CostUSD)
@@ -1890,9 +1894,9 @@ func (a *app) runsDialog(cx *core.Scope) core.Node {
 		}}
 		if r.Checkpoint != "" {
 			line.Children = append(line.Children,
-				ui.Button{Text: "Diff", Variant: ui.ButtonGhost, Size: controlSize(cx),
+				ui.Button{Text: i18n.T("Diff"), Variant: ui.ButtonGhost, Size: controlSize(cx),
 					TestID: "run-diff-" + r.ID, OnPress: func() { a.openRunDiff(r.ID) }},
-				ui.Button{Text: "Restore", Variant: ui.ButtonGhost, Size: controlSize(cx),
+				ui.Button{Text: i18n.T("Restore"), Variant: ui.ButtonGhost, Size: controlSize(cx),
 					TestID: "run-restore-" + r.ID, OnPress: func() { a.askRestoreRun(r.ID) }})
 		}
 		rows = append(rows, core.View{Style: core.Style{Gap: 3, Padding: core.Symmetric(8, 10), Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{
@@ -1902,16 +1906,16 @@ func (a *app) runsDialog(cx *core.Scope) core.Node {
 		}})
 	}
 	if len(rows) == 0 {
-		rows = append(rows, ui.Text("No runs yet. Ask the agent to change something.", 12.5, ui.Regular, colors.Faint))
+		rows = append(rows, ui.Text(i18n.T("No runs yet. Ask the agent to change something."), 12.5, ui.Regular, colors.Faint))
 	}
-	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showRuns.Get, OnOpenChange: closeDialog(a.showRuns), Title: "History",
-		Description: "Runs of this thread, newest first.", TestID: "runs-dialog",
+	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showRuns.Get, OnOpenChange: closeDialog(a.showRuns), Title: i18n.T("History"),
+		Description: i18n.T("Runs of this thread, newest first."), TestID: "runs-dialog",
 		Children: []core.Node{
 			core.Scroll{Style: core.Style{MaxHeight: core.Pt(420)}, Children: []core.Node{
 				core.View{Style: core.Style{Gap: 6}, Children: rows},
 			}},
 		}, Footer: []core.Node{
-			ui.Button{Text: "Close", Variant: ui.ButtonSecondary, OnPress: a.closeRuns},
+			ui.Button{Text: i18n.T("Close"), Variant: ui.ButtonSecondary, OnPress: a.closeRuns},
 		}}
 }
 
@@ -1932,9 +1936,9 @@ func (a *app) renameDialog(cx *core.Scope) core.Node {
 	title, label := "Rename", "Name"
 	switch target.Kind {
 	case "thread":
-		title, label = "Rename thread", "Thread title"
+		title, label = i18n.T("Rename thread"), i18n.T("Thread title")
 	case "project":
-		title, label = "Rename project", "Project name"
+		title, label = i18n.T("Rename project"), i18n.T("Project name")
 	}
 	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx),
 		Open: func() bool { return target.Kind != "" },
@@ -1944,14 +1948,14 @@ func (a *app) renameDialog(cx *core.Scope) core.Node {
 			}
 		},
 		Title:       title,
-		Description: "The new name is saved for everyone connected to this environment.",
+		Description: i18n.T("The new name is saved for everyone connected to this environment."),
 		Children: []core.Node{
 			mobileInput{Scope: cx, Input: base.Input{Value: a.renameName.Get, OnChange: a.renameName.Set, Placeholder: label, Label: label,
 				SubmitBehavior: core.SubmitBehaviorSubmit, OnSubmit: func(string) { a.confirmRename() }}},
 		},
 		Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: a.cancelRename},
-			ui.Button{Text: "Save", Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "confirm-rename", OnPress: a.confirmRename},
+			ui.Button{Text: i18n.T("Cancel"), Variant: ui.ButtonGhost, OnPress: a.cancelRename},
+			ui.Button{Text: i18n.T("Save"), Icon: lucide.Check, Variant: ui.ButtonPrimary, TestID: "confirm-rename", OnPress: a.confirmRename},
 		},
 	}
 }
@@ -1959,22 +1963,22 @@ func (a *app) renameDialog(cx *core.Scope) core.Node {
 func (a *app) deleteDialog(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
 	target := a.pendingDelete.Get()
-	title, description := "Delete", ""
+	title, description := i18n.T("Delete"), ""
 	switch target.Kind {
 	case "thread":
-		title = "Delete thread"
+		title = i18n.T("Delete thread")
 		name := target.Name
 		if name == "" {
-			name = "This thread"
+			name = i18n.T("This thread")
 		}
-		description = name + " and its transcript will be removed. This cannot be undone."
+		description = name + i18n.T(" and its transcript will be removed. This cannot be undone.")
 	case "project":
-		title = "Delete project"
+		title = i18n.T("Delete project")
 		name := target.Name
 		if name == "" {
-			name = "This project"
+			name = i18n.T("This project")
 		}
-		description = name + " and all of its threads will be removed. This cannot be undone."
+		description = name + i18n.T(" and all of its threads will be removed. This cannot be undone.")
 	}
 	return ui.AlertDialog{
 		Open: func() bool { return target.Kind != "" },
@@ -1986,8 +1990,8 @@ func (a *app) deleteDialog(cx *core.Scope) core.Node {
 		Title:       title,
 		Description: description,
 		Actions: []ui.AlertAction{
-			{Text: "Cancel", Variant: ui.ButtonGhost, OnPress: a.cancelDelete, TestID: "cancel-delete"},
-			{Text: "Delete", Variant: ui.ButtonPrimary, Color: func() core.Color { return colors.Danger() },
+			{Text: i18n.T("Cancel"), Variant: ui.ButtonGhost, OnPress: a.cancelDelete, TestID: "cancel-delete"},
+			{Text: i18n.T("Delete"), Variant: ui.ButtonPrimary, Color: func() core.Color { return colors.Danger() },
 				OnPress: a.confirmDelete, TestID: "confirm-delete"},
 		},
 		TestID: "delete-dialog",

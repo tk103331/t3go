@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/tk/t3go/internal/client"
+	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -69,11 +70,11 @@ func (m *environmentManager) signInRelayAccount() {
 		mode = "login"
 	}
 	if server == "" {
-		m.accountErr.Set("Enter the Relay server URL.")
+		m.accountErr.Set(i18n.T("Enter the Relay server URL."))
 		return
 	}
 	if email == "" || password == "" {
-		m.accountErr.Set("Enter your email and password.")
+		m.accountErr.Set(i18n.T("Enter your email and password."))
 		return
 	}
 	allowHTTP := m.accountAllowHTTP.GetUntracked()
@@ -145,7 +146,7 @@ func (m *environmentManager) refreshRelayAccount(silent bool) {
 				if client.IsAuthorizationError(err) {
 					m.accountSession.Set(proto.RelayUserSession{})
 					m.saveRelayAccount()
-					m.accountErr.Set("Your account session expired. Sign in again.")
+					m.accountErr.Set(i18n.T("Your account session expired. Sign in again."))
 					return
 				}
 				if !silent {

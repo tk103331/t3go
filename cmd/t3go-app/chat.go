@@ -13,6 +13,7 @@ import (
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/oneo-me/nsgo/ui/chat"
+	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -139,7 +140,7 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 		},
 	)
 	accessory := func(cx *core.Scope) core.Node {
-		attach := ui.IconButton{Icon: lucide.Paperclip, Label: "Attach files", TestID: "attach", OnPress: a.pickAttachments}
+		attach := ui.IconButton{Icon: lucide.Paperclip, Label: i18n.T("Attach files"), TestID: "attach", OnPress: a.pickAttachments}
 		if touch {
 			attach.Size, attach.IconSize = 38, 20
 		}
@@ -155,7 +156,7 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 					},
 					LabelFunc: func() string {
 						if a.dictating.Get() {
-							return "Stop dictation"
+							return i18n.T("Stop dictation")
 						}
 						return "Dictate"
 					},
@@ -171,7 +172,7 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 	if touch {
 		composer = mobileComposer{
 			Draft: a.draft.Get, OnDraftChange: a.setDraft, OnPaste: a.pasteAttachments,
-			Label: "Message", Placeholder: "Ask the agent…", Accessory: accessory,
+			Label: i18n.T("Message"), Placeholder: i18n.T("Ask the agent…"), Accessory: accessory,
 			Controls:         func(cx *core.Scope) core.Node { return core.Dynamic(a.composerModelControl) },
 			TrailingControls: func(cx *core.Scope) core.Node { return core.Dynamic(a.composerTrailingControls) },
 			Attachments:      func(cx *core.Scope) core.Node { return a.attachmentChips(cx) },
@@ -182,7 +183,7 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 	} else {
 		composer = chat.Composer{
 			Draft: a.draft.Get, OnDraftChange: a.setDraft, OnPaste: a.pasteAttachments,
-			Label: "Message", Placeholder: "Ask the agent…", SendLabel: "Send", StopLabel: "Stop",
+			Label: i18n.T("Message"), Placeholder: i18n.T("Ask the agent…"), SendLabel: i18n.T("Send"), StopLabel: i18n.T("Stop"),
 			Running: a.running.Get, OnSend: a.send, OnStop: a.stop,
 			Attachments:    func(cx *core.Scope) core.Node { return a.attachmentChips(cx) },
 			HasAttachments: func() bool { return len(a.attachments.Get()) > 0 },
@@ -192,11 +193,11 @@ func (a *app) threadPane(cx *core.Scope) core.Node {
 	}
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
 		core.View{Style: ui.FillRest, Children: []core.Node{
-			chat.Conversation{State: a.conv, JumpLabel: "Jump to latest", TestID: "transcript", Children: []core.Node{
+			chat.Conversation{State: a.conv, JumpLabel: i18n.T("Jump to latest"), TestID: "transcript", Children: []core.Node{
 				core.Show{When: func() bool { return len(a.messages.Get()) == 0 }, Then: func(*core.Scope) core.Node {
 					return core.View{Style: core.Style{Padding: core.Symmetric(40, 0), Gap: 6, AlignItems: core.AlignCenter}, Children: []core.Node{
-						ui.Text("No messages yet", 14, ui.Semibold, colors.Muted),
-						ui.Text("Ask the agent to change this project, and its work streams here.", 12.5, ui.Regular, colors.Faint),
+						ui.Text(i18n.T("No messages yet"), 14, ui.Semibold, colors.Muted),
+						ui.Text(i18n.T("Ask the agent to change this project, and its work streams here."), 12.5, ui.Regular, colors.Faint),
 					}}
 				}},
 				groups,
@@ -265,23 +266,23 @@ func turnSummary(thoughts, tools, steps int) string {
 	var parts []string
 	if thoughts > 0 {
 		if thoughts == 1 {
-			parts = append(parts, "Thought once")
+			parts = append(parts, i18n.T("Thought once"))
 		} else {
-			parts = append(parts, fmt.Sprintf("Thought %d times", thoughts))
+			parts = append(parts, i18n.T("Thought %d times", thoughts))
 		}
 	}
 	if tools > 0 {
 		if tools == 1 {
-			parts = append(parts, "1 tool call")
+			parts = append(parts, i18n.T("1 tool call"))
 		} else {
-			parts = append(parts, fmt.Sprintf("%d tool calls", tools))
+			parts = append(parts, i18n.T("%d tool calls", tools))
 		}
 	}
 	if len(parts) == 0 {
 		if steps == 1 {
-			return "1 message"
+			return i18n.T("1 message")
 		}
-		return fmt.Sprintf("%d messages", steps)
+		return i18n.T("%d messages", steps)
 	}
 	return strings.Join(parts, " · ")
 }
@@ -322,10 +323,10 @@ func (a *app) planBanner(cx *core.Scope) core.Node {
 		Padding: core.Symmetric(7, 10), Background: ui.Alpha(colors.Accent(), 0.08), CornerRadius: 8,
 		BorderWidth: 1, BorderColor: ui.Alpha(colors.Accent(), 0.24)}, Children: []core.Node{
 		ui.Icon(lucide.Lightbulb, 15, colors.Accent),
-		core.Text{Content: "Plan ready — review it, then start implementing.", MaxLines: 2,
+		core.Text{Content: i18n.T("Plan ready — review it, then start implementing."), MaxLines: 2,
 			Style:     core.Style{FontSize: 11.5, FlexGrow: 1, FlexShrink: 1},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-		ui.Button{Text: "Implement", Icon: lucide.ClipboardCheck, Variant: ui.ButtonPrimary, Size: controlSize(cx),
+		ui.Button{Text: i18n.T("Implement"), Icon: lucide.ClipboardCheck, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 			TestID: "plan-implement", OnPress: a.approvePlan},
 	}}
 }
@@ -357,7 +358,7 @@ func (a *app) composerModelControl(cx *core.Scope) core.Node {
 	var model core.Node = ui.Text(modelLabel, 10.5, ui.Regular, colors.Faint)
 	if len(modelItems) > 0 {
 		model = ui.Menu{TestID: "composer-model", MaxHeight: 360,
-			Trigger: ui.Button{Text: modelLabel, Label: "Choose model: " + modelLabel, Flex: 1},
+			Trigger: ui.Button{Text: modelLabel, Label: i18n.T("Choose model: ") + modelLabel, Flex: 1},
 			Face: core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter,
 				MinHeight: core.Pt(44), MinWidth: core.Pt(0), Gap: 8, Padding: core.Symmetric(0, 8)},
 				Children: []core.Node{
@@ -393,14 +394,14 @@ func (a *app) composerTrailingControls(cx *core.Scope) core.Node {
 	}
 	if ui.Touch(cx) && cx.Env().Window().Width < 520 {
 		var items []core.Node
-		items = append(items, ui.MenuItem{Text: "Permission", Disabled: func() bool { return true }})
+		items = append(items, ui.MenuItem{Text: i18n.T("Permission"), Disabled: func() bool { return true }})
 		items = append(items, permItems...)
-		items = append(items, ui.MenuItem{Text: "Plan mode", TestID: "composer-plan",
+		items = append(items, ui.MenuItem{Text: i18n.T("Plan mode"), TestID: "composer-plan",
 			Checked:  func() bool { return a.detail.Get().Thread.Plan },
 			OnSelect: func() { a.setThreadPlan(!a.detail.Get().Thread.Plan) }})
 		return ui.Menu{TestID: "composer-more", MaxHeight: 320,
 			Trigger: ui.Button{Icon: lucide.SlidersHorizontal, Variant: ui.ButtonGhost, Side: 44, IconSize: 22,
-				Label: "Composer options"},
+				Label: i18n.T("Composer options")},
 			Children: items,
 			Open:     a.composerMenuOpen.Get,
 			OnOpenChange: func(open bool, _ base.Reason) {
@@ -435,15 +436,15 @@ func (a *app) composerControls(cx *core.Scope) core.Node {
 		if remaining < 0 {
 			remaining = 0
 		}
-		contextLabel = humanTokens(remaining) + " left"
+		contextLabel = humanTokens(remaining) + i18n.T(" left")
 	}
 	model := core.Func(a.composerModelControl)
 	children := []core.Node{
 		model,
 		ui.Menu{TestID: "composer-permission", MaxHeight: 240,
-			Trigger:  ui.Button{Text: string(thread.Permission), Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: "Permission"},
+			Trigger:  ui.Button{Text: string(thread.Permission), Variant: ui.ButtonGhost, Size: ui.SizeSmall, Label: i18n.T("Permission")},
 			Children: permItems},
-		ui.Button{Text: "Plan", Variant: planVariant, Size: ui.SizeSmall, TestID: "composer-plan",
+		ui.Button{Text: i18n.T("Plan"), Variant: planVariant, Size: ui.SizeSmall, TestID: "composer-plan",
 			OnPress: func() { a.setThreadPlan(!thread.Plan) }},
 	}
 	if contextLabel != "" {
@@ -525,7 +526,7 @@ func (a *app) attachmentChipsFor(cx *core.Scope, files []proto.Attachment,
 		children := append(lead,
 			core.Text{Content: f.Name + " · " + humanSize(f.Size), MaxLines: 1, Style: core.Style{FontSize: 11.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-			ui.Button{Text: "×", Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Remove attachment",
+			ui.Button{Text: "×", Variant: ui.ButtonGhost, Size: controlSize(cx), Label: i18n.T("Remove attachment"),
 				TestID: testPrefix + f.ID, OnPress: func() { remove(f.ID) }},
 		)
 		rows = append(rows, core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
@@ -571,7 +572,7 @@ func (a *app) queuedBlock(cx *core.Scope) core.Node {
 		}
 		rows := make([]core.Node, 0, len(queue))
 		if a.queuePaused.Get() {
-			rows = append(rows, ui.Button{Text: "Resume queued messages", TestID: "queue-resume",
+			rows = append(rows, ui.Button{Text: i18n.T("Resume queued messages"), TestID: "queue-resume",
 				Variant: ui.ButtonSecondary, Size: controlSize(cx), OnPress: func() {
 					a.queuePaused.Set(false)
 					a.maybeFlush(a.selected.GetUntracked())
@@ -589,21 +590,21 @@ func (a *app) queuedBlock(cx *core.Scope) core.Node {
 			}
 			label := "Queued"
 			if prompt.Uncertain {
-				label = "Check delivery"
+				label = i18n.T("Check delivery")
 			}
 			var actions []core.Node
 			if prompt.Uncertain && prompt.RequestID != "" && a.idempotentMessages {
 				actions = append(actions,
-					ui.Button{Text: "Check receipt", Variant: ui.ButtonGhost, Size: controlSize(cx),
+					ui.Button{Text: i18n.T("Check receipt"), Variant: ui.ButtonGhost, Size: controlSize(cx),
 						TestID: fmt.Sprintf("queued-check-%d", i), OnPress: func() { a.checkQueuedDelivery(threadID, prompt.RequestID) }},
-					ui.Button{Text: "Retry same request", Variant: ui.ButtonSecondary, Size: controlSize(cx),
+					ui.Button{Text: i18n.T("Retry same request"), Variant: ui.ButtonSecondary, Size: controlSize(cx),
 						TestID: fmt.Sprintf("queued-retry-%d", i), OnPress: func() { a.retryQueuedRequest(threadID, prompt.RequestID) }})
 			} else {
 				actions = append(actions,
-					ui.Button{Text: "Edit", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: fmt.Sprintf("queued-edit-%d", i),
+					ui.Button{Text: i18n.T("Edit"), Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: fmt.Sprintf("queued-edit-%d", i),
 						OnPress: func() {
 							if strings.TrimSpace(a.draft.GetUntracked()) != "" {
-								a.connErr.Set("Save or send the current draft before editing a queued message.")
+								a.connErr.Set(i18n.T("Save or send the current draft before editing a queued message."))
 								return
 							}
 							id := a.selected.GetUntracked()
@@ -617,7 +618,7 @@ func (a *app) queuedBlock(cx *core.Scope) core.Node {
 						}})
 			}
 			actions = append(actions,
-				ui.Button{Text: "×", Variant: ui.ButtonGhost, Size: controlSize(cx), Label: "Remove queued message",
+				ui.Button{Text: "×", Variant: ui.ButtonGhost, Size: controlSize(cx), Label: i18n.T("Remove queued message"),
 					TestID: fmt.Sprintf("queued-remove-%d", i), OnPress: func() { a.dropQueued(i) }})
 			rows = append(rows, core.View{Style: core.Style{Gap: 4,
 				Padding: core.Symmetric(6, 10), Background: colors.Inset(), CornerRadius: 8}, Children: []core.Node{
@@ -634,7 +635,7 @@ func (a *app) renderMessage(cx *core.Scope, m proto.Message) core.Node {
 	colors := ui.ColorsOf(cx)
 	if m.Role == proto.RoleUser {
 		body := []core.Node{}
-		body = append(body, core.Text{Content: "You", Style: core.Style{FontSize: 10.5, FontWeight: ui.Semibold},
+		body = append(body, core.Text{Content: i18n.T("You"), Style: core.Style{FontSize: 10.5, FontWeight: ui.Semibold},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
 		if m.Content != "" {
 			body = append(body, core.Text{Content: m.Content, Selectable: core.SelectableOn, Style: core.Style{FontSize: 13, LineHeight: 19},
@@ -677,13 +678,13 @@ func (a *app) renderMessage(cx *core.Scope, m proto.Message) core.Node {
 	if strings.TrimSpace(m.Content) == "" {
 		if m.Status == "running" {
 			return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-				ui.Spinner{Size: 13, Label: "Working"}, ui.Text("Working…", 12, ui.Regular, colors.Faint),
+				ui.Spinner{Size: 13, Label: i18n.T("Working")}, ui.Text(i18n.T("Working…"), 12, ui.Regular, colors.Faint),
 			}}
 		}
 		return core.View{}
 	}
 	body := ui.TextView{MarkdownFunc: func() string { return a.markdownPreview(m.Content, "") }, Selectable: true, OpenLinks: true,
-		CodeBlockActions: []textview.CodeAction{{ID: textview.CopyAction, Label: "Copy code"}}}
+		CodeBlockActions: []textview.CodeAction{{ID: textview.CopyAction, Label: i18n.T("Copy code")}}}
 	footer := a.messageFooter(cx, m)
 	identity := core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
 		Padding: core.Edges{Bottom: 2}}, Children: []core.Node{
@@ -691,7 +692,7 @@ func (a *app) renderMessage(cx *core.Scope, m proto.Message) core.Node {
 	}}
 	if m.Status == "cancelled" {
 		return core.View{Style: core.Style{Direction: core.Column, Gap: 3, MinWidth: core.Pt(0)}, Children: []core.Node{
-			identity, body, ui.Text("Stopped.", 11.5, ui.Regular, colors.Faint), footer}}
+			identity, body, ui.Text(i18n.T("Stopped."), 11.5, ui.Regular, colors.Faint), footer}}
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 3, MinWidth: core.Pt(0)}, Children: []core.Node{identity, body, footer}}
 }
@@ -705,11 +706,11 @@ func (a *app) reasoningCard(cx *core.Scope, m proto.Message) core.Node {
 	running := m.Status == "running"
 	title := "Thought"
 	if running {
-		title = "Thinking"
+		title = i18n.T("Thinking")
 	}
 	trigger := []core.Node{ui.Icon(lucide.Brain, 12, colors.Faint), ui.Text(title, 11.5, ui.Semibold, colors.Muted)}
 	if running {
-		trigger = append(trigger, ui.Spinner{Size: 11, Label: "Thinking"})
+		trigger = append(trigger, ui.Spinner{Size: 11, Label: i18n.T("Thinking")})
 	} else {
 		trigger = append(trigger, core.Show{When: func() bool { return !a.isExpanded(key, false) }, Then: func(*core.Scope) core.Node {
 			preview := oneLine(m.Content, 90)
@@ -759,7 +760,7 @@ func (a *app) toolCard(cx *core.Scope, m proto.Message) core.Node {
 			FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Overflow: core.Hidden}, Children: label}}
 	switch m.Status {
 	case "running":
-		trigger = append(trigger, ui.Spinner{Size: 12, Label: "Running " + head})
+		trigger = append(trigger, ui.Spinner{Size: 12, Label: i18n.T("Running ") + head})
 	case "failed":
 		trigger = append(trigger, ui.Icon(lucide.CircleX, 13, colors.Danger))
 	case "completed":
@@ -767,9 +768,9 @@ func (a *app) toolCard(cx *core.Scope, m proto.Message) core.Node {
 	}
 	files := toolChangedFiles(head, m.Detail)
 	if len(files) > 0 {
-		label := "1 file"
+		label := i18n.T("1 file")
 		if len(files) > 1 {
-			label = fmt.Sprintf("%d files", len(files))
+			label = i18n.T("%d files", len(files))
 		}
 		trigger = append(trigger, core.Text{Content: label, MaxLines: 1,
 			Style: core.Style{FontSize: 10, FlexShrink: 0}, StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }})
@@ -785,7 +786,7 @@ func (a *app) toolCard(cx *core.Scope, m proto.Message) core.Node {
 		blocks = append(blocks, detailBlock(cx, "Output", body))
 	}
 	if len(blocks) == 0 {
-		blocks = append(blocks, ui.Text("No output", 11.5, ui.Regular, colors.Faint))
+		blocks = append(blocks, ui.Text(i18n.T("No output"), 11.5, ui.Regular, colors.Faint))
 	}
 	return core.View{Style: core.Style{MinWidth: core.Pt(0), Padding: core.Symmetric(6, 9),
 		Background: ui.Alpha(colors.Inset(), 0.72), BorderWidth: 1, BorderColor: ui.Alpha(colors.Muted(), 0.1), CornerRadius: 8}, Children: []core.Node{
@@ -843,7 +844,7 @@ func (a *app) changedFilesBlock(cx *core.Scope, files []string) core.Node {
 		rows = append(rows, base.Button{OnPress: func(core.PressEvent) {
 			a.showSurface("files")
 			a.openFile(relative)
-		}, Label: "Open " + path, TestID: "tool-file-" + relative,
+		}, Label: i18n.T("Open ") + path, TestID: "tool-file-" + relative,
 			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5, Width: core.Pct(100),
 				Padding: core.Symmetric(2, 4), CornerRadius: 5, Cursor: core.CursorDefault},
 			StyleFunc: func() core.Style {
@@ -851,7 +852,7 @@ func (a *app) changedFilesBlock(cx *core.Scope, files []string) core.Node {
 			}, Children: row})
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 2}, Children: []core.Node{
-		ui.Text("Changed files", 10, ui.Semibold, colors.Faint),
+		ui.Text(i18n.T("Changed files"), 10, ui.Semibold, colors.Faint),
 		core.View{Style: core.Style{Direction: core.Column, Gap: 1}, Children: rows},
 	}}
 }
@@ -969,7 +970,7 @@ func dayLabel(at time.Time) string {
 	yy, ym, yd := yesterday.Date()
 	switch {
 	case y == ny && m == nm && d == nd:
-		return "Today"
+		return i18n.T("Today")
 	case y == yy && m == ym && d == yd:
 		return "Yesterday"
 	case y == now.Year():
@@ -984,22 +985,22 @@ func (a *app) messageFooter(cx *core.Scope, m proto.Message) core.Node {
 	actions := []core.Node{
 		ui.Text(m.CreatedAt.Local().Format("3:04 PM"), 10.5, ui.Regular, colors.Faint),
 		core.Show{When: func() bool { return strings.TrimSpace(m.Content) != "" }, Then: func(*core.Scope) core.Node {
-			return ui.IconButton{Icon: lucide.Copy, Label: "Copy message", Size: 20, IconSize: 11,
+			return ui.IconButton{Icon: lucide.Copy, Label: i18n.T("Copy message"), Size: 20, IconSize: 11,
 				Tint: colors.Faint, TestID: "copy-message-" + m.ID, OnPress: func() { a.cx.SetClipboard(m.Content) }}
 		}},
 	}
 	if m.Role == proto.RoleUser {
 		actions = append(actions,
-			ui.IconButton{Icon: lucide.Pencil, Label: "Edit message", Size: 20, IconSize: 11, Tint: colors.Faint,
+			ui.IconButton{Icon: lucide.Pencil, Label: i18n.T("Edit message"), Size: 20, IconSize: 11, Tint: colors.Faint,
 				TestID: "edit-message-" + m.ID, OnPress: func() { a.openEditMessage(m) }},
 		)
 	}
 	if m.Role == proto.RoleAssistant && m.RunID != "" {
-		actions = append(actions, ui.IconButton{Icon: lucide.RotateCcw, Label: "Retry turn", Size: 20, IconSize: 11,
+		actions = append(actions, ui.IconButton{Icon: lucide.RotateCcw, Label: i18n.T("Retry turn"), Size: 20, IconSize: 11,
 			Tint: colors.Faint, TestID: "retry-message-" + m.ID, Disabled: a.running.Get,
 			OnPress: func() { a.retryRun(m.RunID) }})
 	}
-	actions = append(actions, ui.IconButton{Icon: lucide.GitBranch, Label: "Branch from here", Size: 20, IconSize: 11,
+	actions = append(actions, ui.IconButton{Icon: lucide.GitBranch, Label: i18n.T("Branch from here"), Size: 20, IconSize: 11,
 		Tint: colors.Faint, TestID: "branch-message-" + m.ID, OnPress: func() { a.branchFromMessage(m) }})
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 3, Padding: core.Edges{Left: 2}},
 		Children: actions}
@@ -1030,7 +1031,7 @@ func (a *app) runFooter(cx *core.Scope, runID string) core.Node {
 	}
 	if run.Usage != nil {
 		if run.Usage.TotalTokens > 0 {
-			parts = append(parts, humanTokens(run.Usage.TotalTokens)+" tokens")
+			parts = append(parts, humanTokens(run.Usage.TotalTokens)+i18n.T(" tokens"))
 		}
 		if run.Usage.CostUSD > 0 {
 			parts = append(parts, fmt.Sprintf("$%.2f", run.Usage.CostUSD))

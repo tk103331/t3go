@@ -12,6 +12,7 @@ import (
 	"github.com/makiuchi-d/gozxing"
 	"github.com/makiuchi-d/gozxing/qrcode"
 	"github.com/oneo-me/nsgo/core"
+	"github.com/tk/t3go/internal/i18n"
 )
 
 // scanEnvironmentQR uses the system camera and decodes the captured image
@@ -21,9 +22,9 @@ func (a *app) scanEnvironmentQR(cx *core.Scope) {
 	cx.TakePhoto(core.PhotoOptions{MaxDimension: 2400, Quality: 0.95}, func(photo *core.PickedFile, err error) {
 		if err != nil {
 			if errors.Is(err, core.ErrNoCamera) {
-				a.connErr.Set("This device has no camera available. Enter the pairing link instead.")
+				a.connErr.Set(i18n.T("This device has no camera available. Enter the pairing link instead."))
 			} else {
-				a.connErr.Set("Could not open the camera: " + err.Error())
+				a.connErr.Set(i18n.T("Could not open the camera: ") + err.Error())
 			}
 			return
 		}
@@ -44,11 +45,11 @@ func (a *app) scanEnvironmentQR(cx *core.Scope) {
 // pairingLinkFromQRImage finds the first T3Go pair link in a captured image.
 func pairingLinkFromQRImage(data []byte) (string, error) {
 	if len(data) == 0 {
-		return "", errors.New("The camera returned an empty image. Try again.")
+		return "", errors.New(i18n.T("The camera returned an empty image. Try again."))
 	}
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		return "", errors.New("The captured image could not be read. Try again.")
+		return "", errors.New(i18n.T("The captured image could not be read. Try again."))
 	}
 	bitmap, err := gozxing.NewBinaryBitmapFromImage(img)
 	if err != nil {
@@ -56,12 +57,12 @@ func pairingLinkFromQRImage(data []byte) (string, error) {
 	}
 	result, err := qrcode.NewQRCodeReader().DecodeWithoutHints(bitmap)
 	if err != nil {
-		return "", errors.New("No readable T3Go pairing QR code found. Make sure the whole code is visible and try again.")
+		return "", errors.New(i18n.T("No readable T3Go pairing QR code found. Make sure the whole code is visible and try again."))
 	}
 	link := strings.TrimSpace(result.GetText())
 	link = strings.TrimPrefix(link, "#")
 	if strings.HasPrefix(link, "t3go://pair?") {
 		return link, nil
 	}
-	return "", errors.New("This is not a T3Go pairing QR code.")
+	return "", errors.New(i18n.T("This is not a T3Go pairing QR code."))
 }

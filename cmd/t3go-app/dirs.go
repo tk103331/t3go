@@ -1,12 +1,11 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/tk/t3go/internal/i18n"
 )
 
 // dirsDialog picks a folder on the connected environment's machine: a
@@ -19,14 +18,14 @@ func (a *app) dirsDialog(cx *core.Scope) core.Node {
 			}
 		},
 		NoCloseOnBackdropPress: compactSettings(cx),
-		Title:                  "Choose a folder",
-		Description:            "Folders on the machine running T3Go.",
+		Title:                  i18n.T("Choose a folder"),
+		Description:            i18n.T("Folders on the machine running T3Go."),
 		TestID:                 "dirs-dialog",
 		Style:                  dialogWidth(cx, 520),
 		Children:               []core.Node{a.projectEnvironmentContext(cx, "dirs-environment"), core.Dynamic(a.dirsBody)},
 		Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "dirs-cancel", OnPress: a.closeDirs},
-			ui.Button{Text: "Use this folder", Icon: lucide.FolderOpen, Variant: ui.ButtonPrimary, Size: controlSize(cx), TestID: "dirs-use",
+			ui.Button{Text: i18n.T("Cancel"), Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "dirs-cancel", OnPress: a.closeDirs},
+			ui.Button{Text: i18n.T("Use this folder"), Icon: lucide.FolderOpen, Variant: ui.ButtonPrimary, Size: controlSize(cx), TestID: "dirs-use",
 				Disabled: func() bool { return a.dirsBusy.Get() || a.dirsErr.Get() != "" || a.dirs.Get().Path == "" },
 				OnPress:  a.useDirs},
 		},
@@ -64,34 +63,34 @@ func (a *app) dirsBody(cx *core.Scope) core.Node {
 	switch {
 	case busy && listing.Path == "":
 		contents = core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}, Children: []core.Node{
-			ui.Spinner{Size: 12, Label: "Reading folders"}, ui.Text("Reading folders…", 12, ui.Regular, colors.Muted),
+			ui.Spinner{Size: 12, Label: i18n.T("Reading folders")}, ui.Text(i18n.T("Reading folders…"), 12, ui.Regular, colors.Muted),
 		}}
 	case len(rows) == 0:
-		contents = ui.Text("This folder has no subfolders.", 12, ui.Regular, colors.Faint)
+		contents = ui.Text(i18n.T("This folder has no subfolders."), 12, ui.Regular, colors.Faint)
 	default:
 		contents = core.Scroll{TestID: "dirs-list", Style: core.Style{MaxHeight: core.Pt(dirsBodyHeight(cx)), MinHeight: core.Pt(0)},
 			Children: []core.Node{core.View{Style: core.Style{Direction: core.Column, Gap: 1,
 				Padding: core.Edges{Right: 8}}, Children: rows}}}
 	}
 	actions := []core.Node{
-		ui.Button{Text: "Up", Icon: lucide.ArrowUp, Variant: ui.ButtonSecondary, Size: controlSize(cx),
+		ui.Button{Text: i18n.T("Up"), Icon: lucide.ArrowUp, Variant: ui.ButtonSecondary, Size: controlSize(cx),
 			TestID: "dirs-up", Disabled: func() bool { return a.dirs.GetUntracked().Parent == "" },
 			OnPress: func() { a.loadDirs(a.dirs.GetUntracked().Parent) }},
-		ui.Button{Text: "New folder", Icon: lucide.FolderPlus, Variant: ui.ButtonSecondary, Size: controlSize(cx),
+		ui.Button{Text: i18n.T("New folder"), Icon: lucide.FolderPlus, Variant: ui.ButtonSecondary, Size: controlSize(cx),
 			TestID: "dirs-new-folder", OnPress: a.openNewDir},
 	}
 	if compactSettings(cx) {
 		actions = append(actions, ui.Menu{TestID: "dirs-more",
-			Trigger: ui.Button{Text: "More", Variant: ui.ButtonGhost, Size: controlSize(cx)},
+			Trigger: ui.Button{Text: i18n.T("More"), Variant: ui.ButtonGhost, Size: controlSize(cx)},
 			Children: []core.Node{
-				ui.MenuItem{Text: "Home", Icon: lucide.House, TestID: "dirs-home", OnSelect: func() { a.loadDirs("") }},
-				ui.MenuItem{Text: "Refresh", Icon: lucide.RefreshCw, TestID: "dirs-refresh", OnSelect: func() { a.loadDirs(listing.Path) }},
+				ui.MenuItem{Text: i18n.T("Home"), Icon: lucide.House, TestID: "dirs-home", OnSelect: func() { a.loadDirs("") }},
+				ui.MenuItem{Text: i18n.T("Refresh"), Icon: lucide.RefreshCw, TestID: "dirs-refresh", OnSelect: func() { a.loadDirs(listing.Path) }},
 			}})
 	} else {
 		actions = append(actions,
-			ui.Button{Text: "Home", Icon: lucide.House, Variant: ui.ButtonSecondary, Size: controlSize(cx),
+			ui.Button{Text: i18n.T("Home"), Icon: lucide.House, Variant: ui.ButtonSecondary, Size: controlSize(cx),
 				TestID: "dirs-home", OnPress: func() { a.loadDirs("") }},
-			ui.Button{Text: "Refresh", Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: controlSize(cx),
+			ui.Button{Text: i18n.T("Refresh"), Icon: lucide.RefreshCw, Variant: ui.ButtonGhost, Size: controlSize(cx),
 				TestID: "dirs-refresh", OnPress: func() { a.loadDirs(listing.Path) }})
 	}
 	head := []core.Node{
@@ -101,7 +100,7 @@ func (a *app) dirsBody(cx *core.Scope) core.Node {
 		core.View{TestID: "dirs-toolbar", Style: core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 6}, Children: actions},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
 			core.Show{When: func() bool { return busy }, Then: func(*core.Scope) core.Node {
-				return ui.Spinner{Size: 11, Label: "Reading folders"}
+				return ui.Spinner{Size: 11, Label: i18n.T("Reading folders")}
 			}},
 			core.Text{Content: foldersLabel(len(listing.Entries)), Style: core.Style{FontSize: 10.5},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
@@ -123,22 +122,22 @@ func (a *app) newDirDialog(cx *core.Scope) core.Node {
 			}
 		},
 		NoCloseOnBackdropPress: compactSettings(cx),
-		Title:                  "New folder",
-		Description:            "Create a folder in the selected directory.",
+		Title:                  i18n.T("New folder"),
+		Description:            i18n.T("Create a folder in the selected directory."),
 		TestID:                 "new-dir-dialog",
 		Style:                  dialogWidth(cx, 420),
 		Children: []core.Node{
 			a.projectEnvironmentContext(cx, "new-dir-environment"),
 			mobileInput{Scope: cx, Input: base.Input{Value: a.newDirName.Get, OnChange: a.newDirName.Set,
-				Placeholder: "Folder name", Label: "Folder name", SubmitBehavior: core.SubmitBehaviorSubmit,
+				Placeholder: i18n.T("Folder name"), Label: i18n.T("Folder name"), SubmitBehavior: core.SubmitBehaviorSubmit,
 				OnSubmit: func(string) { a.createDir() }}},
 			core.Show{When: func() bool { return a.newDirErr.Get() != "" }, Then: func(*core.Scope) core.Node {
 				return ui.Text(a.newDirErr.Get(), 12, ui.Regular, ui.ColorsOf(cx).Danger)
 			}},
 		},
 		Footer: []core.Node{
-			ui.Button{Text: "Cancel", Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "cancel-new-dir", OnPress: a.closeNewDir},
-			ui.Button{Text: "Create folder", Icon: lucide.FolderPlus, Variant: ui.ButtonPrimary, Size: controlSize(cx),
+			ui.Button{Text: i18n.T("Cancel"), Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "cancel-new-dir", OnPress: a.closeNewDir},
+			ui.Button{Text: i18n.T("Create folder"), Icon: lucide.FolderPlus, Variant: ui.ButtonPrimary, Size: controlSize(cx),
 				TestID: "create-dir", Disabled: func() bool { return a.newDirBusy.Get() }, OnPress: a.createDir},
 		},
 	}
@@ -147,9 +146,9 @@ func (a *app) newDirDialog(cx *core.Scope) core.Node {
 // foldersLabel counts a folder's subfolders.
 func foldersLabel(n int) string {
 	if n == 1 {
-		return "1 folder"
+		return i18n.T("1 folder")
 	}
-	return fmt.Sprintf("%d folders", n)
+	return i18n.T("%d folders", n)
 }
 
 // dirsBodyHeight caps the folder list where a sheet's footer leaves room.

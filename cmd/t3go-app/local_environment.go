@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/tk/t3go/internal/client"
+	"github.com/tk/t3go/internal/i18n"
 )
 
 // localEnvironmentRemoved is a legacy marker from releases that allowed the
@@ -107,7 +108,7 @@ func (m *environmentManager) startLocalEnvironment() {
 			m.localStarting.Set(false)
 			if err != nil {
 				if !errors.Is(err, errNoBundledServer) {
-					m.localErr.Set("The local environment server did not start: " + err.Error())
+					m.localErr.Set(i18n.T("The local environment server did not start: ") + err.Error())
 				}
 				return
 			}
@@ -122,7 +123,7 @@ func (m *environmentManager) startLocalEnvironment() {
 func (m *environmentManager) useLocalEnvironment(srv *localServer) {
 	desc, err := fetchLocalDescriptor(srv.baseURL)
 	if err != nil {
-		m.localErr.Set("The local environment did not answer: " + err.Error())
+		m.localErr.Set(i18n.T("The local environment did not answer: ") + err.Error())
 		return
 	}
 	m.localErr.Set("")

@@ -7,6 +7,7 @@ import (
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/ui"
 	"github.com/tk/t3go/internal/client"
+	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -138,7 +139,7 @@ func (a *app) settingsEnvironmentSelector(cx *core.Scope) core.Node {
 		choices = append(choices, choice)
 	}
 	return core.View{TestID: "settings-environment", Style: core.Style{Gap: 6}, Children: []core.Node{
-		ui.Text("Environment", 12, ui.Semibold, ui.ColorsOf(cx).Muted),
+		ui.Text(i18n.T("Environment"), 12, ui.Semibold, ui.ColorsOf(cx).Muted),
 		core.Scroll{Style: core.Style{MaxHeight: core.Pt(100)}, Children: []core.Node{
 			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: choices},
 		}},
@@ -155,12 +156,12 @@ func (a *app) settingsPage(cx *core.Scope) core.Node {
 		if a.manager != nil {
 			return a.manager.relayAccountPanel(cx)
 		}
-		return ui.Text("Relay account sign-in is unavailable in this client.", 12, ui.Regular, ui.ColorsOf(cx).Muted)
+		return ui.Text(i18n.T("Relay account sign-in is unavailable in this client."), 12, ui.Regular, ui.ColorsOf(cx).Muted)
 	case "environments":
 		if a.manager != nil {
 			return a.environmentManagement(cx)
 		}
-		return ui.Text("Connect an environment to manage its routes.", 12, ui.Regular, ui.ColorsOf(cx).Muted)
+		return ui.Text(i18n.T("Connect an environment to manage its routes."), 12, ui.Regular, ui.ColorsOf(cx).Muted)
 	case "shortcuts":
 		return a.settingsShortcuts(cx)
 	case "access":
@@ -197,22 +198,22 @@ func (a *app) settingsTargetPage(cx *core.Scope, showSelector bool, render func(
 			if target == nil {
 				if !showSelector {
 					return core.View{TestID: "settings-local-unavailable", Style: core.Style{Gap: 6}, Children: []core.Node{
-						ui.Text("No local environment was found.", 13, ui.Semibold, ui.ColorsOf(cx).Text),
-						ui.Text("Connect to the T3Go server running on this machine, then reopen settings.", 12, ui.Regular, ui.ColorsOf(cx).Muted),
+						ui.Text(i18n.T("No local environment was found."), 13, ui.Semibold, ui.ColorsOf(cx).Text),
+						ui.Text(i18n.T("Connect to the T3Go server running on this machine, then reopen settings."), 12, ui.Regular, ui.ColorsOf(cx).Muted),
 					}}
 				}
-				return ui.Text("This environment is no longer available. Select another environment.", 12, ui.Regular, ui.ColorsOf(cx).Muted)
+				return ui.Text(i18n.T("This environment is no longer available. Select another environment."), 12, ui.Regular, ui.ColorsOf(cx).Muted)
 			}
 			if !target.settingsConnectionReady() {
-				action := ui.Button{Text: "Reconnect", Size: controlSize(cx), TestID: "settings-target-reconnect",
+				action := ui.Button{Text: i18n.T("Reconnect"), Size: controlSize(cx), TestID: "settings-target-reconnect",
 					Disabled: target.connecting.Get, OnPress: func() { target.connectProfile(target.profile) }}
 				if target.transportBlocked.Get() {
-					action.Text, action.TestID, action.OnPress = "Update token", "settings-target-token", target.openCredentials
+					action.Text, action.TestID, action.OnPress = i18n.T("Update token"), "settings-target-token", target.openCredentials
 				}
 				return core.View{TestID: "settings-environment-unavailable", Style: core.Style{Gap: 8},
 					Children: []core.Node{
 						ui.Text(target.envName()+" · "+target.connectionLabel(), 12, ui.Semibold, ui.ColorsOf(cx).Muted),
-						ui.Text("Connect this environment to view or change its settings.", 12, ui.Regular, ui.ColorsOf(cx).Muted),
+						ui.Text(i18n.T("Connect this environment to view or change its settings."), 12, ui.Regular, ui.ColorsOf(cx).Muted),
 						action,
 					}}
 			}
@@ -267,12 +268,12 @@ func (a *app) openEnvironmentSettings(id string) {
 
 func (a *app) runSettingsProviderCommand(target *app, command string) {
 	if !target.settingsConnectionReady() {
-		target.providersErr.Set("Connect this environment before running its setup command.")
+		target.providersErr.Set(i18n.T("Connect this environment before running its setup command."))
 		return
 	}
 	if target.selected.GetUntracked() == "" {
 		a.cx.SetClipboard(command)
-		target.providersErr.Set("Command copied. Open a thread in " + target.envName() + " to run it in that environment's terminal.")
+		target.providersErr.Set(i18n.T("Command copied. Open a thread in ") + target.envName() + i18n.T(" to run it in that environment's terminal."))
 		return
 	}
 	a.closeSettings()

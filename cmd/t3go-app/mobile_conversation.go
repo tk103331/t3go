@@ -5,6 +5,7 @@ import (
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/tk/t3go/internal/i18n"
 )
 
 func (a *app) mobileConversationHeader(cx *core.Scope) core.Node {
@@ -22,7 +23,7 @@ func (a *app) mobileConversationHeader(cx *core.Scope) core.Node {
 	}
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexShrink: 0,
 		Padding: core.Symmetric(8, 8), Gap: 2}, Children: []core.Node{
-		ui.IconButton{Icon: lucide.ArrowLeft, Label: "Back to threads", Size: 44, IconSize: 24, OnPress: func() {
+		ui.IconButton{Icon: lucide.ArrowLeft, Label: i18n.T("Back to threads"), Size: 44, IconSize: 24, OnPress: func() {
 			a.persistView()
 			a.selected.Set("")
 		}},
@@ -31,7 +32,7 @@ func (a *app) mobileConversationHeader(cx *core.Scope) core.Node {
 				OnOpenChange: func(open bool, _ base.Reason) {
 					a.threadMenuGuard.change(open, a.threadMenuOpen.Set)
 				},
-				Trigger: ui.Button{Text: title, Label: "Thread actions", Variant: ui.ButtonGhost, Flex: 1},
+				Trigger: ui.Button{Text: title, Label: i18n.T("Thread actions"), Variant: ui.ButtonGhost, Flex: 1},
 				Face: core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 4}, Children: []core.Node{
 					core.Text{Content: title, MaxLines: 1, Style: core.Style{FontSize: 18, FontWeight: ui.Medium},
 						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
@@ -47,16 +48,16 @@ func (a *app) mobileConversationHeader(cx *core.Scope) core.Node {
 				}},
 				Children: []core.Node{
 					a.settleMenuItem(thread, thread.ID),
-					ui.MenuItem{Text: "Rename thread…", TestID: "rename-thread", OnSelect: func() { a.askRenameThread(thread) }},
-					ui.MenuItem{Text: "Run history", TestID: "history", OnSelect: a.openRuns},
-					ui.MenuItem{Text: "Changes in this thread", TestID: "open-diff", OnSelect: a.openDiff},
-					ui.MenuItem{Text: "Open in editor", TestID: "open-editor", OnSelect: a.openInEditor},
-					ui.MenuItem{Text: "Settings", TestID: "settings", OnSelect: a.openSettings},
-					ui.MenuItem{Text: "Delete thread", TestID: "delete-thread", Variant: ui.MenuItemDanger,
+					ui.MenuItem{Text: i18n.T("Rename thread…"), TestID: "rename-thread", OnSelect: func() { a.askRenameThread(thread) }},
+					ui.MenuItem{Text: i18n.T("Run history"), TestID: "history", OnSelect: a.openRuns},
+					ui.MenuItem{Text: i18n.T("Changes in this thread"), TestID: "open-diff", OnSelect: a.openDiff},
+					ui.MenuItem{Text: i18n.T("Open in editor"), TestID: "open-editor", OnSelect: a.openInEditor},
+					ui.MenuItem{Text: i18n.T("Settings"), TestID: "settings", OnSelect: a.openSettings},
+					ui.MenuItem{Text: i18n.T("Delete thread"), TestID: "delete-thread", Variant: ui.MenuItemDanger,
 						OnSelect: func() { a.askDeleteThread(thread) }},
 				}},
 		}},
-		ui.IconButton{Icon: lucide.Folder, Label: "Files", TestID: "mobile-open-files", Size: 44, IconSize: 24,
+		ui.IconButton{Icon: lucide.Folder, Label: i18n.T("Files"), TestID: "mobile-open-files", Size: 44, IconSize: 24,
 			OnPress: func() { a.openMobileSurface("files") }},
 		core.Func(a.mobileGitMenu),
 		core.Func(a.mobileTerminalMenu),
@@ -65,18 +66,18 @@ func (a *app) mobileConversationHeader(cx *core.Scope) core.Node {
 
 func (a *app) mobileConnectionIcon(cx *core.Scope) core.Node {
 	colors := ui.ColorsOf(cx)
-	status := a.connectionLabel()
+	state, status := a.connectionStatus()
 	icon, color := lucide.Cable, colors.Muted
-	switch status {
-	case "Relay":
+	switch state {
+	case "relay":
 		icon = lucide.Cloud
-	case "Authorization required":
+	case "blocked":
 		icon, color = lucide.LockKeyhole, colors.Danger
-	case "Not connected":
+	case "offline":
 		icon, color = lucide.CloudOff, colors.Danger
 	}
 	var glyph core.Node = ui.Icon(icon, 12, color)
-	if status == "Connecting…" || status == "Reconnecting…" {
+	if state == "connecting" || state == "reconnecting" {
 		glyph = ui.Spinner{Size: 12, Label: status}
 	}
 	return core.View{TestID: "connection-status", Label: status,
@@ -94,7 +95,7 @@ func (a *app) mobileSurfaceView(cx *core.Scope) core.Node {
 	return core.View{TestID: "mobile-surface", Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0),
 		Height: core.Pct(100), Overflow: core.Hidden, PaddingEnv: core.EnvEdges{Bottom: core.EnvKeyboard}}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Padding: core.Symmetric(8, 12), Gap: 8}, Children: []core.Node{
-			ui.IconButton{Icon: lucide.ArrowLeft, Label: "Back to conversation", TestID: "mobile-surface-back", Size: 44,
+			ui.IconButton{Icon: lucide.ArrowLeft, Label: i18n.T("Back to conversation"), TestID: "mobile-surface-back", Size: 44,
 				OnPress: a.closeMobileSurface},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				return ui.Text(surfaceTitle(a.surface.Get()), 20, ui.Medium, colors.Text)
