@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/tk/t3go/internal/proc"
 	"io"
 	"os/exec"
 	"strings"
@@ -37,7 +38,7 @@ func startJSONLPeer(ctx context.Context, spec procSpec, handle func(map[string]a
 	if spec.Env != nil {
 		cmd.Env = spec.Env
 	}
-	cmd.Dir = spec.CWD
+	proc.Dir(cmd, spec.CWD)
 	setProcessGroup(cmd)
 	hideWindow(cmd)
 	stdin, err := cmd.StdinPipe()

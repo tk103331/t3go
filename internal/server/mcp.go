@@ -19,6 +19,7 @@ import (
 
 	toml "github.com/pelletier/go-toml/v2"
 
+	"github.com/tk/t3go/internal/proc"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -176,7 +177,7 @@ func queryMCPStdio(root string, server mcpServer) ([]mcpPrompt, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, server.Command, server.Args...)
-	cmd.Dir = root
+	proc.Dir(cmd, root)
 	env := os.Environ()
 	for key, value := range server.Env {
 		env = append(env, key+"="+value)

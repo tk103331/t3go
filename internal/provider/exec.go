@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tk/t3go/internal/proc"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -36,7 +37,7 @@ type procResult struct {
 // process and its children.
 func runJSON(ctx context.Context, spec procSpec, stdin string, onLine func([]byte)) procResult {
 	cmd := providerCommandContext(ctx, spec.Path, spec.Args...)
-	cmd.Dir = spec.CWD
+	proc.Dir(cmd, spec.CWD)
 	cmd.Stdin = strings.NewReader(stdin)
 	setProcessGroup(cmd)
 	hideWindow(cmd)

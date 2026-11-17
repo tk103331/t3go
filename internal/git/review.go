@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/tk/t3go/internal/proc"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -298,7 +299,7 @@ func showBlob(ctx context.Context, dir, ref, path string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "show", ref+":"+path)
-	cmd.Dir = dir
+	proc.Dir(cmd, dir)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0")
 	out, err := cmd.Output()
 	if err != nil {
@@ -313,7 +314,7 @@ func runAllowExitOne(ctx context.Context, dir string, args ...string) (string, e
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
+	proc.Dir(cmd, dir)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0")
 	out, err := cmd.Output()
 	if err == nil {

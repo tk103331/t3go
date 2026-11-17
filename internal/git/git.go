@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tk/t3go/internal/proc"
 	"github.com/tk/t3go/internal/proto"
 )
 
@@ -24,7 +25,7 @@ func run(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
+	proc.Dir(cmd, dir)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0")
 	out, err := cmd.Output()
 	if err != nil {
@@ -344,7 +345,7 @@ func runGH(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "gh", args...)
-	cmd.Dir = dir
+	proc.Dir(cmd, dir)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GH_PROMPT_DISABLED=1")
 	out, err := cmd.Output()
 	if err != nil {
