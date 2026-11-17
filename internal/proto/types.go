@@ -211,6 +211,26 @@ type RelayAccessStatus struct {
 	Error      string `json:"error,omitempty"`
 }
 
+// DeviceGrant is one paired client of an environment. Its token is a
+// per-device secret that can be revoked without touching the environment
+// token or the other devices.
+type DeviceGrant struct {
+	ID         string     `json:"id"`
+	Label      string     `json:"label"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	LastSeenAt *time.Time `json:"lastSeenAt,omitempty"`
+	RevokedAt  *time.Time `json:"revokedAt,omitempty"`
+	// Current marks the grant the request itself authenticated with.
+	Current bool `json:"current,omitempty"`
+}
+
+// DevicePairing is a grant just made and the token that authenticates it.
+// The token is returned once, when the device is paired.
+type DevicePairing struct {
+	Device DeviceGrant `json:"device"`
+	Token  string      `json:"token"`
+}
+
 // RelayAccessConfig registers this environment with a relay hub. AdminToken
 // is used once for registration and is not persisted by the client.
 type RelayAccessConfig struct {

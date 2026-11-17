@@ -22,6 +22,10 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
   新建项目可选目标环境；持久化身份、环境别名与默认环境、按环境隔离草稿和排队消息；
   局域网直连优先、中继回退、出站反向隧道，使用说明见
   [docs/environments-and-relay.md](docs/environments-and-relay.md)
+- 设备授权：每台配对设备使用独立 Token，可单独撤销（`t3go pair --device`、
+  `t3go devices`、`t3go devices revoke`，桌面端 Settings → Access 的 Paired devices
+  可直接配对与撤销）；撤销会立即切断该设备已建立的事件流，环境 Token 与
+  其他设备不受影响
 - Relay 账号：移动端、桌面端和 Web 端可注册或登录，登录后自动发现该账号拥有的
   环境并保存 Relay 路线。账号访问由 Relay 验证环境归属后生成短时 HMAC 签名，
   用户 Token 不转发给电脑；局域网直连和本机使用仍可完全脱离账号。
@@ -48,7 +52,7 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - 上游 T3 Code 协议的完整兼容：已实现发现、配置、生命周期和线程列表，线程
   详情/发送/事件投影尚未完成，见 [docs/upstream-compat.md](docs/upstream-compat.md)
 - Codex / OpenCode 的交互式审批（两者目前按各自的沙箱/自动策略运行）
-- 环境的单设备授权与撤销、平台安全凭证存储、局域网自动发现、多副本中继
+- 平台安全凭证存储、局域网自动发现、多副本中继
 
 排队消息按环境保存在客户端，重新打开后暂停，需明确恢复；发送结果不明的消息
 保留原请求 ID，可查询服务端回执或明确重试同一请求，同一线程内不会重复创建 run。

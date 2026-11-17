@@ -1,7 +1,8 @@
 # 多环境、局域网直连与云端中继
 
-状态：账号发现与 Relay 访问已实现（2026-11-17）。先阅读以下使用说明和
-实现边界；后半部分保留仍待实现的设备授权与安全增强目标。
+状态：账号发现、Relay 访问与每设备可撤销 Token 已实现（2026-11-17）。先阅读
+以下使用说明和实现边界；后半部分保留仍待实现的一次性配对凭证、凭证安全存储
+与 TLS 固定等目标。
 原有单地址直连与配对方式继续兼容，见 [README](../README.md)。
 
 ## 三种访问方式
@@ -118,6 +119,33 @@ t3go pair --home /path/to/local-data --relay
 无需为出站中继连接配置路由器入站端口映射。每台电脑使用独立数据目录登记。
 桌面安装包通过 Settings → Access 的 **LAN direct** 完成同等配置，不需要
 命令行或账号。
+
+### 设备授权与撤销
+
+`$T3GO_HOME/token` 是这台机器的所有者凭据，始终有效，保留给本机客户端和
+CLI。给其他设备配对时，改用每台设备自己的 Token，这样丢了一台只需要撤销它：
+
+```sh
+t3go pair --device "Pixel 8"   # 打印带该设备 Token 的配对链接
+t3go pair --device "Pixel 8" --relay   # 同上，但用已登记的中继路线
+t3go devices                    # 列出已配对设备、最近使用时间与状态
+t3go devices revoke dev_...     # 撤销一台设备
+```
+
+桌面端 Settings → Access 的 **Paired devices** 可以命名配对、复制链接或扫码，
+并在列表里撤销。链接只显示一次，环境数据库只保存 Token 的 SHA-256 摘要，
+不保存 Token 本身；一个环境最多同时保留 32 个有效设备 Token。
+
+撤销立即生效：该设备已建立的 SSE/WebSocket 流会被切断，撤销前签发但还没用掉的
+WebSocket ticket 也一并失效，下一次请求返回 401，客户端进入 Update token 流程
+重新配对。环境 Token 和其他设备不受影响。
+接口为 `GET /api/v1/access/devices`、`POST /api/v1/access/devices`（返回
+`{device, token}`）和 `DELETE /api/v1/access/devices/{id}`。
+
+设备 Token 验证的是直连入口（局域网地址、反向隧道）。通过 Relay 账号访问的
+路线由 Relay 根据账号归属签名，环境端看到的是签名请求，因此撤销设备 Token
+不会切断已有的 Relay 账号路线；需要收回这类访问时，应撤销该环境的 Relay
+登记，或在 Relay 端结束那个账号的会话。
 
 ### 禁止环境执行 Agent 任务
 
@@ -266,7 +294,7 @@ Relay 运营者仍能读取经过中转的业务内容，没有端到端加密�
 | `cmd/t3go-app/state.go` | 单连接，全局草稿和固定线程键 | 环境注册表、独立状态与异步回调归属 |
 | `cmd/t3go-app/state.go` | `disconnect` 清空当前队列和附件状态 | 拆分切换、暂时断开、忘记环境 |
 | `cmd/t3go-app/terminal.go` | WebView 中的 JavaScript 自建 WebSocket | 纳入环境路线、凭证和证书策略 |
-| `internal/server/server.go` | 一个环境的 Bearer token | 保留旧入口，新增可撤销的客户端设备授权 |
+| `internal/server/server.go` | 环境 Bearer token + 每设备可撤销 Token（已实现） | 一次性配对凭证与设备会话 |
 | `internal/server/server.go` | `/api/v1/devices` 表示模拟器 | 环境使用独立的 `/environments` 命名 |
 
 健康接口未鉴权，其 `serverId` 不稳定，不能直接用于可信设备识别；
@@ -565,7 +593,7 @@ SQLite 中的幂等记录与 run/线程创建原子提交；涉及启动进程�
 验收：两个测试环境故意使用相同线程 ID 仍不串数据；A 的迟到回调不能覆盖 B；
 草稿/队列/附件和固定状态隔离；重启保留身份；旧存储迁移失败后可重入。
 
-### P2：安全直连与多路线（身份探测与选路已实现，设备授权/TLS 固定待实现）
+### P2：安全直连与多路线（身份探测、选路与可撤销设备 Token 已实现，TLS 固定待实现）
 
 实现设备配对、可撤销授权、直连 TLS/身份校验和 RouteManager。局域网发现是
 可选增强，手动配对必须可独立使用。先覆盖原生端，再按 Web 实际能力开放路线。

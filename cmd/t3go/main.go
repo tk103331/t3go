@@ -41,6 +41,8 @@ func run(args []string) int {
 		return cmdServe(args[1:])
 	case "pair":
 		return cmdPair(args[1:])
+	case "devices":
+		return cmdDevices(args[1:])
 	case "relay":
 		return cmdRelay(args[1:])
 	case "doctor":
@@ -65,7 +67,8 @@ func usage() {
 
 Usage:
   t3go serve    [--home DIR] [--listen HOST:PORT] [--no-auth] [--web DIR] [--relay] [--connect-relay] [--no-agent] [--parent-pid PID]
-  t3go pair     [--home DIR] [--listen HOST:PORT] [--relay]
+  t3go pair     [--home DIR] [--listen HOST:PORT] [--relay] [--device NAME]
+  t3go devices  [--home DIR] [list | add --label NAME | revoke ID]
   t3go relay    --server URL --user-token-file FILE [--direct-url URL] [--home DIR]
   t3go doctor   [--home DIR]
   t3go version
@@ -73,6 +76,11 @@ Usage:
 The client API is served at /api/v1; live events at /api/v1/events (SSE)
 and /ws (WebSocket). Clients authenticate with the bearer token from
 $T3GO_HOME/token, or with ?token= when a header is not possible.
+
+t3go pair prints a link for the environment token, which can never be
+revoked. t3go pair --device NAME instead mints a token for one device;
+t3go devices lists those tokens and t3go devices revoke ID takes one away
+without touching the environment token or the other devices.
 `, version)
 }
 
@@ -188,8 +196,12 @@ func cmdPair(args []string) int {
 	listen := fs.String("listen", "", "server address as clients reach it (default 127.0.0.1:4870)")
 	jsonOut := fs.Bool("json", false, "print the URL and token as JSON")
 	useRelay := fs.Bool("relay", false, "print the registered relay pairing link")
+	device := fs.String("device", "", "pair one device with its own revocable token, named as given")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	if strings.TrimSpace(*device) != "" {
+		return printDevicePairing(*home, *device, *listen, *useRelay, *jsonOut)
 	}
 	cfg, err := config.Load(*home, *listen, false)
 	if err != nil {

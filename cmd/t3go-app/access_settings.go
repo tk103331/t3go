@@ -247,9 +247,9 @@ func relayAccessStateLabel(status proto.RelayAccessStatus) string {
 	}
 }
 
-// refreshAccess builds the pairing link from the current environment's saved
-// identity and routes. The link is only rendered after the environment's
-// Access switch has been enabled.
+// refreshAccess draws the pairing link for the device just paired, using
+// the routes Access allows now. Each device carries its own token, so a
+// lost device is revoked here instead of rotating the environment token.
 func (a *app) refreshAccess() {
 	a.accessLink.Set("")
 	a.accessQR.Set(nil)
@@ -261,8 +261,16 @@ func (a *app) refreshAccess() {
 		a.accessErr.Set(i18n.T("Access is only available for the environment running on this machine."))
 		return
 	}
+	if !a.deviceGrantsRead && !a.deviceGrantsBusy.GetUntracked() {
+		a.loadDeviceGrants()
+	}
+	if a.accessToken == "" {
+		return
+	}
 	direct, relay := accessRouteMode(a.settingsDraft.GetUntracked())
-	link, err := client.PairingLinkOptions(a.profile, direct, relay)
+	pairing := a.profile
+	pairing.Token = a.accessToken
+	link, err := client.PairingLinkOptions(pairing, direct, relay)
 	if err != nil {
 		a.accessErr.Set(err.Error())
 		return
@@ -274,6 +282,153 @@ func (a *app) refreshAccess() {
 	}
 	a.accessLink.Set(link)
 	a.accessQR.Set(png)
+}
+
+// pairAccessDevice mints a token for another device and shows the link
+// that pairs it. The token is shown once: revoking the grant later stops
+// that device without touching any other.
+func (a *app) pairAccessDevice() {
+	if !a.settingsConnectionReady() {
+		a.deviceGrantsErr.Set(i18n.T("Connect this environment before pairing a device."))
+		return
+	}
+	label := strings.TrimSpace(a.deviceLabel.GetUntracked())
+	a.deviceGrantsBusy.Set(true)
+	a.deviceGrantsErr.Set("")
+	a.deviceLabel.Set("")
+	var pairing proto.DevicePairing
+	a.call(func(ctx context.Context, c *client.Client) error {
+		p, err := c.PairDevice(ctx, label)
+		pairing = p
+		return err
+	}, func(err error) {
+		a.deviceGrantsBusy.Set(false)
+		if err != nil {
+			a.deviceGrantsErr.Set(friendlyError(err))
+			a.deviceLabel.Set(label)
+			return
+		}
+		a.accessToken = pairing.Token
+		a.accessDeviceID = pairing.Device.ID
+		a.refreshAccess()
+		a.loadDeviceGrants()
+	})
+}
+
+// loadDeviceGrants refreshes the paired devices the Access section lists.
+func (a *app) loadDeviceGrants() {
+	if !a.settingsConnectionReady() {
+		return
+	}
+	a.deviceGrantsBusy.Set(true)
+	a.call(func(ctx context.Context, c *client.Client) error {
+		grants, err := c.DeviceGrants(ctx)
+		if err == nil {
+			a.cx.Post(func() { a.deviceGrants.Set(grants) })
+		}
+		return err
+	}, func(err error) {
+		a.deviceGrantsBusy.Set(false)
+		a.deviceGrantsRead = true
+		if err != nil {
+			a.deviceGrantsErr.Set(friendlyError(err))
+		}
+	})
+}
+
+// revokeAccessDevice stops one paired device from connecting here.
+func (a *app) revokeAccessDevice(id string) {
+	if !a.settingsConnectionReady() {
+		a.deviceGrantsErr.Set(i18n.T("Connect this environment before revoking a device."))
+		return
+	}
+	a.deviceGrantsBusy.Set(true)
+	a.deviceGrantsErr.Set("")
+	a.call(func(ctx context.Context, c *client.Client) error {
+		return c.RevokeDeviceGrant(ctx, id)
+	}, func(err error) {
+		a.deviceGrantsBusy.Set(false)
+		if err != nil {
+			a.deviceGrantsErr.Set(friendlyError(err))
+			return
+		}
+		if a.accessDeviceID == id {
+			a.accessToken = ""
+			a.accessDeviceID = ""
+			a.refreshAccess()
+		}
+		a.loadDeviceGrants()
+	})
+}
+
+// pairedDevicesCard pairs another device and lists the grants made so far.
+func (a *app) pairedDevicesCard(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	children := []core.Node{
+		ui.Text(i18n.T("Paired devices"), 12, ui.Semibold, colors.Muted),
+		core.Text{Content: i18n.T("Every paired device keeps its own token. Revoking one leaves the environment token and the other devices working."),
+			MaxLines: 3, Style: core.Style{FontSize: 11, LineHeight: 16},
+			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6}, Children: []core.Node{
+			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{
+				mobileInput{Scope: cx, Input: base.Input{Value: a.deviceLabel.Get, OnChange: a.deviceLabel.Set,
+					Placeholder: i18n.T("Device name, e.g. Pixel 8"), Label: i18n.T("Device name"),
+					TestID: "settings-access-device-label", SubmitBehavior: core.SubmitBehaviorSubmit,
+					OnSubmit: func(string) { a.pairAccessDevice() }}},
+			}},
+			ui.Button{Text: i18n.T("Pair"), Icon: lucide.ScanQrCode, Variant: ui.ButtonPrimary, Size: controlSize(cx),
+				TestID: "settings-access-pair", Disabled: func() bool { return a.deviceGrantsBusy.Get() },
+				OnPress: a.pairAccessDevice},
+		}},
+	}
+	grants := a.deviceGrants.Get()
+	rows := make([]core.Node, 0, len(grants))
+	for _, grant := range grants {
+		rows = append(rows, a.deviceGrantRow(cx, grant))
+	}
+	if len(rows) == 0 {
+		rows = append(rows, ui.Text(i18n.T("No devices paired yet."), 11.5, ui.Regular, colors.Faint))
+	}
+	children = append(children, core.View{TestID: "settings-access-devices",
+		Style: core.Style{Direction: core.Column, Gap: 4}, Children: rows})
+	return core.View{Style: core.Style{Direction: core.Column, Gap: 7, Padding: core.Symmetric(10, 12),
+		Background: colors.Inset(), CornerRadius: 9}, Children: children}
+}
+
+// deviceGrantRow is one paired device, with the way to revoke it.
+func (a *app) deviceGrantRow(cx *core.Scope, grant proto.DeviceGrant) core.Node {
+	colors := ui.ColorsOf(cx)
+	label := grant.Label
+	if label == "" {
+		label = i18n.T("Unnamed device")
+	}
+	detail := i18n.T("Added ") + grant.CreatedAt.Local().Format("2006-01-02")
+	if grant.LastSeenAt != nil {
+		detail += " · " + i18n.T("last used ") + grant.LastSeenAt.Local().Format("2006-01-02 15:04")
+	} else {
+		detail += " · " + i18n.T("never used")
+	}
+	if grant.Current {
+		label += " · " + i18n.T("this device")
+	}
+	var action core.Node = core.Group{}
+	if grant.RevokedAt != nil {
+		detail += " · " + i18n.T("revoked")
+	} else {
+		action = ui.Button{Text: i18n.T("Revoke"), Variant: ui.ButtonGhost, Size: controlSize(cx),
+			TestID: "settings-access-revoke-" + grant.ID, Disabled: func() bool { return a.deviceGrantsBusy.Get() },
+			OnPress: func() { a.revokeAccessDevice(grant.ID) }}
+	}
+	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
+		Padding: core.Symmetric(3, 2)}, Children: []core.Node{
+		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 1}, Children: []core.Node{
+			core.Text{Content: label, TestID: "settings-access-device-" + grant.ID, MaxLines: 1,
+				Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+			core.Text{Content: detail, MaxLines: 1, Style: core.Style{FontSize: 10.5},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
+		}},
+		action,
+	}}
 }
 
 func accessRouteWarning(link string) string {
@@ -421,7 +576,7 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 					core.Text{Content: i18n.T("Allow device pairing"), TestID: "settings-access-title",
 						Style:     core.Style{FontSize: 13, FontWeight: ui.Semibold},
 						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-					core.Text{Content: i18n.T("Shows a pairing link and QR code for this machine. Credentials stay in local environment storage."),
+					core.Text{Content: i18n.T("Pairs other devices with their own tokens. Each link is shown once; revoke a device here to stop it."),
 						MaxLines: 3, Style: core.Style{FontSize: 11, LineHeight: 16},
 						StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 				}},
@@ -484,8 +639,13 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 		body = append(body, ui.Text(i18n.T("Remote access (optional)"), 12, ui.Semibold, colors.Muted))
 		body = append(body, a.relayConfigurationCard(cx))
 	}
-	link := a.accessLink.Get()
 	if a.accessErr.Get() != "" {
+		body = append(body, a.backgroundServerCard(cx))
+		return core.View{Style: core.Style{Direction: core.Column, Gap: 10}, Children: body}
+	}
+	body = append(body, a.pairedDevicesCard(cx))
+	link := a.accessLink.Get()
+	if link == "" {
 		body = append(body, a.backgroundServerCard(cx))
 		return core.View{Style: core.Style{Direction: core.Column, Gap: 10}, Children: body}
 	}
@@ -505,6 +665,9 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 			}},
 			core.Text{Content: link, TestID: "settings-access-link", Selectable: core.SelectableOn, MaxLines: 4,
 				Style:     core.Style{FontSize: 10.5, FontFamily: "Menlo, monospace", LineHeight: 15},
+				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
+			core.Text{Content: i18n.T("Open this link on the new device, or let it scan the QR code. Revoke the device below if it is lost."),
+				MaxLines: 3, Style: core.Style{FontSize: 10.5, LineHeight: 15},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }},
 		}},
 	)

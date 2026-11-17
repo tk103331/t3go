@@ -104,6 +104,16 @@ type app struct {
 	relayBusy           *core.Signal[bool]
 	relayErr            *actionError
 	relaySeq            int
+	// paired devices, each with its own revocable token
+	deviceGrants     *core.Signal[[]proto.DeviceGrant]
+	deviceGrantsBusy *core.Signal[bool]
+	deviceGrantsErr  *actionError
+	deviceLabel      *core.Signal[string]
+	deviceGrantsRead bool
+	// accessToken is the token behind the pairing link on screen. It stays
+	// in memory: the environment keeps only its digest.
+	accessToken    string
+	accessDeviceID string
 
 	showArchived        *core.Signal[bool]
 	showCustomModel     *core.Signal[bool]
@@ -408,6 +418,10 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		relayAccess:         core.NewSignalFunc(cx, proto.RelayAccessStatus{}, func(a, b proto.RelayAccessStatus) bool { return a == b }),
 		relayBusy:           core.NewSignal(cx, false),
 		relayErr:            newActionError(cx, toasts),
+		deviceGrants:        sliceSignal[proto.DeviceGrant](cx),
+		deviceGrantsBusy:    core.NewSignal(cx, false),
+		deviceGrantsErr:     newActionError(cx, toasts),
+		deviceLabel:         core.NewSignal(cx, ""),
 
 		showArchived:        core.NewSignal(cx, false),
 		showCustomModel:     core.NewSignal(cx, false),

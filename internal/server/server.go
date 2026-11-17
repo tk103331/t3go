@@ -27,6 +27,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/tk/t3go/internal/access"
 	"github.com/tk/t3go/internal/config"
 	"github.com/tk/t3go/internal/environment"
 	"github.com/tk/t3go/internal/events"
@@ -65,7 +66,14 @@ type Server struct {
 	closing  chan struct{}
 	stopOnce sync.Once
 	ticketMu sync.Mutex
-	tickets  map[string]time.Time
+	tickets  map[string]wsTicket
+
+	deviceMu   sync.Mutex
+	deviceSeen map[string]time.Time
+
+	streamMu  sync.Mutex
+	streamSeq uint64
+	streams   map[string]map[uint64]context.CancelFunc
 
 	lifecycle       context.Context
 	relayConnMu     sync.Mutex
@@ -98,7 +106,8 @@ func New(cfg config.Config, logger *log.Logger) (*Server, error) {
 	svc.ApprovalToken = cfg.Token
 	s := &Server{Config: cfg, Store: st, Service: svc, Bus: bus, Terminals: terminal.NewManager(),
 		Log: logger, ID: id.New("env"), Hostname: hostname, System: system, StartedAt: time.Now(),
-		closing: make(chan struct{}), tickets: map[string]time.Time{}, Identity: identity}
+		closing: make(chan struct{}), tickets: map[string]wsTicket{},
+		deviceSeen: map[string]time.Time{}, Identity: identity}
 	if cfg.Relay {
 		if cfg.NoAuth {
 			_ = st.Close()
@@ -246,6 +255,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/access/relay", s.auth(s.handleConfigureRelayAccess))
 	mux.HandleFunc("POST /api/v1/access/relay/register", s.auth(s.handleRegisterRelayUser))
 	mux.HandleFunc("POST /api/v1/access/relay/login", s.auth(s.handleLoginRelayUser))
+	mux.HandleFunc("GET /api/v1/access/devices", s.auth(s.handleDeviceGrants))
+	mux.HandleFunc("POST /api/v1/access/devices", s.auth(s.handlePairDeviceGrant))
+	mux.HandleFunc("DELETE /api/v1/access/devices/{id}", s.auth(s.handleRevokeDeviceGrant))
 	mux.HandleFunc("POST /oauth/token", s.handleOAuthToken)
 	mux.HandleFunc("GET /api/auth/session", s.auth(s.handleAuthSession))
 	mux.HandleFunc("POST /api/auth/websocket-ticket", s.auth(s.handleWebsocketTicket))
@@ -340,25 +352,152 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 			next(w, r)
 			return
 		}
-		token := ""
-		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-			token = strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
-		}
-		if token == "" {
-			token = r.URL.Query().Get("token")
-		}
+		token := requestToken(r)
 		if r.URL.Path == "/ws" {
-			if ticket := r.URL.Query().Get("wsTicket"); ticket != "" && s.consumeTicket(ticket) {
+			if raw := r.URL.Query().Get("wsTicket"); raw != "" {
+				deviceID, ok := s.consumeTicket(raw)
+				if !ok {
+					writeError(w, http.StatusUnauthorized, "unauthorized", "that socket ticket is not valid")
+					return
+				}
+				// A ticket issued to a device that has been revoked since
+				// must not open a new stream.
+				if deviceID != "" {
+					if _, err := s.Store.ActiveDevice(r.Context(), deviceID); err != nil {
+						writeError(w, http.StatusUnauthorized, "unauthorized", "a valid token is required")
+						return
+					}
+					r = r.WithContext(context.WithValue(r.Context(), deviceContextKey{}, deviceID))
+					s.recordDeviceSeen(deviceID)
+				}
 				next(w, r)
 				return
 			}
 		}
 		if !constantTimeEqual(token, s.Config.Token) {
-			writeError(w, http.StatusUnauthorized, "unauthorized", "a valid token is required")
-			return
+			device, ok := s.deviceByToken(r.Context(), token)
+			if !ok {
+				writeError(w, http.StatusUnauthorized, "unauthorized", "a valid token is required")
+				return
+			}
+			// The handler knows which grant it serves, so revoking that
+			// device can cut its live streams.
+			r = r.WithContext(context.WithValue(r.Context(), deviceContextKey{}, device.ID))
+			s.recordDeviceSeen(device.ID)
 		}
 		next(w, r)
 	}
+}
+
+// requestToken is the secret a request authenticates with: the bearer
+// header, or a query parameter for clients that cannot set one.
+func requestToken(r *http.Request) string {
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		if token := strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")); token != "" {
+			return token
+		}
+	}
+	return strings.TrimSpace(r.URL.Query().Get("token"))
+}
+
+// deviceSeenInterval is how often one grant's last visit is written.
+const deviceSeenInterval = time.Minute
+
+// deviceContextKey carries the paired device a request authenticated as.
+type deviceContextKey struct{}
+
+// deviceFromRequest is the grant a request authenticated as, or empty for
+// the environment token.
+func deviceFromRequest(r *http.Request) string {
+	id, _ := r.Context().Value(deviceContextKey{}).(string)
+	return id
+}
+
+// deviceByToken returns the active grant a device token belongs to,
+// recording the visit so the device list shows when it was last used.
+func (s *Server) deviceByToken(ctx context.Context, token string) (store.Device, bool) {
+	if !access.IsDevice(token) {
+		return store.Device{}, false
+	}
+	device, err := s.Store.DeviceByDigest(ctx, access.Digest(token))
+	if err != nil {
+		return store.Device{}, false
+	}
+	return device, true
+}
+
+// deviceAuthenticates reports whether token belongs to a paired device.
+func (s *Server) deviceAuthenticates(ctx context.Context, token string) bool {
+	device, ok := s.deviceByToken(ctx, token)
+	if !ok {
+		return false
+	}
+	s.recordDeviceSeen(device.ID)
+	return true
+}
+
+// watchDeviceStream keeps a live stream's cancel so revoking its device
+// closes it at once, and returns the function that forgets the stream.
+func (s *Server) watchDeviceStream(deviceID string, cancel context.CancelFunc) func() {
+	if deviceID == "" {
+		return func() {}
+	}
+	s.streamMu.Lock()
+	if s.streams == nil {
+		s.streams = map[string]map[uint64]context.CancelFunc{}
+	}
+	s.streamSeq++
+	key := s.streamSeq
+	if s.streams[deviceID] == nil {
+		s.streams[deviceID] = map[uint64]context.CancelFunc{}
+	}
+	s.streams[deviceID][key] = cancel
+	s.streamMu.Unlock()
+	return func() {
+		s.streamMu.Lock()
+		defer s.streamMu.Unlock()
+		delete(s.streams[deviceID], key)
+		if len(s.streams[deviceID]) == 0 {
+			delete(s.streams, deviceID)
+		}
+	}
+}
+
+// cutDeviceStreams closes the live streams one grant still holds.
+func (s *Server) cutDeviceStreams(deviceID string) {
+	s.streamMu.Lock()
+	cancels := make([]context.CancelFunc, 0, len(s.streams[deviceID]))
+	for _, cancel := range s.streams[deviceID] {
+		cancels = append(cancels, cancel)
+	}
+	delete(s.streams, deviceID)
+	s.streamMu.Unlock()
+	for _, cancel := range cancels {
+		cancel()
+	}
+}
+
+// recordDeviceSeen keeps a grant's last visit, writing at most once per
+// deviceSeenInterval so polls and streams do not write on every request.
+func (s *Server) recordDeviceSeen(id string) {
+	now := time.Now()
+	s.deviceMu.Lock()
+	if last := s.deviceSeen[id]; !last.IsZero() && now.Sub(last) < deviceSeenInterval {
+		s.deviceMu.Unlock()
+		return
+	}
+	s.deviceSeen[id] = now
+	s.deviceMu.Unlock()
+	_ = s.Store.TouchDevice(context.Background(), id, now)
+}
+
+// pairingTokenValid accepts the environment token or an active device
+// token, the two credentials a pairing link carries.
+func (s *Server) pairingTokenValid(ctx context.Context, token string) bool {
+	if token == "" {
+		return false
+	}
+	return constantTimeEqual(token, s.Config.Token) || s.deviceAuthenticates(ctx, token)
 }
 
 // relayRequestAuthorized accepts a request signed by this environment's
@@ -862,8 +1001,8 @@ func (s *Server) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid", err.Error())
 		return
 	}
-	subject := r.PostFormValue("subject_token")
-	if !constantTimeEqual(subject, s.Config.Token) {
+	subject := strings.TrimSpace(r.PostFormValue("subject_token"))
+	if !s.pairingTokenValid(r.Context(), subject) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant", "error_description": "the pairing token is not valid"})
@@ -874,7 +1013,7 @@ func (s *Server) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		scope = strings.Join(upstream.Scopes(), " ")
 	}
 	writeJSON(w, 200, map[string]any{
-		"access_token":      s.Config.Token,
+		"access_token":      subject,
 		"issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
 		"token_type":        "Bearer",
 		"expires_in":        3600,
@@ -904,23 +1043,29 @@ func (s *Server) handleWebsocketTicket(w http.ResponseWriter, r *http.Request) {
 	ticket := base64.RawURLEncoding.EncodeToString(raw)
 	expires := time.Now().Add(time.Hour)
 	s.ticketMu.Lock()
-	s.tickets[ticket] = expires
+	s.tickets[ticket] = wsTicket{expires: expires, deviceID: deviceFromRequest(r)}
 	s.ticketMu.Unlock()
 	writeJSON(w, 200, map[string]any{"ticket": ticket, "expiresAt": expires.UTC().Format("2006-01-02T15:04:05.000Z")})
 }
 
-func (s *Server) consumeTicket(ticket string) bool {
+// wsTicket is a one-time socket credential. A ticket minted by a paired
+// device carries its grant, so revoking the device also disables its
+// pending tickets.
+type wsTicket struct {
+	expires  time.Time
+	deviceID string
+}
+
+// consumeTicket redeems a ticket, returning the grant it was minted by.
+func (s *Server) consumeTicket(ticket string) (string, bool) {
 	s.ticketMu.Lock()
-	defer s.ticketMu.Unlock()
-	expires, ok := s.tickets[ticket]
-	if !ok {
-		return false
-	}
+	held, ok := s.tickets[ticket]
 	delete(s.tickets, ticket)
-	if time.Now().After(expires) {
-		return false
+	s.ticketMu.Unlock()
+	if !ok || time.Now().After(held.expires) {
+		return "", false
 	}
-	return true
+	return held.deviceID, true
 }
 
 // upstreamEnvironment is what the compatibility layer answers about this
@@ -997,7 +1142,9 @@ func (s *Server) handleUpstreamWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.CloseNow()
-	ctx := r.Context()
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	defer s.watchDeviceStream(deviceFromRequest(r), cancel)()
 	done := make(chan struct{})
 	defer close(done)
 	go func() {

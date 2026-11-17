@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -22,7 +23,12 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	after := s.Bus.LastSeq(r.Context())
+	// A revoked device cuts its stream through this context.
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	defer s.watchDeviceStream(deviceFromRequest(r), cancel)()
+
+	after := s.Bus.LastSeq(ctx)
 	if raw := r.URL.Query().Get("after"); raw != "" {
 		if v, err := strconv.ParseInt(raw, 10, 64); err == nil {
 			after = v
@@ -32,12 +38,12 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 			after = v
 		}
 	}
-	first, err := s.Store.FirstEventSeq(r.Context())
+	first, err := s.Store.FirstEventSeq(ctx)
 	if err != nil {
 		writeError(w, 500, "store", "could not check replay window")
 		return
 	}
-	last := s.Bus.LastSeq(r.Context())
+	last := s.Bus.LastSeq(ctx)
 	if after < 0 || after > last || (after > 0 && first > after+1) {
 		writeError(w, 409, "resync_required", "event cursor is outside the replay window; reload the environment snapshot")
 		return
@@ -77,7 +83,7 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	// Replay what the client missed, in bounded pages.
 	for {
-		events, err := s.Bus.Replay(r.Context(), sent, 500)
+		events, err := s.Bus.Replay(ctx, sent, 500)
 		if err != nil {
 			s.Log.Printf("sse: replay: %v", err)
 			return
@@ -101,7 +107,7 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			return
 		case <-s.closing:
 			return
@@ -116,7 +122,7 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 		case <-heartbeat.C:
 			// A full subscriber buffer may have dropped the last event.
 			// Reconnect from the cursor even if no later event exposes a gap.
-			if s.Bus.LastSeq(r.Context()) > sent {
+			if s.Bus.LastSeq(ctx) > sent {
 				return
 			}
 			if _, err := fmt.Fprintf(w, ": keepalive %d\n\n", time.Now().Unix()); err != nil {

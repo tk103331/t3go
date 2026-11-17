@@ -28,6 +28,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
+	defer s.watchDeviceStream(deviceFromRequest(r), cancel)()
 
 	var writeMu sync.Mutex
 	write := func(v any) error {

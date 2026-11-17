@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/oneo-me/nsgo/nsgotest"
+	"github.com/tk/t3go/internal/access"
 	"github.com/tk/t3go/internal/client"
 	"github.com/tk/t3go/internal/proto"
 )
@@ -38,6 +40,9 @@ func TestUIAccessGeneratesCopyablePairingQRCode(t *testing.T) {
 	app.Press("id:settings-nav-access")
 	app.WaitFor("id:settings-access-enabled", 5*time.Second)
 	app.Press("id:settings-access-enabled")
+	app.WaitFor("id:settings-access-pair", 5*time.Second)
+	app.Type("label:Device name", "Pixel 8")
+	app.Press("id:settings-access-pair")
 	app.WaitFor("id:settings-access-pairing", 5*time.Second)
 	app.WaitFor("id:settings-access-qr", 5*time.Second)
 	linkQuery := func() url.Values {
@@ -52,6 +57,9 @@ func TestUIAccessGeneratesCopyablePairingQRCode(t *testing.T) {
 	if query.Get("url") != relay.URL || query.Get("direct") != ts.URL ||
 		query.Get("environment") == "" || query.Get("key") == "" {
 		t.Fatalf("pairing link query = %#v", query)
+	}
+	if token := query.Get("token"); !access.IsDevice(token) || token == cfg.Token {
+		t.Fatalf("pairing link carries %q, want a device token", token)
 	}
 	app.Press("id:settings-access-direct")
 	app.WaitUntil(5*time.Second, func() bool {
@@ -106,6 +114,8 @@ func TestUIAccessAndAboutOnlyUseLocalEnvironment(t *testing.T) {
 		t.Fatal("Access exposed an environment selector")
 	}
 	app.Press("id:settings-access-enabled")
+	app.WaitFor("id:settings-access-pair", 5*time.Second)
+	app.Press("id:settings-access-pair")
 	app.WaitFor("id:settings-access-pairing", 5*time.Second)
 	link, err := url.Parse(app.Find("id:settings-access-link").Text)
 	if err != nil {
@@ -175,6 +185,9 @@ func TestUIAccessUsesSignedInAccount(t *testing.T) {
 	app.Press("id:settings-nav-access")
 	app.WaitFor("id:settings-access-enabled", 5*time.Second)
 	app.Press("id:settings-access-enabled")
+	app.WaitFor("id:settings-access-pair", 5*time.Second)
+	app.Press("id:settings-access-pair")
+	app.WaitFor("id:settings-access-pairing", 5*time.Second)
 	app.WaitFor("id:settings-relay-account", 5*time.Second)
 	if got := app.Find("id:settings-relay-account-name").Text; got != "Account Owner" {
 		t.Fatalf("Relay account name = %q", got)
@@ -283,5 +296,57 @@ func TestUIProviderSettingsPersistPerEnvironment(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("configured providers = %#v, missing %q", providerIDs, settings.ACPProviders[0].ID)
+	}
+}
+
+// TestUIAccessPairingRevokesOneDevice pins the per-device token story: the
+// link Access shows carries a token of its own, and revoking that device
+// takes only that token away.
+func TestUIAccessPairingRevokesOneDevice(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	profile := client.EnvironmentProfile{
+		ID: srv.Identity.ID, PublicKey: srv.Identity.PublicKey(), Token: cfg.Token,
+		Routes: []client.Route{{URL: ts.URL, Kind: "direct"}},
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		"environments:v1": workspaceRegistry(profile),
+	}))
+	app.WaitFor("id:settings", 15*time.Second)
+	app.Press("id:settings")
+	app.WaitFor("id:settings-dialog", 5*time.Second)
+	app.Press("id:settings-nav-access")
+	app.WaitFor("id:settings-access-enabled", 5*time.Second)
+	app.Press("id:settings-access-enabled")
+	app.WaitFor("id:settings-access-pair", 5*time.Second)
+	app.Type("label:Device name", "Pixel 8")
+	app.Press("id:settings-access-pair")
+	devices, err := srv.Store.Devices(context.Background())
+	if err != nil || len(devices) != 1 || devices[0].Label != "Pixel 8" {
+		t.Fatalf("paired devices = %+v, %v", devices, err)
+	}
+	device := devices[0]
+	app.WaitFor("id:settings-access-device-"+device.ID, 5*time.Second)
+	app.WaitFor("id:settings-access-link", 5*time.Second)
+	link, err := url.Parse(app.Find("id:settings-access-link").Text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := link.Query().Get("token")
+	if !access.IsDevice(token) || token == cfg.Token {
+		t.Fatalf("pairing link carries %q, want a device token", token)
+	}
+	paired := client.New(ts.URL, token)
+	if _, err := paired.State(context.Background()); err != nil {
+		t.Fatalf("the paired device cannot connect: %v", err)
+	}
+
+	app.Press("id:settings-access-revoke-" + device.ID)
+	app.WaitForGone("id:settings-access-revoke-"+device.ID, 5*time.Second)
+	app.WaitForGone("id:settings-access-pairing", 5*time.Second)
+	if _, err := paired.State(context.Background()); !errors.Is(err, client.ErrUnauthorized) {
+		t.Fatalf("a revoked device still connects: %v", err)
+	}
+	if _, err := client.New(ts.URL, cfg.Token).State(context.Background()); err != nil {
+		t.Fatalf("revoking a device stopped the environment token: %v", err)
 	}
 }

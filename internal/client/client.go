@@ -569,6 +569,27 @@ func (c *Client) PreviewServers(ctx context.Context) ([]proto.PreviewServer, str
 	return out.Servers, out.Detail, err
 }
 
+// DeviceGrants lists the clients paired with the environment.
+func (c *Client) DeviceGrants(ctx context.Context) ([]proto.DeviceGrant, error) {
+	var out struct {
+		Devices []proto.DeviceGrant `json:"devices"`
+	}
+	err := c.do(ctx, http.MethodGet, "/api/v1/access/devices", nil, &out)
+	return out.Devices, err
+}
+
+// PairDevice mints a token for a new client. The token is answered once.
+func (c *Client) PairDevice(ctx context.Context, label string) (proto.DevicePairing, error) {
+	var out proto.DevicePairing
+	err := c.do(ctx, http.MethodPost, "/api/v1/access/devices", map[string]string{"label": label}, &out)
+	return out, err
+}
+
+// RevokeDeviceGrant stops one paired client from authenticating here.
+func (c *Client) RevokeDeviceGrant(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/access/devices/"+url.PathEscape(id), nil, nil)
+}
+
 // Devices lists the environment's simulators.
 func (c *Client) Devices(ctx context.Context) ([]proto.Device, string, error) {
 	var out struct {
