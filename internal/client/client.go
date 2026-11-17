@@ -35,6 +35,15 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("t3go: %s: %s (%d)", e.Code, e.Message, e.Status)
 }
 
+// Unwrap keeps errors.Is(err, ErrUnauthorized) true for a rejected token,
+// so callers can still treat every refusal the same way.
+func (e *APIError) Unwrap() error {
+	if e.Status == http.StatusUnauthorized {
+		return ErrUnauthorized
+	}
+	return nil
+}
+
 // Client talks to one environment.
 type Client struct {
 	BaseURL string
@@ -122,6 +131,16 @@ func (c *Client) send(req *http.Request, out any) error {
 		return err
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
+		var payload struct {
+			Error struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(raw, &payload) == nil && payload.Error.Code != "" {
+			return &APIError{Status: resp.StatusCode, Code: payload.Error.Code,
+				Message: payload.Error.Message}
+		}
 		return ErrUnauthorized
 	}
 	if resp.StatusCode >= 400 {

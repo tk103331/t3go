@@ -301,7 +301,7 @@ func TestUIAuthorizationRecoveryKeepsDraftAndValidatesToken(t *testing.T) {
 	app.WaitFor("id:credentials-dialog", 5*time.Second)
 	app.Type("label:New environment token", "incorrect-token")
 	app.Press("id:credentials-save")
-	app.WaitFor("text:That token was rejected. Check the token and try again.", 5*time.Second)
+	waitForToast(t, app, "text:That token was rejected. Check the token and try again.")
 	var saved savedEnvironments
 	raw, _ := app.Storage().GetItem("environments:v1")
 	if err := json.Unmarshal([]byte(raw), &saved); err != nil || saved.Profiles[0].Token != previousCredential {
@@ -513,7 +513,7 @@ func TestUIStorageFailureDoesNotSubmitOrReplaceUnknownRequest(t *testing.T) {
 				testApp.Type("label:Message", "Preserve original request")
 				testApp.Press("text:Send")
 			}
-			testApp.WaitFor("text:Could not save the pending message. It has not been sent: storage full", 5*time.Second)
+			waitForToast(t, testApp, "text:Could not save the pending message. It has not been sent: storage full")
 			runs, err := srv.Store.Runs(ctx, thread.ID)
 			if err != nil || len(runs) != 0 {
 				t.Fatalf("submitted before saving request identity: %#v, %v", runs, err)

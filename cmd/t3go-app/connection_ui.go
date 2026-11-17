@@ -159,12 +159,9 @@ func (a *app) credentialsDialog(cx *core.Scope) core.Node {
 			mobileInput{Scope: cx, Input: base.Input{Value: a.credentialToken.Get, OnChange: a.credentialToken.Set,
 				Label: i18n.T("New environment token"), Placeholder: i18n.T("Paste the environment token"), Masked: true,
 				SubmitBehavior: core.SubmitBehaviorSubmit, OnSubmit: func(string) { a.updateCredentials() }}},
-			core.Dynamic(func(cx *core.Scope) core.Node {
-				if a.connecting.Get() {
-					return ui.Text(i18n.T("Checking connection…"), 12, ui.Regular, ui.ColorsOf(cx).Muted)
-				}
-				return ui.Text(a.credentialError.Get(), 12, ui.Regular, ui.ColorsOf(cx).Danger)
-			}),
+			core.Show{When: a.connecting.Get, Then: func(*core.Scope) core.Node {
+				return ui.Text(i18n.T("Checking connection…"), 12, ui.Regular, ui.ColorsOf(cx).Muted)
+			}},
 		},
 		Footer: []core.Node{
 			ui.Button{Text: i18n.T("Cancel"), TestID: "credentials-cancel", Variant: ui.ButtonGhost,

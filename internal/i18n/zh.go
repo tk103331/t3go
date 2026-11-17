@@ -578,6 +578,8 @@ var zh = map[string]string{
 	"That model is already listed.":                            "该模型已在列表中。",
 	"That path is not a directory.":                            "该路径不是目录。",
 	"That token was rejected. Check the token and try again.":  "Token 被拒绝，请检查后重试。",
+	"That email or password is not right.":                     "邮箱或密码不正确。",
+	"Too many sign-in attempts. Try again in a few minutes.":   "登录尝试次数过多，请几分钟后再试。",
 	"The server did not answer in time.":                       "服务器未在规定时间内响应。",
 	"This platform has no speech recognition.":                 "当前平台不支持语音识别。",
 	"This run made no changes.":                                "本次运行没有产生变更。",

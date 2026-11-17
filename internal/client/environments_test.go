@@ -196,7 +196,7 @@ func TestEnvironmentClientThroughReverseTunnel(t *testing.T) {
 	}
 	// Administrator privileges on the hub do not grant access to a computer.
 	remote.Token = admin
-	if _, err := remote.State(ctx); err != ErrUnauthorized {
+	if _, err := remote.State(ctx); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("hub administrator obtained environment access: %v", err)
 	}
 }

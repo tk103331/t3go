@@ -244,8 +244,6 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 		core.Show{When: a.providersBusy.Get, Then: func(*core.Scope) core.Node {
 			return ui.Spinner{Size: 14, Label: i18n.T("Detecting providers on ") + a.envName()}
 		}},
-		core.Text{Content: a.providersErr.Get(), TestID: "settings-providers-error", MaxLines: 3,
-			Style: core.Style{FontSize: 12}, StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }},
 		core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter}, Children: []core.Node{
 			core.Text{Content: i18n.T("%d providers · %d models · %s", len(providers), len(models), a.envName()),
 				MaxLines: 2, Style: core.Style{FontSize: 11.5, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"mime"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -41,6 +42,7 @@ type app struct {
 	store                appStorage
 	manager              *environmentManager
 	profile              client.EnvironmentProfile
+	toasts               *ui.Toaster
 	showEnvironments     *core.Signal[bool]
 	forgetEnvironment    *core.Signal[string]
 	renameEnvironment    *core.Signal[string]
@@ -56,7 +58,7 @@ type app struct {
 	receiptChecks        map[string]bool
 	showCredentials      *core.Signal[bool]
 	credentialToken      *core.Signal[string]
-	credentialError      *core.Signal[string]
+	credentialError      *actionError
 	connectionRecovered  *core.Signal[bool]
 	recoveryNoticeCancel func() bool
 	appliedAccent        string
@@ -69,7 +71,7 @@ type app struct {
 	connected     *core.Signal[bool]
 	connecting    *core.Signal[bool]
 	offline       *core.Signal[bool]
-	connErr       *core.Signal[string]
+	connErr       *actionError
 
 	// environment snapshot
 	projects  *core.Signal[[]proto.Project]
@@ -80,27 +82,27 @@ type app struct {
 	customModels        *core.Signal[map[string][]proto.Model]
 	settings            *core.Signal[proto.Settings]
 	providersBusy       *core.Signal[bool]
-	providersErr        *core.Signal[string]
+	providersErr        *actionError
 	providersSeq        int
 	providerCatalog     *core.Signal[[]proto.ACPRegistryAgent]
 	providerCatalogBusy *core.Signal[bool]
-	providerCatalogErr  *core.Signal[string]
+	providerCatalogErr  *actionError
 	providerAddOpen     *core.Signal[bool]
 	providerAddMode     *core.Signal[string]
 	providerSearchQuery *core.Signal[string]
 	providerLocalName   *core.Signal[string]
 	providerLocalPath   *core.Signal[string]
 	providerLocalArgs   *core.Signal[string]
-	providerManageErr   *core.Signal[string]
+	providerManageErr   *actionError
 	providerPrepareID   *core.Signal[string]
 	providerTextDraft   *core.Signal[map[string]string]
 	providerSeq         int
 	accessLink          *core.Signal[string]
 	accessQR            *core.Signal[[]byte]
-	accessErr           *core.Signal[string]
+	accessErr           *actionError
 	relayAccess         *core.Signal[proto.RelayAccessStatus]
 	relayBusy           *core.Signal[bool]
-	relayErr            *core.Signal[string]
+	relayErr            *actionError
 	relaySeq            int
 
 	showArchived        *core.Signal[bool]
@@ -108,7 +110,7 @@ type app struct {
 	customModelProvider *core.Signal[string]
 	customModelID       *core.Signal[string]
 	customModelName     *core.Signal[string]
-	customModelErr      *core.Signal[string]
+	customModelErr      *actionError
 
 	// side chat
 	sideChat        *core.Signal[proto.Thread]
@@ -353,11 +355,13 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		}
 		storage = environmentStorage{base: manager.store, id: id, legacy: profile.Legacy}
 	}
+	toasts := ui.NewToaster(cx)
 	a := &app{
 		cx:       cx,
 		lifetime: cx.Context(),
 		store:    storage,
 		manager:  manager, profile: profile,
+		toasts:              toasts,
 		showEnvironments:    core.NewSignal(cx, false),
 		forgetEnvironment:   core.NewSignal(cx, ""),
 		renameEnvironment:   core.NewSignal(cx, ""),
@@ -367,7 +371,7 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		transportBlocked:    core.NewSignal(cx, false),
 		showCredentials:     core.NewSignal(cx, false),
 		credentialToken:     core.NewSignal(cx, ""),
-		credentialError:     core.NewSignal(cx, ""),
+		credentialError:     newActionError(cx, toasts),
 		connectionRecovered: core.NewSignal(cx, false),
 
 		serverURL:     core.NewSignal(cx, ""),
@@ -376,7 +380,7 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		connected:     core.NewSignal(cx, false),
 		connecting:    core.NewSignal(cx, false),
 		offline:       core.NewSignal(cx, false),
-		connErr:       core.NewSignal(cx, ""),
+		connErr:       newActionError(cx, toasts),
 
 		projects:            sliceSignal[proto.Project](cx),
 		threads:             sliceSignal[proto.Thread](cx),
@@ -385,32 +389,32 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		customModels:        core.NewSignalFunc(cx, map[string][]proto.Model{}, func(map[string][]proto.Model, map[string][]proto.Model) bool { return false }),
 		settings:            core.NewSignalFunc(cx, proto.DefaultSettings(), settingsEqual),
 		providersBusy:       core.NewSignal(cx, false),
-		providersErr:        core.NewSignal(cx, ""),
+		providersErr:        newActionError(cx, toasts),
 		providerCatalog:     sliceSignal[proto.ACPRegistryAgent](cx),
 		providerCatalogBusy: core.NewSignal(cx, false),
-		providerCatalogErr:  core.NewSignal(cx, ""),
+		providerCatalogErr:  newActionError(cx, toasts),
 		providerAddOpen:     core.NewSignal(cx, false),
 		providerAddMode:     core.NewSignal(cx, "registry"),
 		providerSearchQuery: core.NewSignal(cx, ""),
 		providerLocalName:   core.NewSignal(cx, ""),
 		providerLocalPath:   core.NewSignal(cx, ""),
 		providerLocalArgs:   core.NewSignal(cx, ""),
-		providerManageErr:   core.NewSignal(cx, ""),
+		providerManageErr:   newActionError(cx, toasts),
 		providerPrepareID:   core.NewSignal(cx, ""),
 		providerTextDraft:   core.NewSignalFunc(cx, map[string]string{}, func(map[string]string, map[string]string) bool { return false }),
 		accessLink:          core.NewSignal(cx, ""),
 		accessQR:            sliceSignal[byte](cx),
-		accessErr:           core.NewSignal(cx, ""),
+		accessErr:           newActionError(cx, toasts),
 		relayAccess:         core.NewSignalFunc(cx, proto.RelayAccessStatus{}, func(a, b proto.RelayAccessStatus) bool { return a == b }),
 		relayBusy:           core.NewSignal(cx, false),
-		relayErr:            core.NewSignal(cx, ""),
+		relayErr:            newActionError(cx, toasts),
 
 		showArchived:        core.NewSignal(cx, false),
 		showCustomModel:     core.NewSignal(cx, false),
 		customModelProvider: core.NewSignal(cx, ""),
 		customModelID:       core.NewSignal(cx, ""),
 		customModelName:     core.NewSignal(cx, ""),
-		customModelErr:      core.NewSignal(cx, ""),
+		customModelErr:      newActionError(cx, toasts),
 		sideChat: core.NewSignalFunc(cx, proto.Thread{}, func(a, b proto.Thread) bool {
 			return a.ID == b.ID && a.Status == b.Status
 		}),
@@ -1744,13 +1748,59 @@ func decodeData[T any](v any) (T, bool) {
 	return out, true
 }
 
-func friendlyError(err error) string {
-	if errors.Is(err, client.ErrUnauthorized) {
-		return i18n.T("That token was rejected. Check the token and try again.")
+// actionError is one action's failure message. Setting a message also shows
+// it as a toast, where the action was taken, so a failure never keeps a
+// banner over the content; clearing it takes that toast away again.
+type actionError struct {
+	*core.Signal[string]
+	toasts *ui.Toaster
+	shown  string
+}
+
+func newActionError(cx *core.Scope, toasts *ui.Toaster) *actionError {
+	return &actionError{Signal: core.NewSignal(cx, ""), toasts: toasts}
+}
+
+// Set records message, showing it as an error toast unless it is empty.
+func (e *actionError) Set(message string) {
+	e.Signal.Set(message)
+	if e.toasts == nil {
+		return
 	}
+	if message == "" {
+		if e.shown != "" {
+			e.toasts.Dismiss(e.shown)
+			e.shown = ""
+		}
+		return
+	}
+	// The message is the toast's id: failing the same way again refreshes the
+	// toast instead of stacking a duplicate.
+	e.shown = e.toasts.Show(ui.ToastContent{ID: "error:" + message, Type: ui.ToastError, Title: message})
+}
+
+// notify shows a step that finished as a toast, for news that has no place
+// in the content, such as a copied command.
+func (a *app) notify(message string) {
+	a.toasts.Show(ui.ToastContent{ID: "notice:" + message, Type: ui.ToastSuccess, Title: message})
+}
+
+func friendlyError(err error) string {
 	var apiErr *client.APIError
 	if errors.As(err, &apiErr) {
+		switch apiErr.Code {
+		case "invalid_credentials":
+			return i18n.T("That email or password is not right.")
+		case "rate_limited":
+			return i18n.T("Too many sign-in attempts. Try again in a few minutes.")
+		}
+		if apiErr.Status == http.StatusUnauthorized {
+			return i18n.T("That token was rejected. Check the token and try again.")
+		}
 		return apiErr.Message
+	}
+	if errors.Is(err, client.ErrUnauthorized) {
+		return i18n.T("That token was rejected. Check the token and try again.")
 	}
 	msg := err.Error()
 	switch {
@@ -3035,7 +3085,7 @@ func (a *app) runProviderCommand(command string) {
 	id := a.selected.GetUntracked()
 	if id == "" {
 		a.cx.SetClipboard(command)
-		a.connErr.Set(i18n.T("Copied “") + command + i18n.T("”. Open a thread to run it in its terminal."))
+		a.notify(i18n.T("Copied “") + command + i18n.T("”. Open a thread to run it in its terminal."))
 		return
 	}
 	a.setRightOpen(true)

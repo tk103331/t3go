@@ -26,6 +26,20 @@ import (
 
 func TestMain(m *testing.M) { nsgotest.Main(m) }
 
+// waitForToast waits for a toast to show. A failure now floats over the
+// content instead of holding a banner, so the test advances past the
+// toast's appear animation once the app has posted it.
+func waitForToast(t *testing.T, app *nsgotest.App, selector string) {
+	t.Helper()
+	app.WaitUntil(5*time.Second, func() bool {
+		if app.Exists(selector) {
+			return true
+		}
+		app.Advance(300 * time.Millisecond)
+		return app.Exists(selector)
+	})
+}
+
 // startEnv runs a real server for the app to connect to, closed with the
 // test. Clients and SSE must be disconnected before the listener, or
 // Close waits on the stream.
@@ -3475,4 +3489,33 @@ func TestParseLoginFragment(t *testing.T) {
 			t.Errorf("%q = (%q, %q), want (%q, %q)", tc.fragment, u, tok, tc.url, tc.token)
 		}
 	}
+}
+
+// TestUIFailureShowsAsAToast pins where a failure surfaces: over the
+// content as a toast, gone once the action clears it, instead of holding a
+// banner until it is dismissed by hand.
+func TestUIFailureShowsAsAToast(t *testing.T) {
+	var instance *app
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		cx.Untrack(func() { instance = newApp(cx) })
+		return core.Dynamic(func(cx *core.Scope) core.Node {
+			if instance.connected.Get() {
+				return instance.mainView(cx)
+			}
+			return instance.connectView(cx)
+		})
+	}, nsgotest.Size(1100, 760))
+	app.WaitFor("id:connect-environment", 5*time.Second)
+	app.Post(func() { instance.connErr.Set("Could not reach the environment.") })
+	waitForToast(t, app, "text:Could not reach the environment.")
+	if instance.connErr.GetUntracked() != "Could not reach the environment." {
+		t.Fatal("the failure was not kept as the connection's error")
+	}
+	app.Post(func() { instance.connErr.Set("") })
+	app.WaitUntil(2*time.Second, func() bool {
+		app.Advance(200 * time.Millisecond)
+		return !app.Exists("text:Could not reach the environment.")
+	})
+	app.Post(func() { instance.notify("Copied the command.") })
+	waitForToast(t, app, "text:Copied the command.")
 }

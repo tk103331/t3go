@@ -121,12 +121,6 @@ func (a *app) connectView(cx *core.Scope) core.Node {
 						OnPress: func() { a.scanEnvironmentQR(cx) }}
 				},
 			},
-			core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node {
-				return core.View{Style: core.Style{Padding: core.Symmetric(8, 10), CornerRadius: 7,
-					Background: ui.Alpha(colors.Danger(), 0.1)}, Children: []core.Node{
-					ui.Text(a.connErr.Get(), 12, ui.Regular, colors.Danger),
-				}}
-			}},
 			ui.Button{Text: func() string {
 				if a.connecting.Get() {
 					return "Connecting…"
@@ -143,6 +137,7 @@ func (a *app) connectView(cx *core.Scope) core.Node {
 					TestID: "environments", Size: controlSize(cx), OnPress: func() { a.showEnvironments.Set(true) }}
 			}},
 		}},
+		core.Dynamic(a.toastView),
 	}}
 }
 
@@ -184,24 +179,17 @@ func (a *app) mainView(cx *core.Scope) core.Node {
 		style.PaddingEnv = core.EnvAll(core.EnvSafeArea)
 	}
 	return core.View{Style: style, Children: []core.Node{
-		core.Show{When: func() bool { return a.connErr.Get() != "" && !a.transportBlocked.Get() },
-			Then: func(*core.Scope) core.Node { return core.Dynamic(a.errorBanner) }},
 		core.Dynamic(a.connectionBanner),
 		core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), MinHeight: core.Pt(0),
 			Overflow: core.Hidden}, Children: []core.Node{body, core.Dynamic(a.dialogs)}},
+		core.Dynamic(a.toastView),
 	}}
 }
 
-// errorBanner shows an action's failure above the content, with a way to
-// dismiss it.
-func (a *app) errorBanner(cx *core.Scope) core.Node {
-	colors := ui.ColorsOf(cx)
-	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
-		Padding: core.Symmetric(6, 12), Background: colors.Inset()}, Children: []core.Node{
-		core.Text{Content: a.connErr.Get(), MaxLines: 3, Style: core.Style{FontSize: 12, FlexGrow: 1},
-			StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }},
-		ui.Button{Text: i18n.T("Dismiss"), Variant: ui.ButtonGhost, Size: controlSize(cx), OnPress: func() { a.connErr.Set("") }},
-	}}
+// toastView shows this environment's action failures over the content.
+func (a *app) toastView(cx *core.Scope) core.Node {
+	return ui.Toasts{Toaster: a.toasts, Placement: ui.ToastTop, Swipe: ui.ToastSwipeEdge,
+		CloseLabel: i18n.T("Dismiss"), TestID: "toasts"}
 }
 
 func (a *app) sidebar(cx *core.Scope) core.Node {
@@ -1053,9 +1041,6 @@ func (a *app) newProjectDialog(cx *core.Scope) core.Node {
 			core.Text{Content: i18n.T("The project's path is used for diffs, files, terminals and worktrees."),
 				Style:     core.Style{FontSize: 11},
 				StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
-			core.Show{When: func() bool { return a.connErr.Get() != "" }, Then: func(*core.Scope) core.Node {
-				return ui.Text(a.connErr.Get(), 12, ui.Regular, colors.Danger)
-			}},
 		}, Footer: []core.Node{
 			ui.Button{Text: i18n.T("Cancel"), Variant: ui.ButtonGhost, Size: controlSize(cx), TestID: "cancel-project",
 				OnPress: func() { a.showNewProject.Set(false) }},
@@ -1113,7 +1098,6 @@ func (a *app) desktopNewThreadBody(cx *core.Scope) core.Node {
 								OnDropFiles:    a.attachNewThreadPaths,
 							},
 							core.Dynamic(a.desktopNewThreadContext),
-							core.Dynamic(a.desktopNewThreadError),
 						},
 					}},
 				}},
@@ -1395,14 +1379,6 @@ func (a *app) desktopNewThreadContext(cx *core.Scope) core.Node {
 		AlignItems: core.AlignCenter, Gap: 8}, Children: children}
 }
 
-func (a *app) desktopNewThreadError(cx *core.Scope) core.Node {
-	message := a.connErr.Get()
-	if message == "" {
-		return core.Group{}
-	}
-	return ui.Text(message, 12, ui.Regular, ui.ColorsOf(cx).Danger)
-}
-
 func (a *app) settingsDialog(cx *core.Scope) core.Node {
 	return ui.Dialog{Open: a.showSettings.Get, OnOpenChange: func(open bool, _ base.Reason) {
 		if !open {
@@ -1680,7 +1656,6 @@ func (a *app) restoreDialog(cx *core.Scope) core.Node {
 
 // customModelDialog adds a model id a provider's CLI accepts.
 func (a *app) customModelDialog(cx *core.Scope) core.Node {
-	colors := ui.ColorsOf(cx)
 	provider := a.customModelProvider.Get()
 	return ui.Dialog{NoCloseOnBackdropPress: compactSettings(cx), Open: a.showCustomModel.Get, OnOpenChange: closeDialog(a.showCustomModel),
 		Title: i18n.T("Add model to ") + provider, Description: i18n.T("Use the model id the CLI expects."),
@@ -1690,10 +1665,6 @@ func (a *app) customModelDialog(cx *core.Scope) core.Node {
 				Placeholder: "model-id", Label: i18n.T("Model id"), TestID: "custom-model-id"}},
 			mobileInput{Scope: cx, Input: base.Input{Value: a.customModelName.Get, OnChange: a.customModelName.Set,
 				Placeholder: i18n.T("Display name (optional)"), Label: i18n.T("Model name"), TestID: "custom-model-name"}},
-			core.Show{When: func() bool { return a.customModelErr.Get() != "" }, Then: func(*core.Scope) core.Node {
-				return core.Text{Content: a.customModelErr.Get(), MaxLines: 2, Style: core.Style{FontSize: 11.5},
-					StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }}
-			}},
 		}, Footer: []core.Node{
 			ui.Button{Text: i18n.T("Cancel"), Variant: ui.ButtonGhost, OnPress: func() { a.showCustomModel.Set(false) }},
 			ui.Button{Text: i18n.T("Add model"), Icon: lucide.Plus, Variant: ui.ButtonPrimary, TestID: "confirm-custom-model",

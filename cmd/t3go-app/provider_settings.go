@@ -403,9 +403,7 @@ func (a *app) providerRegistryPanel(cx *core.Scope) core.Node {
 	}
 	if a.providerCatalogBusy.Get() {
 		resultCards = []core.Node{ui.Spinner{Size: 14, Label: i18n.T("Loading ACP Registry")}}
-	} else if a.providerCatalogErr.Get() != "" {
-		resultCards = []core.Node{ui.Text(a.providerCatalogErr.Get(), 11, ui.Regular, colors.Danger)}
-	} else if len(resultCards) == 0 {
+	} else if len(resultCards) == 0 && a.providerCatalogErr.Get() == "" {
 		resultCards = []core.Node{ui.Text(i18n.T("No compatible registry agents found."), 11.5, ui.Regular, colors.Faint)}
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 7}, Children: []core.Node{
@@ -491,9 +489,6 @@ func (a *app) providerSettingsSection(cx *core.Scope) core.Node {
 		core.View{Style: core.Style{Direction: core.Column, Gap: 6}, Children: cards},
 		core.Show{When: func() bool { return a.providerPrepareID.Get() != "" }, Then: func(*core.Scope) core.Node {
 			return ui.Spinner{Size: 14, Label: i18n.T("Installing ") + a.providerPrepareID.Get()}
-		}},
-		core.Show{When: func() bool { return a.providerManageErr.Get() != "" }, Then: func(*core.Scope) core.Node {
-			return ui.Text(a.providerManageErr.Get(), 11, ui.Regular, colors.Danger)
 		}},
 		a.providerAddPanel(cx),
 	}}

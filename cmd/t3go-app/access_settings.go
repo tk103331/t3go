@@ -380,11 +380,6 @@ func (a *app) relayConfigurationCard(cx *core.Scope) core.Node {
 			Style:     core.Style{FontSize: 10.5, LineHeight: 15},
 			StyleFunc: func() core.Style { return core.Style{Color: colors.Muted()} }})
 	}
-	if a.relayErr.Get() != "" {
-		body = append(body, core.Text{Content: a.relayErr.Get(), TestID: "settings-relay-error", MaxLines: 4,
-			Style:     core.Style{FontSize: 10.5},
-			StyleFunc: func() core.Style { return core.Style{Color: colors.Danger()} }})
-	}
 	if a.relayBusy.Get() {
 		body = append(body, ui.Spinner{Size: 14, Label: i18n.T("Connecting Relay")})
 	} else if signedIn {
@@ -491,7 +486,7 @@ func (a *app) settingsAccess(cx *core.Scope) core.Node {
 	}
 	link := a.accessLink.Get()
 	if a.accessErr.Get() != "" {
-		body = append(body, ui.Text(a.accessErr.Get(), 11.5, ui.Regular, colors.Danger), a.backgroundServerCard(cx))
+		body = append(body, a.backgroundServerCard(cx))
 		return core.View{Style: core.Style{Direction: core.Column, Gap: 10}, Children: body}
 	}
 	if warning := accessRouteWarning(link); warning != "" {

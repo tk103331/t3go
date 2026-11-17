@@ -2,8 +2,10 @@ package client
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -83,8 +85,28 @@ func TestClientActions(t *testing.T) {
 func TestClientUnauthorized(t *testing.T) {
 	good, _ := newTestClient(t)
 	c := New(good.BaseURL, "wrong-token")
-	if _, err := c.Projects(context.Background()); err != ErrUnauthorized {
+	if _, err := c.Projects(context.Background()); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestUnauthorizedKeepsServerReason(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"invalid_credentials","message":"invalid email or password"}}`))
+	}))
+	defer ts.Close()
+	c := New(ts.URL, "")
+	_, err := c.Projects(context.Background())
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("error = %v", err)
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %v, want an API error", err)
+	}
+	if apiErr.Code != "invalid_credentials" || apiErr.Status != http.StatusUnauthorized {
+		t.Fatalf("api error = %+v", apiErr)
 	}
 }
 

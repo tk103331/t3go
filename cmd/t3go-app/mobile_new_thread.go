@@ -70,12 +70,6 @@ func (a *app) mobileNewThread(cx *core.Scope) core.Node {
 			core.View{Style: core.Style{Padding: core.Edges{Left: 12, Right: 12, Bottom: 10}, Gap: 8, FlexShrink: 0},
 				Children: []core.Node{
 					core.Dynamic(func(cx *core.Scope) core.Node {
-						if target := a.newThreadTarget(); target != nil {
-							return ui.Text(target.connErr.Get(), 12, ui.Regular, colors.Danger)
-						}
-						return core.Group{}
-					}),
-					core.Dynamic(func(cx *core.Scope) core.Node {
 						target := a.newThreadTarget()
 						if target == nil {
 							return ui.Text(i18n.T("Select an available environment."), 14, ui.Regular, colors.Danger)
