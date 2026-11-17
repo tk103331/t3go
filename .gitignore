@@ -27,7 +27,7 @@ dist/
 /web/app/t3go-mark.svg
 /web/*.gz
 /web/app/*.gz
-/web/t3go-android-arm64.apk
+/web/*.apk
 
 # the environment server the client ships
 cmd/t3go-app/resources/t3go
