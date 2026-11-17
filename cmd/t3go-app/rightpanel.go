@@ -257,16 +257,19 @@ func (a *app) surfaceRow(cx *core.Scope, name, label string, icon func() *core.S
 		}}
 }
 
-// scrollWithBar puts a permanent bar over a scroll view.
-func (a *app) scrollWithBar(cx *core.Scope, ref *core.Ref, testID string, scroll core.Scroll) core.Node {
+// scrollWithBar puts a permanent bar over a scroll view. A bar inset from
+// the edge belongs to a viewer that draws its own background under it,
+// such as the code view, rather than to the panel around the viewer.
+func (a *app) scrollWithBar(cx *core.Scope, ref *core.Ref, testID string, inset core.Points, scroll core.Scroll) core.Node {
 	scroll.Ref = ref
 	scroll.HideIndicator = true
 	return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
 		scroll,
 		ui.Scrollbar{Scroll: func() *core.Ref { return ref },
 			Mode: func() base.ScrollbarMode { return base.ScrollbarAlways },
-			// The thumb keeps the width a horizontal bar's keeps its height.
-			Style: core.Style{Padding: core.Symmetric(2, 2)},
+			// The thumb keeps the width a horizontal bar's keeps its height,
+			// and an inset bar keeps clear of the panel's edge.
+			Style: core.Style{Padding: core.Symmetric(2, 2), Right: core.Pt(inset)},
 			Label: i18n.T("Scroll"), TestID: testID},
 	}}
 }
@@ -329,7 +332,9 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 		}
 		return core.View{Style: core.Style{Direction: core.Column, FlexGrow: 1, MinHeight: core.Pt(0), Padding: core.All(10)}, Children: []core.Node{
 			head,
-			a.scrollWithBar(cx, a.filesContentScroll, "files-scrollbar", core.Scroll{TestID: "file-content-scroll",
+			// The code view's bar sits inside its own surface, not in the
+			// panel's margin.
+			a.scrollWithBar(cx, a.filesContentScroll, "files-scrollbar", 6, core.Scroll{TestID: "file-content-scroll",
 				Style: core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), MinHeight: core.Pt(0)},
 				Children: []core.Node{core.View{Style: core.Style{FlexShrink: 0, Padding: core.Edges{Bottom: 12}},
 					Children: []core.Node{body}}}}),
@@ -392,7 +397,7 @@ func (a *app) rightFiles(cx *core.Scope) core.Node {
 		core.Show{When: func() bool { return a.rightBusy.Get() }, Then: func(*core.Scope) core.Node {
 			return ui.Spinner{Size: 14, Label: i18n.T("Loading files")}
 		}},
-		a.scrollWithBar(cx, a.filesListScroll, "files-list-scrollbar",
+		a.scrollWithBar(cx, a.filesListScroll, "files-list-scrollbar", 0,
 			core.Scroll{Style: ui.FillRest, Children: []core.Node{core.View{Style: core.Style{Gap: 1}, Children: rows}}}),
 	}}
 }
@@ -1073,7 +1078,7 @@ func (a *app) rightPreview(cx *core.Scope) core.Node {
 	}
 	return core.View{Style: core.Style{Direction: core.Column, Gap: 6, Padding: core.All(10), FlexGrow: 1,
 		FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{head,
-		a.scrollWithBar(cx, a.previewScroll, "preview-scrollbar", core.Scroll{TestID: "preview-scroll", Style: ui.FillRest,
+		a.scrollWithBar(cx, a.previewScroll, "preview-scrollbar", 0, core.Scroll{TestID: "preview-scroll", Style: ui.FillRest,
 			Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Column, Gap: 5}, Children: rows},
 			}}),

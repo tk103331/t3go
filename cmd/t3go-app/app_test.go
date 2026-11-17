@@ -3656,3 +3656,35 @@ func TestUIGitGraphScrollsAndOpensACommit(t *testing.T) {
 	app.Press("id:commit-back")
 	app.WaitFor("id:git-graph", 5*time.Second)
 }
+
+// TestUIFileCodeBarSitsInsideTheCodeSurface pins where the code view's
+// bar lies: over the code's own surface, so the viewer scrolls as one
+// piece, rather than in the panel's margin outside it.
+func TestUIFileCodeBarSitsInsideTheCodeSurface(t *testing.T) {
+	root := func(cx *core.Scope) core.Node {
+		a := newApp(cx)
+		a.selected.Set("thr_code_scroll")
+		a.fileSelected.Set("lib/login.dart")
+		a.file.Set(proto.WorkspaceFile{Path: "lib/login.dart", Size: 9000,
+			Content: strings.Repeat("    Widget build(BuildContext context) {\n        return _body;\n    }\n", 40)})
+		return core.View{Style: core.Style{Width: core.Pt(700), Height: core.Pt(600), Direction: core.Column},
+			Children: []core.Node{a.rightFiles(cx)}}
+	}
+	app := nsgotest.Start(t, root, nsgotest.Size(720, 620))
+	app.WaitFor("id:file-code", 5*time.Second)
+	app.Advance(200 * time.Millisecond)
+	scroll := app.Find("id:file-content-scroll")
+	if scroll.Content.Height <= scroll.Frame.Size.Height {
+		t.Fatalf("the code did not overflow: frame %v, content %v", scroll.Frame, scroll.Content)
+	}
+	bar := app.Find("id:files-scrollbar")
+	right := bar.Frame.Origin.X + bar.Frame.Size.Width
+	if right >= scroll.Frame.Size.Width || bar.Frame.Origin.X <= scroll.Frame.Size.Width/2 {
+		t.Fatalf("bar ends at %v of %v: it sits outside the code surface", right, scroll.Frame.Size.Width)
+	}
+	app.Drag("id:files-scrollbar", core.Point{}, core.Point{Y: 120})
+	app.Advance(100 * time.Millisecond)
+	if offset := app.Find("id:file-content-scroll").Offset.Y; offset <= 0 {
+		t.Fatalf("dragging the code bar left the code at %v", offset)
+	}
+}
