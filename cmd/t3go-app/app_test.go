@@ -1702,17 +1702,19 @@ func TestUIRightPanel(t *testing.T) {
 	app.Press("id:surface-files")
 	app.WaitFor("id:surface-tab-files", 5*time.Second)
 	app.WaitFor("id:file-src", 5*time.Second)
-	app.WaitFor("id:files-list-scrollbar", 5*time.Second)
+	app.WaitFor("id:files-list-scroll", 5*time.Second)
 	pressUntil("id:file-src", "id:file-src/app.go")
 	pressUntil("id:file-src/app.go", "text:package main")
 	app.WaitFor("id:file-code", 5*time.Second)
-	app.WaitFor("id:files-scrollbar", 5*time.Second)
-	contentFrame := app.Find("id:file-content-scroll").Frame
-	barFrame := app.Find("id:files-scrollbar").Frame
-	if barFrame.Origin.X < contentFrame.Origin.X || barFrame.Origin.Y < contentFrame.Origin.Y ||
-		barFrame.Origin.X+barFrame.Size.Width > contentFrame.Origin.X+contentFrame.Size.Width+1 ||
-		barFrame.Origin.Y+barFrame.Size.Height > contentFrame.Origin.Y+contentFrame.Size.Height+1 {
-		t.Fatalf("file scrollbar is outside the code viewport: bar %v, content %v", barFrame, contentFrame)
+	scroll := app.Find("id:file-content-scroll")
+	app.DragScroll("id:file-content-scroll", core.Point{Y: -60}, 0)
+	app.Advance(100 * time.Millisecond)
+	bar := findScrollBar(t, app.Find("id:file-content-scroll"))
+	if bar == nil {
+		t.Fatal("the code view did not draw its bar while scrolling")
+	}
+	if bar.Frame.Origin.X+bar.Frame.Size.Width > scroll.Frame.Size.Width+1 {
+		t.Fatalf("file scrollbar is outside the code viewport: bar %v, scroll %v", bar.Frame, scroll.Frame)
 	}
 	pressUntil("id:file-back", "id:file-src/app.go")
 	pressUntil("id:files-up", "id:file-README.md")
@@ -1799,7 +1801,6 @@ func TestUIRightPanel(t *testing.T) {
 	openPicker("surface-graph")
 	app.Press("id:surface-graph")
 	app.WaitFor("id:git-graph", 5*time.Second)
-	app.WaitFor("id:git-graph-scrollbar", 5*time.Second)
 	app.WaitUntil(5*time.Second, func() bool { return len(app.Query("text:initial")) > 0 })
 	openPicker("surface-pr")
 	app.Press("id:surface-pr")
@@ -3554,11 +3555,12 @@ func TestUIQueuedRowActions(t *testing.T) {
 	}
 }
 
-// TestUIPreviewScrollsWithAPermanentBar pins the preview list's bar: the
-// rows scroll inside the panel, and the bar sits over its edge as on the
-// other surfaces.
-func TestUIPreviewScrollsWithAPermanentBar(t *testing.T) {
+// TestUIPreviewScrollsWithTheAppsBar pins the preview list's bar: the rows
+// scroll inside the panel, and the scroll draws the app's bar over its own
+// edge.
+func TestUIPreviewScrollsWithTheAppsBar(t *testing.T) {
 	root := func(cx *core.Scope) core.Node {
+		installScrollbars(cx)
 		a := newApp(cx)
 		a.selected.Set("thr_preview_scroll")
 		var servers []proto.PreviewServer
@@ -3576,15 +3578,40 @@ func TestUIPreviewScrollsWithAPermanentBar(t *testing.T) {
 	if scroll.Content.Height <= scroll.Frame.Size.Height {
 		t.Fatalf("preview did not overflow: frame %v, content %v", scroll.Frame, scroll.Content)
 	}
-	bar := app.Find("id:preview-scrollbar")
-	if bar.Frame.Size.Width != 10 {
-		t.Fatalf("preview bar width = %v", bar.Frame.Size.Width)
+	if !scroll.Scroll.HideIndicator {
+		t.Fatal("the preview list draws the platform's indicator rather than the app's bar")
 	}
-	app.Drag("id:preview-scrollbar", core.Point{}, core.Point{Y: 120})
+	if bar := findScrollBar(t, scroll); bar == nil {
+		t.Fatal("the preview list drew no bar while it scrolled")
+	} else if thumb := bar.Frame.Size.Width - 4; thumb != 6 {
+		t.Fatalf("preview bar thumb = %v, want 6", thumb)
+	}
+	app.DragScroll("id:preview-scroll", core.Point{Y: -120}, 0)
 	app.Advance(100 * time.Millisecond)
-	if offset := app.Find("id:preview-scroll").Offset.Y; offset <= 0 {
-		t.Fatalf("dragging the preview bar left the list at %v", offset)
+	if offset := app.Find("id:preview-scroll").Offset.Y; offset == 0 {
+		t.Fatal("the preview list did not scroll")
 	}
+}
+
+// findScrollBar returns the bar a themed scroll draws over its edge, or
+// nil while it is hidden: a 10 point track against the scroll's right edge.
+func findScrollBar(t *testing.T, scroll *nsgotest.View) *nsgotest.View {
+	t.Helper()
+	var bar *nsgotest.View
+	var find func(v *nsgotest.View)
+	find = func(v *nsgotest.View) {
+		for _, child := range v.Children {
+			if child.Frame.Size.Width == 10 && child.Frame.Origin.X+child.Frame.Size.Width == v.Frame.Size.Width {
+				bar = child
+				return
+			}
+			if bar == nil {
+				find(child)
+			}
+		}
+	}
+	find(scroll)
+	return bar
 }
 
 // TestUIGitGraphScrollsAndOpensACommit pins the graph surface: its rows
@@ -3644,11 +3671,23 @@ func TestUIGitGraphScrollsAndOpensACommit(t *testing.T) {
 	})
 	app.Press("id:surface-graph")
 	app.WaitFor("id:git-graph", 10*time.Second)
-	bar := app.WaitFor("id:git-graph-scrollbar", 5*time.Second)
-	if bar.Frame.Size.Width != 10 {
-		t.Fatalf("graph bar width = %v", bar.Frame.Size.Width)
-	}
 	app.WaitUntil(10*time.Second, func() bool { return len(app.Query("text:entry 29")) > 0 })
+	// The rows scroll inside the panel rather than stretching it.
+	var list *nsgotest.View
+	var find func(v *nsgotest.View)
+	find = func(v *nsgotest.View) {
+		for _, child := range v.Children {
+			if child.Scroll.Horizontal == false && child.Content.Height > child.Frame.Size.Height {
+				list = child
+				return
+			}
+			find(child)
+		}
+	}
+	find(app.Find("id:git-graph"))
+	if list == nil {
+		t.Fatal("the graph's rows do not scroll")
+	}
 
 	app.PressAt("id:git-graph", core.Point{X: 80, Y: 12})
 	app.WaitFor("id:commit-subject", 10*time.Second)
@@ -3657,10 +3696,10 @@ func TestUIGitGraphScrollsAndOpensACommit(t *testing.T) {
 	app.WaitFor("id:git-graph", 5*time.Second)
 }
 
-// TestUIFileCodeBarSitsInsideTheCodeSurface pins where the code view's
-// bar lies: over the code's own surface, so the viewer scrolls as one
-// piece, rather than in the panel's margin outside it.
-func TestUIFileCodeBarSitsInsideTheCodeSurface(t *testing.T) {
+// TestUIFileCodeScrollUsesTheScrollsOwnBar pins the code viewer's bars:
+// its vertical one is drawn by the scroll itself, over the code surface,
+// as the code block's horizontal one is, so the two match.
+func TestUIFileCodeScrollUsesTheScrollsOwnBar(t *testing.T) {
 	root := func(cx *core.Scope) core.Node {
 		installScrollbars(cx)
 		a := newApp(cx)
@@ -3678,15 +3717,16 @@ func TestUIFileCodeBarSitsInsideTheCodeSurface(t *testing.T) {
 	if scroll.Content.Height <= scroll.Frame.Size.Height {
 		t.Fatalf("the code did not overflow: frame %v, content %v", scroll.Frame, scroll.Content)
 	}
-	bar := app.Find("id:files-scrollbar")
-	right := bar.Frame.Origin.X + bar.Frame.Size.Width
-	if right >= scroll.Frame.Size.Width || bar.Frame.Origin.X <= scroll.Frame.Size.Width/2 {
-		t.Fatalf("bar ends at %v of %v: it sits outside the code surface", right, scroll.Frame.Size.Width)
+	if !scroll.Scroll.HideIndicator {
+		t.Fatal("the code view draws the platform's indicator rather than the app's bar")
 	}
-	app.Drag("id:files-scrollbar", core.Point{}, core.Point{Y: 120})
+	app.DragScroll("id:file-content-scroll", core.Point{Y: -120}, 0)
 	app.Advance(100 * time.Millisecond)
-	if offset := app.Find("id:file-content-scroll").Offset.Y; offset <= 0 {
-		t.Fatalf("dragging the code bar left the code at %v", offset)
+	if offset := app.Find("id:file-content-scroll").Offset.Y; offset == 0 {
+		t.Fatal("the code view did not scroll")
+	}
+	if bar := findScrollBar(t, app.Find("id:file-content-scroll")); bar == nil {
+		t.Fatal("the code view drew no bar while it scrolled")
 	}
 	// The code's own horizontal scroll draws the app's bar too, so both axes
 	// of the viewer look alike.

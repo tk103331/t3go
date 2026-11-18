@@ -132,12 +132,9 @@ type app struct {
 	sideFor         *core.Signal[string]
 	sideAttachments *core.Signal[[]proto.Attachment]
 
-	// scroll handles for surfaces that draw their own bars
-	filesListScroll    *core.Ref
-	filesContentScroll *core.Ref
-	graphScroll        *core.Ref
-	commitScroll       *core.Ref
-	previewScroll      *core.Ref
+	// scroll handles for surfaces the app scrolls itself
+	graphScroll  *core.Ref
+	commitScroll *core.Ref
 
 	// the commit opened from the git graph
 	graphCommit *core.Signal[proto.GraphCommit]
@@ -442,39 +439,36 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		sideChat: core.NewSignalFunc(cx, proto.Thread{}, func(a, b proto.Thread) bool {
 			return a.ID == b.ID && a.Status == b.Status
 		}),
-		sideMessages:       sliceSignal[proto.Message](cx),
-		sideRunning:        core.NewSignal(cx, false),
-		sideDraft:          core.NewSignal(cx, ""),
-		sideBusy:           core.NewSignal(cx, false),
-		sideErr:            newActionError(cx, toasts),
-		sideFor:            core.NewSignal(cx, ""),
-		sideAttachments:    sliceSignal[proto.Attachment](cx),
-		filesListScroll:    &core.Ref{},
-		filesContentScroll: &core.Ref{},
-		graphScroll:        &core.Ref{},
-		commitScroll:       &core.Ref{},
-		previewScroll:      &core.Ref{},
-		terminalRef:        &core.Ref{},
-		searchHits:         sliceSignal[proto.MessageHit](cx),
-		searchBusy:         core.NewSignal(cx, false),
-		searchErr:          core.NewSignal(cx, ""),
-		editorChoice:       core.NewSignal(cx, "auto"),
-		usageReport:        core.NewSignalFunc(cx, proto.UsageReport{}, func(a, b proto.UsageReport) bool { return false }),
-		usageDays:          core.NewSignal(cx, 30),
-		usageBusy:          core.NewSignal(cx, false),
-		usageErr:           core.NewSignal(cx, ""),
-		previewServers:     sliceSignal[proto.PreviewServer](cx),
-		previewDetail:      core.NewSignal(cx, ""),
-		previewErr:         newActionError(cx, toasts),
-		previewBusy:        core.NewSignal(cx, false),
-		devices:            sliceSignal[proto.Device](cx),
-		deviceDetail:       core.NewSignal(cx, ""),
-		deviceSelected:     core.NewSignal(cx, ""),
-		deviceBusy:         core.NewSignal(cx, false),
-		deviceErr:          newActionError(cx, toasts),
-		deviceImage:        sliceSignal[byte](cx),
-		deviceLive:         core.NewSignal(cx, true),
-		showDevices:        core.NewSignal(cx, false),
+		sideMessages:    sliceSignal[proto.Message](cx),
+		sideRunning:     core.NewSignal(cx, false),
+		sideDraft:       core.NewSignal(cx, ""),
+		sideBusy:        core.NewSignal(cx, false),
+		sideErr:         newActionError(cx, toasts),
+		sideFor:         core.NewSignal(cx, ""),
+		sideAttachments: sliceSignal[proto.Attachment](cx),
+		graphScroll:     &core.Ref{},
+		commitScroll:    &core.Ref{},
+		terminalRef:     &core.Ref{},
+		searchHits:      sliceSignal[proto.MessageHit](cx),
+		searchBusy:      core.NewSignal(cx, false),
+		searchErr:       core.NewSignal(cx, ""),
+		editorChoice:    core.NewSignal(cx, "auto"),
+		usageReport:     core.NewSignalFunc(cx, proto.UsageReport{}, func(a, b proto.UsageReport) bool { return false }),
+		usageDays:       core.NewSignal(cx, 30),
+		usageBusy:       core.NewSignal(cx, false),
+		usageErr:        core.NewSignal(cx, ""),
+		previewServers:  sliceSignal[proto.PreviewServer](cx),
+		previewDetail:   core.NewSignal(cx, ""),
+		previewErr:      newActionError(cx, toasts),
+		previewBusy:     core.NewSignal(cx, false),
+		devices:         sliceSignal[proto.Device](cx),
+		deviceDetail:    core.NewSignal(cx, ""),
+		deviceSelected:  core.NewSignal(cx, ""),
+		deviceBusy:      core.NewSignal(cx, false),
+		deviceErr:       newActionError(cx, toasts),
+		deviceImage:     sliceSignal[byte](cx),
+		deviceLive:      core.NewSignal(cx, true),
+		showDevices:     core.NewSignal(cx, false),
 
 		selected:         core.NewSignal(cx, ""),
 		detail:           core.NewSignalFunc(cx, proto.ThreadDetail{}, func(proto.ThreadDetail, proto.ThreadDetail) bool { return false }),
