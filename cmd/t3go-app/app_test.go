@@ -3662,6 +3662,7 @@ func TestUIGitGraphScrollsAndOpensACommit(t *testing.T) {
 // piece, rather than in the panel's margin outside it.
 func TestUIFileCodeBarSitsInsideTheCodeSurface(t *testing.T) {
 	root := func(cx *core.Scope) core.Node {
+		installScrollbars(cx)
 		a := newApp(cx)
 		a.selected.Set("thr_code_scroll")
 		a.fileSelected.Set("lib/login.dart")
@@ -3686,5 +3687,46 @@ func TestUIFileCodeBarSitsInsideTheCodeSurface(t *testing.T) {
 	app.Advance(100 * time.Millisecond)
 	if offset := app.Find("id:file-content-scroll").Offset.Y; offset <= 0 {
 		t.Fatalf("dragging the code bar left the code at %v", offset)
+	}
+	// The code's own horizontal scroll draws the app's bar too, so both axes
+	// of the viewer look alike.
+	var horizontal *nsgotest.View
+	var find func(v *nsgotest.View)
+	find = func(v *nsgotest.View) {
+		for _, child := range v.Children {
+			if child.Scroll.Horizontal {
+				horizontal = child
+				return
+			}
+			find(child)
+		}
+	}
+	find(scroll)
+	if horizontal == nil {
+		t.Fatal("the code block has no horizontal scroll")
+	}
+	if !horizontal.Scroll.HideIndicator {
+		t.Fatal("the code block's horizontal bar still draws the platform's indicator")
+	}
+}
+
+// TestUIScrollbarsMatchTheAppsOwnBars pins that a scroll view draws its
+// indicator with the app's bar instead of the platform's: a code block's
+// horizontal bar then matches the vertical bar beside it.
+func TestUIScrollbarsMatchTheAppsOwnBars(t *testing.T) {
+	root := func(cx *core.Scope) core.Node {
+		installScrollbars(cx)
+		return core.Scroll{TestID: "probe-scroll", Horizontal: true,
+			Style: core.Style{Width: core.Pt(220), Height: core.Pt(100)},
+			Children: []core.Node{
+				core.View{Style: core.Style{Width: core.Pt(900), Height: core.Pt(100)}},
+			}}
+	}
+	app := nsgotest.Start(t, root, nsgotest.Size(320, 200))
+	app.WaitFor("id:probe-scroll", 5*time.Second)
+	app.Advance(150 * time.Millisecond)
+	scroll := app.Find("id:probe-scroll")
+	if !scroll.Scroll.HideIndicator {
+		t.Fatal("the platform's indicator still draws instead of the app's bar")
 	}
 }

@@ -22,11 +22,25 @@ func main() {
 }
 
 // Root keeps every saved environment connected while rendering one conversation.
+// installScrollbars draws every scroll view's indicator with the app's
+// own bar, so a bar inside a viewer, such as a code block's horizontal
+// one, looks like the bars the app puts over its surfaces.
+func installScrollbars(cx *core.Scope) {
+	theme := ui.ScrollbarTheme(cx)
+	if theme.Vertical != nil {
+		// The app's own bars keep a 6 point thumb on both axes; the theme's
+		// default vertical thumb is narrower than its horizontal one.
+		theme.Vertical.Style.Padding = core.Symmetric(2, 2)
+	}
+	base.SetScrollbarTheme(cx, theme)
+}
+
 func Root(cx *core.Scope) core.Node {
 	// NSGo's theme carries the role colors the ui reads (accent fills,
 	// insets, faint text). Set it before the environments answer, so the
 	// first frame is not painted without them.
 	cx.SetTheme(ui.DefaultTheme())
+	installScrollbars(cx)
 	// The language is a client choice, so it is loaded before the first
 	// frame is drawn.
 	initClientLanguage(cx, cx.Storage())
