@@ -1,12 +1,15 @@
 package main
 
 import (
+	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
 	"github.com/oneo-me/nsgo/ui"
+	"github.com/tk/t3go/internal/client"
 	"github.com/tk/t3go/internal/i18n"
 )
 
@@ -113,16 +116,48 @@ func (m *environmentManager) relayAccountPanel(cx *core.Scope) core.Node {
 	return core.View{Style: core.Style{Gap: 10}, Children: body}
 }
 
+// relayEnvironmentDetail is what tells two discoveries apart: where the
+// machine answers, or, for a relay-only registration, its short id.
+func relayEnvironmentDetail(environment client.RelayEnvironment) string {
+	for _, raw := range environment.DirectURLs {
+		u, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil || u.Host == "" {
+			continue
+		}
+		return u.Host
+	}
+	return shortID(environment.EnvironmentID)
+}
+
 func (m *environmentManager) signedInRelayAccount(cx *core.Scope, colors ui.Colors) core.Node {
 	session := m.accountSession.Get()
 	environments := m.accountEnvs.Get()
+	// The environment that answers now comes first: the stale registrations
+	// a machine left behind when its data was reset sink below it.
+	ordered := append([]client.RelayEnvironment(nil), environments...)
+	slices.SortStableFunc(ordered, func(a, b client.RelayEnvironment) int {
+		if a.Online != b.Online {
+			if a.Online {
+				return -1
+			}
+			return 1
+		}
+		if a.Name != b.Name {
+			return strings.Compare(a.Name, b.Name)
+		}
+		return strings.Compare(a.EnvironmentID, b.EnvironmentID)
+	})
 	var rows []core.Node
-	for _, environment := range environments {
+	for _, environment := range ordered {
 		environment := environment
-		status := "Offline"
+		status := i18n.T("Offline")
 		statusColor := colors.Faint()
 		if environment.Online {
-			status, statusColor = "Online", colors.Up()
+			status, statusColor = i18n.T("Online"), colors.Up()
+		}
+		detail := status + " · " + relayEnvironmentDetail(environment)
+		if environment.EnvironmentID == m.localID {
+			detail += " · " + i18n.T("This machine")
 		}
 		rows = append(rows, core.View{TestID: "relay-account-environment-" + environment.EnvironmentID,
 			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 10,
@@ -134,7 +169,8 @@ func (m *environmentManager) signedInRelayAccount(cx *core.Scope, colors ui.Colo
 						core.Text{Content: environment.Name, MaxLines: 1,
 							Style:     core.Style{FontSize: 13, FontWeight: ui.Semibold},
 							StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
-						core.Text{Content: status, Style: core.Style{FontSize: 10.5},
+						core.Text{Content: detail, TestID: "relay-account-environment-detail-" + environment.EnvironmentID,
+							MaxLines: 1, Style: core.Style{FontSize: 10.5},
 							StyleFunc: func() core.Style { return core.Style{Color: statusColor} }},
 					}},
 				ui.Button{Text: i18n.T("Open"), Variant: ui.ButtonSecondary, Size: controlSize(cx),
@@ -143,6 +179,10 @@ func (m *environmentManager) signedInRelayAccount(cx *core.Scope, colors ui.Colo
 						m.activate(environment.EnvironmentID)
 						m.accountOpen.Set(false)
 					}},
+				ui.IconButton{Icon: lucide.Trash, Label: i18n.T("Remove environment"), Variant: ui.IconButtonGhost,
+					Size: iconButtonSize(cx), TestID: "relay-account-remove-environment-" + environment.EnvironmentID,
+					Disabled: m.accountBusy.Get,
+					OnPress:  func() { m.accountRemove.Set(environment.EnvironmentID) }},
 			}})
 	}
 	if len(rows) == 0 {
@@ -177,5 +217,28 @@ func (m *environmentManager) signedInRelayAccount(cx *core.Scope, colors ui.Colo
 		ui.Text(i18n.T("Discovered environments"), 12, ui.Semibold, colors.Muted),
 		core.View{Style: core.Style{Gap: 6}, Children: rows},
 		ui.Text(i18n.T("Account access is signed by Relay for each request. The account token is not the environment token used by LAN pairing."), 10.5, ui.Regular, colors.Faint),
+		m.removeRelayEnvironmentDialog(cx),
 	}}
+}
+
+// removeRelayEnvironmentDialog confirms forgetting one discovered
+// environment, so a list of stale registrations can be cleared.
+func (m *environmentManager) removeRelayEnvironmentDialog(cx *core.Scope) core.Node {
+	colors := ui.ColorsOf(cx)
+	id := m.accountRemove.Get()
+	return ui.AlertDialog{Open: func() bool { return id != "" }, OnOpenChange: func(open bool, _ base.Reason) {
+		if !open {
+			m.accountRemove.Set("")
+		}
+	}, Title: i18n.T("Remove this environment?"), TestID: "relay-account-remove-dialog",
+		Description: i18n.T("The account will no longer find this computer over Relay until it registers again. Its projects, threads and this device's direct access stay as they are."),
+		Actions: []ui.AlertAction{
+			{Text: i18n.T("Cancel"), Variant: ui.ButtonGhost, TestID: "relay-account-remove-cancel",
+				OnPress: func() { m.accountRemove.Set("") }},
+			{Text: i18n.T("Remove"), Variant: ui.ButtonPrimary, Color: func() core.Color { return colors.Danger() },
+				TestID: "relay-account-remove-confirm", OnPress: func() {
+					m.accountRemove.Set("")
+					m.removeRelayEnvironment(id)
+				}},
+		}}
 }

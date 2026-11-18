@@ -145,7 +145,10 @@ type environmentManager struct {
 	lan   *core.Signal[bool]
 	local *localServer
 
-	accountOpen      *core.Signal[bool]
+	accountOpen *core.Signal[bool]
+	// accountRemove is the discovered environment the account is about to
+	// forget, empty when no confirmation is open.
+	accountRemove    *core.Signal[string]
 	accountBusy      *core.Signal[bool]
 	accountErr       *core.Signal[string]
 	accountSession   *core.Signal[proto.RelayUserSession]
@@ -170,6 +173,7 @@ func newEnvironmentManager(cx *core.Scope) *environmentManager {
 		background:    core.NewSignal(cx, loadBackgroundServer(cx.Storage())),
 		lan:           core.NewSignal(cx, loadLANAccess(cx.Storage())),
 		accountOpen:   core.NewSignal(cx, false),
+		accountRemove: core.NewSignal(cx, ""),
 		accountBusy:   core.NewSignal(cx, false),
 		accountErr:    core.NewSignal(cx, ""),
 		accountSession: core.NewSignalFunc(cx, account.Session,

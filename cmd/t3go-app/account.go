@@ -291,6 +291,53 @@ func (m *environmentManager) removeAccountProfiles(server string) {
 	}
 }
 
+// removeRelayEnvironment takes one discovered environment out of the
+// account's list, so registrations this machine no longer answers on stop
+// looking like duplicates of the one that does.
+func (m *environmentManager) removeRelayEnvironment(id string) {
+	if id == "" || !m.accountSessionValid() {
+		return
+	}
+	server := relayAccountServer(m.accountServer.GetUntracked())
+	token := m.accountSession.GetUntracked().Token
+	allowHTTP := m.accountAllowHTTP.GetUntracked()
+	m.accountBusy.Set(true)
+	m.accountErr.Set("")
+	go func() {
+		ctx, cancel := context.WithTimeout(m.cx.Context(), 30*time.Second)
+		defer cancel()
+		err := client.RelayAccountRemoveEnvironment(ctx, server, token, allowHTTP, id)
+		m.cx.Post(func() {
+			m.accountBusy.Set(false)
+			if err != nil {
+				m.accountErr.Set(friendlyError(err))
+				return
+			}
+			remaining := make([]client.RelayEnvironment, 0, len(m.accountEnvs.GetUntracked()))
+			for _, environment := range m.accountEnvs.GetUntracked() {
+				if environment.EnvironmentID != id {
+					remaining = append(remaining, environment)
+				}
+			}
+			m.accountEnvs.Set(remaining)
+			m.forgetAccountEnvironment(server, id)
+		})
+	}()
+}
+
+// forgetAccountEnvironment drops the profile the account created for an
+// environment it no longer lists. A profile with its own route to this
+// machine keeps it: that is a pairing, not a discovery.
+func (m *environmentManager) forgetAccountEnvironment(server, id string) {
+	server = strings.TrimRight(strings.TrimSpace(server), "/")
+	for _, profile := range m.profiles.GetUntracked() {
+		if profile.ID == id && profile.AccountServer != "" && profile.AccountServer == server {
+			m.forget(id)
+			return
+		}
+	}
+}
+
 func (m *environmentManager) signOutRelayAccount() {
 	session := m.accountSession.GetUntracked()
 	server := relayAccountServer(m.accountServer.GetUntracked())

@@ -76,6 +76,18 @@ func RelayAccountEnvironments(ctx context.Context, server, token string,
 	return out.Environments, err
 }
 
+// RelayAccountRemoveEnvironment takes one environment out of the account's
+// list, so a registration this machine no longer answers on stops showing.
+func RelayAccountRemoveEnvironment(ctx context.Context, server, token string,
+	allowHTTP bool, environmentID string) error {
+	c, err := relayAccountClient(server, allowHTTP)
+	if err != nil {
+		return err
+	}
+	c.Token = strings.TrimSpace(token)
+	return c.do(ctx, http.MethodDelete, "/api/v1/relay/environments/"+url.PathEscape(environmentID), nil, nil)
+}
+
 // LogoutRelayAccount revokes the current account session.
 func LogoutRelayAccount(ctx context.Context, server, token string, allowHTTP bool) error {
 	c, err := relayAccountClient(server, allowHTTP)

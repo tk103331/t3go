@@ -51,8 +51,10 @@ func registerRelayAccountForUI(t *testing.T, hubURL, email string) proto.RelayUs
 	return session
 }
 
-func registerRelayOwnedEnvironment(t *testing.T, srv *server.Server, environmentURL,
-	hubURL, token string) relay.Registered {
+// registerRelayEnvironment registers a running environment with the hub and
+// writes its credentials, without opening the tunnel: the environment then
+// shows as an offline discovery.
+func registerRelayEnvironment(t *testing.T, srv *server.Server, hubURL, token string) relay.Registered {
 	t.Helper()
 	registration := relay.Registration{
 		ID: srv.Identity.ID, PublicKey: srv.Identity.PublicKey(), Name: "Owner desktop",
@@ -99,6 +101,15 @@ func registerRelayOwnedEnvironment(t *testing.T, srv *server.Server, environment
 	if err := os.WriteFile(filepath.Join(srv.Config.Home, "relay.json"), credentials, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	return registered
+}
+
+func registerRelayOwnedEnvironment(t *testing.T, srv *server.Server, environmentURL,
+	hubURL, token string) relay.Registered {
+	t.Helper()
+	registered := registerRelayEnvironment(t, srv, hubURL, token)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	connectorCtx, cancelConnector := context.WithCancel(context.Background())
 	t.Cleanup(cancelConnector)
 	connector := relay.Connector{
@@ -110,15 +121,18 @@ func registerRelayOwnedEnvironment(t *testing.T, srv *server.Server, environment
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		environments, err := client.RelayAccountEnvironments(ctx, hubURL, token, true)
-		if err == nil && len(environments) == 1 && environments[0].Online {
-			break
+		if err == nil {
+			for _, environment := range environments {
+				if environment.EnvironmentID == srv.Identity.ID && environment.Online {
+					return registered
+				}
+			}
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("Relay environment did not come online: %#v, %v", environments, err)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	return registered
 }
 
 func storedRelayAccount(t *testing.T, app *nsgotest.App) savedRelayAccount {
@@ -317,5 +331,56 @@ func TestRelayAccountDiscoveryPreservesPairedLANAccess(t *testing.T) {
 		got[0].Routes[0].URL != "http://192.168.1.20:4870" ||
 		got[0].Routes[1].Kind != "relay" {
 		t.Fatalf("LAN profile was replaced by account discovery: %#v", got)
+	}
+}
+
+// TestUIAccountShowsDiscoveriesApartAndRemovesStaleOnes pins the account's
+// environment list: registrations a machine left behind read apart from the
+// one that answers, and a stale one can be removed from the account.
+func TestUIAccountShowsDiscoveriesApartAndRemovesStaleOnes(t *testing.T) {
+	live, liveEnvironment, _ := startEnv(t)
+	stale, _, _ := startEnv(t)
+	hub := startRelayAccountHub(t)
+	account := registerRelayAccountForUI(t, hub.URL, "stale-owner@example.com")
+	registerRelayEnvironment(t, stale, hub.URL, account.Token)
+	registerRelayOwnedEnvironment(t, live, liveEnvironment.URL, hub.URL, account.Token)
+
+	accountRaw, err := json.Marshal(savedRelayAccount{Version: 1, Server: hub.URL, AllowHTTP: true, Session: account})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := nsgotest.Start(t, Root, nsgotest.Size(1100, 760), nsgotest.Storage(map[string]string{
+		relayAccountStorageKey: string(accountRaw),
+	}))
+	app.WaitFor("id:relay-account-open", 15*time.Second)
+	app.Press("id:relay-account-open")
+	app.WaitFor("id:relay-account-dialog", 5*time.Second)
+	app.WaitFor("id:relay-account-environment-"+live.Identity.ID, 20*time.Second)
+	app.WaitFor("id:relay-account-environment-"+stale.Identity.ID, 5*time.Second)
+
+	liveDetail := app.Find("id:relay-account-environment-detail-" + live.Identity.ID).Text
+	staleDetail := app.Find("id:relay-account-environment-detail-" + stale.Identity.ID).Text
+	if !strings.Contains(liveDetail, "Online") || !strings.Contains(staleDetail, "Offline") {
+		t.Fatalf("details = %q, %q", liveDetail, staleDetail)
+	}
+	if liveDetail == staleDetail {
+		t.Fatalf("two discoveries read the same: %q", liveDetail)
+	}
+	liveRow := mobileScreenFrame(app.Find("id:relay-account-environment-" + live.Identity.ID))
+	staleRow := mobileScreenFrame(app.Find("id:relay-account-environment-" + stale.Identity.ID))
+	if liveRow.Origin.Y >= staleRow.Origin.Y {
+		t.Fatalf("the offline discovery %v is not below the online one %v", staleRow, liveRow)
+	}
+
+	app.Press("id:relay-account-remove-environment-" + stale.Identity.ID)
+	app.WaitFor("id:relay-account-remove-dialog", 5*time.Second)
+	app.Press("id:relay-account-remove-confirm")
+	app.WaitForGone("id:relay-account-environment-"+stale.Identity.ID, 10*time.Second)
+	app.WaitUntil(10*time.Second, func() bool {
+		environments, err := client.RelayAccountEnvironments(context.Background(), hub.URL, account.Token, true)
+		return err == nil && len(environments) == 1 && environments[0].EnvironmentID == live.Identity.ID
+	})
+	if !app.Exists("id:relay-account-environment-" + live.Identity.ID) {
+		t.Fatal("removing the stale discovery removed the live one")
 	}
 }
