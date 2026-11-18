@@ -550,3 +550,43 @@ func TestUIMobileVisibleModelAndSettingsNavigation(t *testing.T) {
 		t.Fatal("conversation Settings still duplicates Usage")
 	}
 }
+
+// TestUIMobileNewThreadLayout pins the phone's new-thread page: the
+// environment sits with the composer it sends to, and the project, its
+// checkout, the branch and the note stack as full rows instead of wrapping
+// tight under the composer.
+func TestUIMobileNewThreadLayout(t *testing.T) {
+	fixture := newSettingsFixture(t, "Alpha")
+	gitProject, err := fixture.server.Service.CreateProject(context.Background(), "Git project", gitRepo(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mobileTestEnvironment(core.OSAndroid)
+	app, _ := startMobilePagesWithEnvironment(t, env, fixture)
+	app.Press("id:new-thread")
+	app.WaitFor("id:new-thread-page", 5*time.Second)
+	app.Press("id:new-thread-project-menu")
+	app.WaitFor("id:new-thread-project-choice-"+gitProject.ID, 5*time.Second)
+	app.Press("id:new-thread-project-choice-" + gitProject.ID)
+	app.WaitFor("id:toggle-worktree", 5*time.Second)
+	app.WaitFor("id:new-thread-branch", 5*time.Second)
+	app.Settle()
+
+	envRow := mobileScreenFrame(app.Find("id:new-thread-environment-row"))
+	card := mobileScreenFrame(app.Find("id:new-thread-composer"))
+	project := mobileScreenFrame(app.Find("id:new-thread-project-menu"))
+	worktree := mobileScreenFrame(app.Find("id:toggle-worktree"))
+	branch := mobileScreenFrame(app.Find("id:new-thread-branch"))
+	if envRow.Origin.Y+envRow.Size.Height > card.Origin.Y || card.Origin.Y-envRow.Origin.Y-envRow.Size.Height > 16 {
+		t.Fatalf("environment row %v does not sit above the composer %v", envRow, card)
+	}
+	if project.Origin.Y != worktree.Origin.Y || project.Size.Width != worktree.Size.Width {
+		t.Fatalf("project %v and checkout %v do not share a row evenly", project, worktree)
+	}
+	if branch.Origin.Y <= project.Origin.Y+project.Size.Height || branch.Size.Width < project.Size.Width+worktree.Size.Width {
+		t.Fatalf("branch %v does not take the row under %v and %v", branch, project, worktree)
+	}
+	if rows := app.Query("label:Environment: Alpha"); len(rows) != 1 {
+		t.Fatalf("the environment is named %d times in its row", len(rows))
+	}
+}

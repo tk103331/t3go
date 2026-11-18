@@ -65,10 +65,13 @@ func (a *app) mobileNewThread(cx *core.Scope) core.Node {
 						return core.Text{Content: i18n.T("What should we build\nin ") + project + "?", Style: core.Style{FontSize: 26,
 							FontWeight: ui.Semibold, TextAlign: core.TextAlignCenter},
 							StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }}
-					}), core.Dynamic(a.mobileNewThreadEnvironment)}},
+					})}},
 			}},
 			core.View{Style: core.Style{Padding: core.Edges{Left: 12, Right: 12, Bottom: 10}, Gap: 8, FlexShrink: 0},
 				Children: []core.Node{
+					// The environment sits with the message it sends, not adrift
+					// under the heading.
+					core.Dynamic(a.mobileNewThreadEnvironment),
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						target := a.newThreadTarget()
 						if target == nil {
@@ -97,7 +100,7 @@ func (a *app) mobileNewThread(cx *core.Scope) core.Node {
 					}),
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						if target := a.newThreadTarget(); target != nil {
-							return target.desktopNewThreadContext(cx)
+							return target.mobileNewThreadContext(cx)
 						}
 						return core.Group{}
 					}),
@@ -112,24 +115,20 @@ func (a *app) mobileNewThreadEnvironment(cx *core.Scope) core.Node {
 	if target != nil {
 		name = target.envName()
 	}
-	var children []core.Node
-	if target != nil {
-		children = append(children, core.Text{Content: target.envName(), Style: core.Style{FontSize: 12},
-			StyleFunc: func() core.Style { return core.Style{Color: ui.ColorsOf(cx).Muted()} }})
-	}
 	var items []core.Node
 	for _, session := range a.mobileSessions("") {
 		session := session
 		items = append(items, ui.MenuItem{Text: session.envName(), TestID: "new-thread-environment-" + session.profile.ID,
 			OnSelect: func() { a.selectThreadEnvironment(session.profile.ID) }})
 	}
-	children = append(children, ui.Menu{TestID: "new-thread-environment",
-		Trigger: ui.Button{Text: i18n.T("on ") + name, Icon: lucide.Laptop, Flex: 1,
-			Size: controlSize(cx), Variant: ui.ButtonGhost, Label: i18n.T("Environment: ") + name},
-		Face: mobileMenuFace(cx, i18n.T("on ")+name, lucide.Laptop), Children: items, MaxHeight: 360})
-	return core.View{Style: core.Style{Width: core.Pct(100), MinWidth: core.Pt(0), Direction: core.Row,
-		AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 6},
-		Children: children}
+	return core.View{TestID: "new-thread-environment-row", Style: core.Style{Width: core.Pct(100), MinWidth: core.Pt(0),
+		Direction: core.Row, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 6},
+		Children: []core.Node{
+			ui.Menu{TestID: "new-thread-environment", MaxHeight: 360,
+				Trigger: ui.Button{Text: i18n.T("on ") + name, Icon: lucide.Laptop, Flex: 1,
+					Size: controlSize(cx), Variant: ui.ButtonGhost, Label: i18n.T("Environment: ") + name},
+				Face: mobileMenuFace(cx, i18n.T("on ")+name, lucide.Laptop), Children: items},
+		}}
 }
 
 func (a *app) createMobileThread(send bool) {
