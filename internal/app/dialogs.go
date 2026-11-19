@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/editor"
 
 	"github.com/tk/t3go/internal/app/icons/lucide"
 	"github.com/tk/t3go/internal/i18n"
@@ -347,10 +346,17 @@ func diffDialog(c *ui.Context, s *Session) {
 				text(c, i18n.T("Changes"), 16, t.Text, 600)
 				ui.Spacer(c)
 				if s.diffDiscard != "" {
-					ui.Button(c, i18n.T("Discard")).Children(func() {
-						ui.Icon(c, lucide.Undo()).FontSize(15)
-						ui.Text(c, i18n.T("Discard"))
-					}).OnClick(func() { s.discardWorkingFiles() })
+					path := s.diffDiscard
+					ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
+						faint(c, i18n.T("Discard changes to ")+path+"?", 11.5)
+						ui.Button(c, i18n.T("Discard")).Children(func() {
+							ui.Icon(c, lucide.Undo()).FontSize(15)
+							ui.Text(c, i18n.T("Discard"))
+						}).OnClick(func() {
+							s.diffDiscard = ""
+							s.stagePath(path, false)
+						})
+					})
 				}
 				if ui.Button(c, "").Label(i18n.T("Close diff")).Children(func() {
 					ui.Icon(c, lucide.X()).FontSize(15)
@@ -374,46 +380,11 @@ func diffDialog(c *ui.Context, s *Session) {
 // diffViewer draws the diff text the dialog holds, or the message that
 // there is nothing to show.
 func (s *Session) diffViewer(c *ui.Context) {
-	t := c.Theme()
 	text := s.diffText
 	if text == "" {
 		text = s.workingDiff
 	}
-	if strings.TrimSpace(text) == "" {
-		faint(c, i18n.T("No changes."), 12)
-		return
-	}
-	files, err := editor.ParsePatch(text)
-	if err != nil || len(files) == 0 {
-		// Not a patch, or one without files: show it as text.
-		ui.Scroll(c).Fill().Children(func() {
-			ui.Column(c).Padding(10).Children(func() {
-				ui.Text(c, text).FontSize(11.5).LineHeight(16).Font("monospace").
-					TextColor(t.Text).Selectable()
-			})
-		})
-		return
-	}
-	diff := &editor.DiffState{}
-	diff.SetPatch(files[0])
-	// One file at a time for now: a chooser lands with the files surface.
-	if len(files) > 1 {
-		names := make([]string, 0, len(files))
-		for _, f := range files {
-			names = append(names, f.NewName)
-		}
-		ui.Row(c).Gap(6).Wrap().Children(func() {
-			for i, name := range names {
-				i, name := i, name
-				ui.Button(c, name).OnClick(func() {
-					s.diffFileIndex = i
-				})
-			}
-		})
-		diff = &editor.DiffState{}
-		diff.SetPatch(files[min(s.diffFileIndex, len(files)-1)])
-	}
-	editor.DiffView(c, diff).Grow(1).FillWidth()
+	s.diffPatchViewer(c, text)
 }
 
 // editMessageDialog changes a message the reader sent.

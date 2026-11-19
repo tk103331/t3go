@@ -305,7 +305,7 @@ type Session struct {
 	terminals       []proto.TerminalSession
 	terminalBusy    bool
 	terminalErr     string
-	terminalBridge  *terminalBridge
+	terminalHub     *terminalHub
 
 	// draftSave etc. keep values the view asks for between frames.
 	lastThreadProject string
@@ -388,7 +388,7 @@ func newSession(win *mygo.Window, shared appStorage, manager *Manager, profile c
 		providerTextDraft: map[string]string{},
 		providerAddMode:   "registry",
 		settings:          proto.DefaultSettings(),
-		terminalBridge:    newTerminalBridge(),
+		terminalHub:       newTerminalHub(),
 	}
 	if manager != nil {
 		s.appearance = manager.appearance

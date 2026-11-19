@@ -50,7 +50,7 @@ func (s *Session) selectThread(id string) {
 	}
 	s.selected = id
 	if switching {
-		s.terminalBridge.close()
+		s.terminalHub.close()
 		s.mobileSurface = ""
 		s.attachments = append([]proto.Attachment(nil), s.attachmentDrafts[id]...)
 		s.fileIndex = nil
@@ -1332,7 +1332,7 @@ func (s *Session) goBrowser(raw string) {
 // opened.
 func (s *Session) openSurface(name string) {
 	if s.surface == "terminal" && name != "terminal" {
-		s.terminalBridge.close()
+		s.terminalHub.close()
 	}
 	if name == "" {
 		// The picker: the surfaces this thread offers. The reader picks
@@ -1380,7 +1380,7 @@ func (s *Session) closeSurface(name string) {
 		return
 	}
 	if name == "terminal" {
-		s.terminalBridge.close()
+		s.terminalHub.close()
 	}
 	next := make([]string, 0, len(s.tabs))
 	for _, tab := range s.tabs {
@@ -1400,7 +1400,7 @@ func (s *Session) closeSurface(name string) {
 
 func (s *Session) closeMobileSurface() {
 	if s.surface == "terminal" {
-		s.terminalBridge.close()
+		s.terminalHub.close()
 	}
 	s.mobileSurface = ""
 }
