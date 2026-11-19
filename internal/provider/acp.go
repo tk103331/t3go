@@ -28,7 +28,7 @@ func (a *ACP) Name() string {
 
 func (a *ACP) baseSnapshot(enabled bool) proto.Provider {
 	return proto.Provider{ID: a.ID(), Name: a.Name(), Source: "acp", ConfigID: a.Settings.ID,
-		Enabled: enabled, AuthStatus: "unknown"}
+		Enabled: enabled, AuthStatus: "unknown", Icon: ACPAgentIcon(a.Home, a.Settings.AgentID)}
 }
 
 func (a *ACP) Snapshot(ctx context.Context) proto.Provider {

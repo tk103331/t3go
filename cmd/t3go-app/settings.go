@@ -176,7 +176,7 @@ func (a *app) settingsProviders(cx *core.Scope, owner *app) core.Node {
 			core.View{Style: headingStyle, Children: []core.Node{
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, MinWidth: core.Pt(0),
 					FlexShrink: 1, Gap: 6}, Children: []core.Node{
-					ui.Icon(providerIcon(provider.ID), 16, colors.Muted),
+					ui.Icon(a.providerMark(provider.ID), 16, colors.Muted),
 					core.Text{Content: provider.Name, MaxLines: 1,
 						Style:     core.Style{FontSize: 12.5, FontWeight: ui.Semibold, FlexShrink: 1, MinWidth: core.Pt(0)},
 						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
@@ -304,7 +304,7 @@ func (a *app) settingsUsage(cx *core.Scope) core.Node {
 		providers = append(providers, core.View{TestID: "usage-provider-" + provider.Provider,
 			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8, Padding: core.Symmetric(5, 6),
 				Background: colors.Inset(), CornerRadius: 6}, Children: []core.Node{
-				ui.Icon(providerIcon(provider.Provider), 14, colors.Muted),
+				ui.Icon(a.providerMark(provider.Provider), 14, colors.Muted),
 				core.Text{Content: provider.Provider, MaxLines: 1, Style: core.Style{FontSize: 11.5, FontWeight: ui.Medium, FlexGrow: 1},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
 				core.Text{Content: i18n.T("%d runs", provider.Runs), Style: core.Style{FontSize: 10.5},

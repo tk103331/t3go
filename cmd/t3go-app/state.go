@@ -37,12 +37,14 @@ func settingsEqual(a, b proto.Settings) bool {
 // app is the desktop client's state: the connection, the environment's
 // snapshot and the selected thread's transcript.
 type app struct {
-	cx                   *core.Scope
-	lifetime             context.Context
-	store                appStorage
-	manager              *environmentManager
-	profile              client.EnvironmentProfile
-	toasts               *ui.Toaster
+	cx       *core.Scope
+	lifetime context.Context
+	store    appStorage
+	manager  *environmentManager
+	profile  client.EnvironmentProfile
+	toasts   *ui.Toaster
+	// providerMarks keeps the agent marks the app fetched and cached.
+	providerMarks        *providerMarks
 	showEnvironments     *core.Signal[bool]
 	forgetEnvironment    *core.Signal[string]
 	renameEnvironment    *core.Signal[string]
@@ -107,6 +109,7 @@ type app struct {
 	// paired devices, each with its own revocable token
 	deviceGrants     *core.Signal[[]proto.DeviceGrant]
 	deviceGrantsBusy *core.Signal[bool]
+	devicePairBusy   *core.Signal[bool]
 	deviceGrantsErr  *actionError
 	deviceLabel      *core.Signal[string]
 	deviceGrantsRead bool
@@ -379,6 +382,7 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		store:    storage,
 		manager:  manager, profile: profile,
 		toasts:              toasts,
+		providerMarks:       newProviderMarks(cx, cx.Storage()),
 		showEnvironments:    core.NewSignal(cx, false),
 		forgetEnvironment:   core.NewSignal(cx, ""),
 		renameEnvironment:   core.NewSignal(cx, ""),
@@ -427,6 +431,7 @@ func newAppForEnvironment(cx *core.Scope, manager *environmentManager, profile c
 		relayErr:            newActionError(cx, toasts),
 		deviceGrants:        sliceSignal[proto.DeviceGrant](cx),
 		deviceGrantsBusy:    core.NewSignal(cx, false),
+		devicePairBusy:      core.NewSignal(cx, false),
 		deviceGrantsErr:     newActionError(cx, toasts),
 		deviceLabel:         core.NewSignal(cx, ""),
 

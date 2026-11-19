@@ -160,7 +160,7 @@ func (a *app) acpProviderSettingsCards(cx *core.Scope) []core.Node {
 			detail += " · " + configured.Distribution
 		}
 		body := []core.Node{
-			providerSettingsHeader(cx, providerIcon(providerSettingsMark(configured)), configured.Name, detail, "settings-acp-"+configured.ID,
+			providerSettingsHeader(cx, a.providerMark(providerSettingsMark(configured)), configured.Name, detail, "settings-acp-"+configured.ID,
 				func() bool {
 					providers := a.settingsDraft.Get().ACPProviders
 					return index < len(providers) && providers[index].Enabled

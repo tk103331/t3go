@@ -293,7 +293,7 @@ func (a *app) pairAccessDevice() {
 		return
 	}
 	label := strings.TrimSpace(a.deviceLabel.GetUntracked())
-	a.deviceGrantsBusy.Set(true)
+	a.devicePairBusy.Set(true)
 	a.deviceGrantsErr.Set("")
 	a.deviceLabel.Set("")
 	var pairing proto.DevicePairing
@@ -302,7 +302,7 @@ func (a *app) pairAccessDevice() {
 		pairing = p
 		return err
 	}, func(err error) {
-		a.deviceGrantsBusy.Set(false)
+		a.devicePairBusy.Set(false)
 		if err != nil {
 			a.deviceGrantsErr.Set(friendlyError(err))
 			a.deviceLabel.Set(label)
@@ -342,12 +342,12 @@ func (a *app) revokeAccessDevice(id string) {
 		a.deviceGrantsErr.Set(i18n.T("Connect this environment before revoking a device."))
 		return
 	}
-	a.deviceGrantsBusy.Set(true)
+	a.devicePairBusy.Set(true)
 	a.deviceGrantsErr.Set("")
 	a.call(func(ctx context.Context, c *client.Client) error {
 		return c.RevokeDeviceGrant(ctx, id)
 	}, func(err error) {
-		a.deviceGrantsBusy.Set(false)
+		a.devicePairBusy.Set(false)
 		if err != nil {
 			a.deviceGrantsErr.Set(friendlyError(err))
 			return
@@ -377,7 +377,7 @@ func (a *app) pairedDevicesCard(cx *core.Scope) core.Node {
 					OnSubmit: func(string) { a.pairAccessDevice() }}},
 			}},
 			ui.Button{Text: i18n.T("Pair"), Icon: lucide.ScanQrCode, Variant: ui.ButtonPrimary, Size: controlSize(cx),
-				TestID: "settings-access-pair", Disabled: func() bool { return a.deviceGrantsBusy.Get() },
+				TestID: "settings-access-pair", Disabled: func() bool { return a.devicePairBusy.Get() },
 				OnPress: a.pairAccessDevice},
 		}},
 	}
@@ -416,7 +416,7 @@ func (a *app) deviceGrantRow(cx *core.Scope, grant proto.DeviceGrant) core.Node 
 		detail += " · " + i18n.T("revoked")
 	} else {
 		action = ui.Button{Text: i18n.T("Revoke"), Variant: ui.ButtonGhost, Size: controlSize(cx),
-			TestID: "settings-access-revoke-" + grant.ID, Disabled: func() bool { return a.deviceGrantsBusy.Get() },
+			TestID: "settings-access-revoke-" + grant.ID, Disabled: func() bool { return a.devicePairBusy.Get() },
 			OnPress: func() { a.revokeAccessDevice(grant.ID) }}
 	}
 	return core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,

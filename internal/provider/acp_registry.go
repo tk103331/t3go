@@ -26,6 +26,28 @@ import (
 
 const acpRegistryURL = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json"
 
+// acpRegistryIconBase is where the registry keeps each agent's mark.
+const acpRegistryIconBase = "https://cdn.agentclientprotocol.com/registry/v1/latest/"
+
+// ACPAgentIcon is the mark a registry agent is published with: the address
+// the catalog names when it is already on disk, else the registry's path
+// for that agent, which is the same one, without a fetch.
+func ACPAgentIcon(home, agentID string) string {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return ""
+	}
+	cachePath := filepath.Join(home, "cache", "acp-registry", "registry.json")
+	if document, err := readACPCatalog(cachePath); err == nil {
+		for _, agent := range document.Agents {
+			if agent.ID == agentID && strings.TrimSpace(agent.Icon) != "" {
+				return agent.Icon
+			}
+		}
+	}
+	return acpRegistryIconBase + url.PathEscape(agentID) + ".svg"
+}
+
 type acpRegistryDocument struct {
 	Version string                   `json:"version"`
 	Agents  []proto.ACPRegistryAgent `json:"agents"`

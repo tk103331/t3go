@@ -649,7 +649,7 @@ func (a *app) threadRow(cx *core.Scope, t proto.Thread, colors ui.Colors, projec
 			preview = projectName + " · " + preview
 		}
 	}
-	line := []core.Node{ui.Icon(providerIcon(t.Provider), 11, colors.Faint)}
+	line := []core.Node{ui.Icon(a.providerMark(t.Provider), 11, colors.Faint)}
 	switch {
 	case draft != "":
 		line = append(line, ui.Icon(lucide.SquarePen, 10, colors.Accent))
@@ -1171,7 +1171,7 @@ func (a *app) newThreadAgentMenu(cx *core.Scope, compact bool) core.Node {
 		if !candidate.Installed {
 			itemLabel += i18n.T(" (missing)")
 		}
-		items = append(items, ui.MenuItem{Text: itemLabel, Icon: providerIcon(candidate.ID),
+		items = append(items, ui.MenuItem{Text: itemLabel, Icon: a.providerMark(candidate.ID),
 			TestID:   "new-thread-provider-" + candidate.ID,
 			Checked:  func() bool { return a.newThreadProv.Get() == candidate.ID },
 			Disabled: func() bool { return !candidate.Installed },
@@ -1187,7 +1187,7 @@ func (a *app) newThreadAgentMenu(cx *core.Scope, compact bool) core.Node {
 				a.newThreadModel.Set(modelID)
 			}})
 	}
-	agentMark := func() *core.SVG { return providerIcon(a.newThreadProv.Get())() }
+	agentMark := func() *core.SVG { return a.providerMark(a.newThreadProv.Get())() }
 	return ui.Menu{TestID: "new-thread-agent-menu", MaxHeight: 320,
 		Trigger: newThreadControlTrigger(cx, compact, agentMark, label, i18n.T("Agent: ")+label, "new-thread-agent"),
 		Face: newThreadControlFace(compact, agentMark, func() string {
@@ -1214,7 +1214,7 @@ func (a *app) newThreadModelMenu(cx *core.Scope, compact bool) core.Node {
 		if model.ID == a.newThreadModel.Get() {
 			modelLabel = model.Name
 		}
-		items = append(items, ui.MenuItem{Text: model.Name, Icon: providerIcon(model.Provider),
+		items = append(items, ui.MenuItem{Text: model.Name, Icon: a.providerMark(model.Provider),
 			TestID:   "new-thread-model-" + model.ID,
 			Checked:  func() bool { return a.newThreadModel.Get() == model.ID },
 			OnSelect: func() { a.newThreadModel.Set(model.ID) }})
@@ -1222,7 +1222,7 @@ func (a *app) newThreadModelMenu(cx *core.Scope, compact bool) core.Node {
 	if len(items) == 0 {
 		return ui.Text(i18n.T("No models for this provider"), 12, ui.Regular, colors.Faint)
 	}
-	modelMark := func() *core.SVG { return providerIcon(a.newThreadProv.Get())() }
+	modelMark := func() *core.SVG { return a.providerMark(a.newThreadProv.Get())() }
 	return ui.Menu{TestID: "new-thread-model", MaxHeight: 320,
 		Trigger: newThreadControlTrigger(cx, compact, modelMark, modelLabel, i18n.T("Model: ")+modelLabel, "new-thread-model-trigger"),
 		Face: newThreadControlFace(compact, modelMark, func() string {

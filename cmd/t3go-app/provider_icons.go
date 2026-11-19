@@ -1,8 +1,15 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/oneo-me/nsgo/core"
 	"github.com/oneo-me/nsgo/icons/lucide"
@@ -38,26 +45,220 @@ const (
 </svg>`
 )
 
-// providerIcon is the mark an agent is known by: Claude's, Codex's, and so
-// on, or a generic agent for one the app has no mark for.
-func providerIcon(provider string) func() *core.SVG {
+// shippedProviderIcon is the mark an agent is known by when the app ships
+// it: Claude's, Codex's and the rest, and false for one it does not.
+func shippedProviderIcon(provider string) (func() *core.SVG, bool) {
 	switch providerFamily(provider) {
 	case "claude":
-		return svgOnce(providerClaudeSVG)
+		return svgOnce(providerClaudeSVG), true
 	case "codex":
-		return svgOnce(providerCodexSVG)
+		return svgOnce(providerCodexSVG), true
 	case "opencode":
-		return svgOnce(providerOpenCodeSVG)
+		return svgOnce(providerOpenCodeSVG), true
 	case "gemini":
-		return svgOnce(providerGeminiSVG)
+		return svgOnce(providerGeminiSVG), true
 	case "qwen":
-		return svgOnce(providerQwenSVG)
+		return svgOnce(providerQwenSVG), true
 	case "copilot":
-		return svgOnce(providerCopilotSVG)
+		return svgOnce(providerCopilotSVG), true
 	case "amp":
-		return svgOnce(providerAmpSVG)
+		return svgOnce(providerAmpSVG), true
 	}
-	return lucide.Bot
+	return nil, false
+}
+
+// registryIconURL is where the ACP Registry keeps an agent's mark.
+func registryIconURL(agentID string) string {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return ""
+	}
+	return "https://cdn.agentclientprotocol.com/registry/v1/latest/" + url.PathEscape(agentID) + ".svg"
+}
+
+// providerMark is the mark for an agent: the one the app ships, else the
+// one the registry publishes for it, else a generic agent.
+func (a *app) providerMark(provider string) func() *core.SVG {
+	if mark, ok := shippedProviderIcon(provider); ok {
+		return mark
+	}
+	return a.providerMarks.icon(a.providerIconURL(provider))
+}
+
+// providerIconURL is where an agent the app does not ship is published: the
+// environment names it for the agents it configured, and the registry's own
+// path answers for the rest.
+func (a *app) providerIconURL(provider string) string {
+	if strings.TrimSpace(provider) == "" {
+		return ""
+	}
+	for _, candidate := range a.providers.Get() {
+		if candidate.ID == provider && strings.TrimSpace(candidate.Icon) != "" {
+			return candidate.Icon
+		}
+	}
+	for _, configured := range a.settings.Get().ACPProviders {
+		if configured.ID != provider && configured.AgentID != provider {
+			continue
+		}
+		agentID := configured.AgentID
+		if strings.TrimSpace(agentID) == "" {
+			agentID = configured.ID
+		}
+		return registryIconURL(agentID)
+	}
+	return ""
+}
+
+// providerMarkStorageKey holds the fetched marks, by address.
+const providerMarkStorageKey = "providerMarks:v1"
+
+// providerMarks keeps the marks fetched from the ACP Registry: parsed in
+// memory for drawing and their source in local storage, so an agent the app
+// does not ship draws its own without fetching it again after a restart.
+// An address is fetched once; a mark that fails to arrive is not retried.
+type providerMarks struct {
+	cx      *core.Scope
+	store   appStorage
+	version *core.Signal[int]
+
+	mu      sync.Mutex
+	source  map[string]string
+	svg     map[string]*core.SVG
+	pending map[string]bool
+}
+
+func newProviderMarks(cx *core.Scope, store appStorage) *providerMarks {
+	marks := &providerMarks{cx: cx, store: store, version: core.NewSignal(cx, 0),
+		source: map[string]string{}, svg: map[string]*core.SVG{}, pending: map[string]bool{}}
+	if raw, ok := store.GetItem(providerMarkStorageKey); ok {
+		_ = json.Unmarshal([]byte(raw), &marks.source)
+	}
+	if marks.source == nil {
+		marks.source = map[string]string{}
+	}
+	return marks
+}
+
+// icon draws the mark at address, fetching it the first time and redrawing
+// what shows it once it arrives.
+func (m *providerMarks) icon(address string) func() *core.SVG {
+	if strings.TrimSpace(address) == "" {
+		return lucide.Bot
+	}
+	return func() *core.SVG {
+		m.version.Get()
+		if mark := m.parsed(address); mark != nil {
+			return mark
+		}
+		m.fetch(address)
+		return lucide.Bot()
+	}
+}
+
+// parsed is the mark at address once it has arrived, nil before then.
+func (m *providerMarks) parsed(address string) *core.SVG {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if mark, ok := m.svg[address]; ok {
+		return mark
+	}
+	raw, ok := m.source[address]
+	if !ok || raw == "" {
+		return nil
+	}
+	mark, err := core.ParseSVG([]byte(raw))
+	if err != nil {
+		return nil
+	}
+	m.svg[address] = mark
+	return mark
+}
+
+// fetch asks for a mark the first time it is drawn, and keeps what comes.
+func (m *providerMarks) fetch(address string) {
+	if !providerMarkFetchable(address) {
+		return
+	}
+	m.mu.Lock()
+	if m.pending[address] {
+		m.mu.Unlock()
+		return
+	}
+	if _, held := m.source[address]; held {
+		m.mu.Unlock()
+		return
+	}
+	m.pending[address] = true
+	m.mu.Unlock()
+	go func() {
+		raw, err := fetchProviderMark(m.cx.Context(), address)
+		m.cx.Post(func() {
+			m.mu.Lock()
+			delete(m.pending, address)
+			if err != nil {
+				raw = ""
+			}
+			m.source[address] = raw
+			if raw != "" {
+				if mark, parseErr := core.ParseSVG([]byte(raw)); parseErr == nil {
+					m.svg[address] = mark
+				}
+			}
+			kept := make(map[string]string, len(m.source))
+			for key, value := range m.source {
+				kept[key] = value
+			}
+			m.mu.Unlock()
+			if encoded, marshalErr := json.Marshal(kept); marshalErr == nil {
+				_ = m.store.SetItem(providerMarkStorageKey, string(encoded))
+			}
+			m.version.Update(func(n int) int { return n + 1 })
+		})
+	}()
+}
+
+// providerMarkFetchable reports whether a mark may be fetched: the
+// registry's https addresses, and http only on this machine, for a test
+// standing in for it.
+func providerMarkFetchable(address string) bool {
+	u, err := url.Parse(strings.TrimSpace(address))
+	if err != nil || u.Host == "" || u.User != nil {
+		return false
+	}
+	switch u.Scheme {
+	case "https":
+		return true
+	case "http":
+		switch strings.ToLower(u.Hostname()) {
+		case "localhost", "127.0.0.1", "::1":
+			return true
+		}
+	}
+	return false
+}
+
+// fetchProviderMark reads one mark, bounded like any other fetched document.
+func fetchProviderMark(ctx context.Context, address string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", errors.New("the registry answered " + resp.Status)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
 }
 
 // providerFamily groups the ids an agent carries, its provider id, its

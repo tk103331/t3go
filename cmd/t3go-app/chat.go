@@ -349,7 +349,7 @@ func (a *app) composerModelControl(cx *core.Scope) core.Node {
 		if model.ID == thread.Model && model.Provider == thread.Provider {
 			modelLabel = shortModel(model.Name)
 		}
-		modelItems = append(modelItems, ui.MenuItem{Text: label, Icon: providerIcon(model.Provider),
+		modelItems = append(modelItems, ui.MenuItem{Text: label, Icon: a.providerMark(model.Provider),
 			TestID: "composer-model-" + model.ID,
 			Checked: func() bool {
 				return a.detail.Get().Thread.Model == model.ID && a.detail.Get().Thread.Provider == model.Provider
@@ -364,7 +364,7 @@ func (a *app) composerModelControl(cx *core.Scope) core.Node {
 				MinHeight: core.Pt(44), MinWidth: core.Pt(0), Gap: 8, Padding: core.Symmetric(0, 8)},
 				Children: []core.Node{
 					core.View{TestID: "composer-model-provider", Children: []core.Node{
-						ui.Icon(providerIcon(thread.Provider), 20, colors.Muted)}},
+						ui.Icon(a.providerMark(thread.Provider), 20, colors.Muted)}},
 					core.Text{Content: modelLabel, TestID: "composer-model-name", MaxLines: 1,
 						Style:     core.Style{FontSize: 14, FlexShrink: 1, MinWidth: core.Pt(0)},
 						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},

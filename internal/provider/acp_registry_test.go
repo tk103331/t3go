@@ -126,3 +126,31 @@ func TestACPRegistryInstallPathsStayInsideAgentRoot(t *testing.T) {
 		t.Fatal("escaping command path was accepted")
 	}
 }
+
+// TestACPAgentIconNamesTheRegistryMark pins where an agent's mark is
+// published: the catalog's own address when it is on disk, else the
+// registry's path for that agent, which needs no fetch.
+func TestACPAgentIconNamesTheRegistryMark(t *testing.T) {
+	home := t.TempDir()
+	if got, want := ACPAgentIcon(home, "goose"), acpRegistryIconBase+"goose.svg"; got != want {
+		t.Fatalf("icon without a catalog = %q, want %q", got, want)
+	}
+	if got := ACPAgentIcon(home, "  "); got != "" {
+		t.Fatalf("an unnamed agent's icon = %q", got)
+	}
+
+	cache := filepath.Join(home, "cache", "acp-registry")
+	if err := os.MkdirAll(cache, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	catalog := `{"version":"1.0.0","agents":[{"id":"goose","name":"Goose","version":"1.0.0","icon":"https://example.com/goose.svg"}]}`
+	if err := os.WriteFile(filepath.Join(cache, "registry.json"), []byte(catalog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := ACPAgentIcon(home, "goose"), "https://example.com/goose.svg"; got != want {
+		t.Fatalf("icon from the catalog = %q, want %q", got, want)
+	}
+	if got, want := ACPAgentIcon(home, "other"), acpRegistryIconBase+"other.svg"; got != want {
+		t.Fatalf("an agent the catalog lacks = %q, want %q", got, want)
+	}
+}

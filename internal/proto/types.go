@@ -177,6 +177,8 @@ type Provider struct {
 	Path     string  `json:"path,omitempty"`
 	Error    string  `json:"error,omitempty"`
 	Models   []Model `json:"models,omitempty"`
+	// Icon is where the agent's own mark is published, when it has one.
+	Icon string `json:"icon,omitempty"`
 	// AuthStatus is authenticated, unauthenticated or unknown.
 	AuthStatus      string `json:"authStatus,omitempty"`
 	AuthDetail      string `json:"authDetail,omitempty"`
