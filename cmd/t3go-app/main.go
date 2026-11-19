@@ -649,7 +649,7 @@ func (a *app) threadRow(cx *core.Scope, t proto.Thread, colors ui.Colors, projec
 			preview = projectName + " · " + preview
 		}
 	}
-	line := []core.Node{}
+	line := []core.Node{ui.Icon(providerIcon(t.Provider), 11, colors.Faint)}
 	switch {
 	case draft != "":
 		line = append(line, ui.Icon(lucide.SquarePen, 10, colors.Accent))
@@ -1171,7 +1171,8 @@ func (a *app) newThreadAgentMenu(cx *core.Scope, compact bool) core.Node {
 		if !candidate.Installed {
 			itemLabel += i18n.T(" (missing)")
 		}
-		items = append(items, ui.MenuItem{Text: itemLabel, TestID: "new-thread-provider-" + candidate.ID,
+		items = append(items, ui.MenuItem{Text: itemLabel, Icon: providerIcon(candidate.ID),
+			TestID:   "new-thread-provider-" + candidate.ID,
 			Checked:  func() bool { return a.newThreadProv.Get() == candidate.ID },
 			Disabled: func() bool { return !candidate.Installed },
 			OnSelect: func() {
@@ -1186,9 +1187,10 @@ func (a *app) newThreadAgentMenu(cx *core.Scope, compact bool) core.Node {
 				a.newThreadModel.Set(modelID)
 			}})
 	}
+	agentMark := func() *core.SVG { return providerIcon(a.newThreadProv.Get())() }
 	return ui.Menu{TestID: "new-thread-agent-menu", MaxHeight: 320,
-		Trigger: newThreadControlTrigger(cx, compact, lucide.Bot, label, i18n.T("Agent: ")+label, "new-thread-agent"),
-		Face: newThreadControlFace(compact, lucide.Bot, func() string {
+		Trigger: newThreadControlTrigger(cx, compact, agentMark, label, i18n.T("Agent: ")+label, "new-thread-agent"),
+		Face: newThreadControlFace(compact, agentMark, func() string {
 			provider := a.newThreadProv.Get()
 			for _, candidate := range a.providers.Get() {
 				if candidate.ID == provider {
@@ -1212,16 +1214,18 @@ func (a *app) newThreadModelMenu(cx *core.Scope, compact bool) core.Node {
 		if model.ID == a.newThreadModel.Get() {
 			modelLabel = model.Name
 		}
-		items = append(items, ui.MenuItem{Text: model.Name, TestID: "new-thread-model-" + model.ID,
+		items = append(items, ui.MenuItem{Text: model.Name, Icon: providerIcon(model.Provider),
+			TestID:   "new-thread-model-" + model.ID,
 			Checked:  func() bool { return a.newThreadModel.Get() == model.ID },
 			OnSelect: func() { a.newThreadModel.Set(model.ID) }})
 	}
 	if len(items) == 0 {
 		return ui.Text(i18n.T("No models for this provider"), 12, ui.Regular, colors.Faint)
 	}
+	modelMark := func() *core.SVG { return providerIcon(a.newThreadProv.Get())() }
 	return ui.Menu{TestID: "new-thread-model", MaxHeight: 320,
-		Trigger: newThreadControlTrigger(cx, compact, lucide.Sparkles, modelLabel, i18n.T("Model: ")+modelLabel, "new-thread-model-trigger"),
-		Face: newThreadControlFace(compact, lucide.Sparkles, func() string {
+		Trigger: newThreadControlTrigger(cx, compact, modelMark, modelLabel, i18n.T("Model: ")+modelLabel, "new-thread-model-trigger"),
+		Face: newThreadControlFace(compact, modelMark, func() string {
 			provider := a.newThreadProv.Get()
 			modelID := a.newThreadModel.Get()
 			for _, model := range a.allModels() {

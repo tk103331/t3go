@@ -497,6 +497,9 @@ func TestUIMobileVisibleModelAndSettingsNavigation(t *testing.T) {
 	app.Press("id:mobile-tab-threads")
 	app.Press("id:thread-" + beta.profile.ID + "/same-thread")
 	app.WaitFor("id:composer-model-name", 5*time.Second)
+	if !app.Exists("id:composer-model-provider") {
+		t.Fatal("the model picker does not show its provider's mark")
+	}
 	app.Type("label:Message", "Keep draft while choosing a model")
 	for _, width := range []core.Points{390, 320} {
 		app.Resize(width, 844)

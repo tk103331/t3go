@@ -111,7 +111,16 @@ func providerSettingsCard(cx *core.Scope, testID string, children ...core.Node) 
 		BorderWidth: 1, BorderColor: colors.Border()}, Children: children}
 }
 
-func providerSettingsHeader(cx *core.Scope, name, detail, testID string, enabled func() bool,
+// providerSettingsMark is the id an ACP provider is drawn by: its registry
+// agent where it has one, its configured id otherwise.
+func providerSettingsMark(configured proto.ACPProviderSettings) string {
+	if strings.TrimSpace(configured.AgentID) != "" {
+		return configured.AgentID
+	}
+	return configured.ID
+}
+
+func providerSettingsHeader(cx *core.Scope, mark func() *core.SVG, name, detail, testID string, enabled func() bool,
 	onEnabled func(bool), deleteLabel, deleteTestID string, onDelete func()) core.Node {
 	colors := ui.ColorsOf(cx)
 	var trailing []core.Node
@@ -124,8 +133,12 @@ func providerSettingsHeader(cx *core.Scope, name, detail, testID string, enabled
 		Wrap: core.Wrap, Gap: 8}, Children: []core.Node{
 		core.View{Style: core.Style{Direction: core.Column, Gap: 1, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(140)},
 			Children: []core.Node{
-				core.Text{Content: name, MaxLines: 1, Style: core.Style{FontSize: 13, FontWeight: ui.Semibold},
-					StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+					MinWidth: core.Pt(0)}, Children: []core.Node{
+					ui.Icon(mark, 16, colors.Muted),
+					core.Text{Content: name, MaxLines: 1, Style: core.Style{FontSize: 13, FontWeight: ui.Semibold},
+						StyleFunc: func() core.Style { return core.Style{Color: colors.Text()} }},
+				}},
 				core.Text{Content: detail, MaxLines: 2, Style: core.Style{FontSize: 10.5},
 					StyleFunc: func() core.Style { return core.Style{Color: colors.Faint()} }},
 			}},
@@ -147,7 +160,7 @@ func (a *app) acpProviderSettingsCards(cx *core.Scope) []core.Node {
 			detail += " · " + configured.Distribution
 		}
 		body := []core.Node{
-			providerSettingsHeader(cx, configured.Name, detail, "settings-acp-"+configured.ID,
+			providerSettingsHeader(cx, providerIcon(providerSettingsMark(configured)), configured.Name, detail, "settings-acp-"+configured.ID,
 				func() bool {
 					providers := a.settingsDraft.Get().ACPProviders
 					return index < len(providers) && providers[index].Enabled

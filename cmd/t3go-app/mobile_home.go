@@ -330,6 +330,7 @@ func (a *app) mobileThreadRow(cx *core.Scope, row mobileThread) core.Node {
 				core.Text{Content: title, MaxLines: 1, Style: core.Style{FontSize: 16, FontWeight: ui.Medium},
 					StyleFunc: func() core.Style { return core.Style{Color: titleColor()} }},
 				core.View{Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 5}, Children: []core.Node{
+					ui.Icon(providerIcon(t.Provider), 13, colors.Muted),
 					ui.Icon(lucide.Laptop, 13, colors.Muted),
 					core.Text{Content: subtitle, TestID: "mobile-thread-environment-" + id, MaxLines: 1,
 						Style:     core.Style{FontSize: 12, FlexShrink: 1},
