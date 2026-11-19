@@ -1,0 +1,804 @@
+package app
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
+
+	"github.com/tk/t3go/internal/app/icons/lucide"
+	"github.com/tk/t3go/internal/i18n"
+	"github.com/tk/t3go/internal/proto"
+)
+
+// dialogPanel is the card a dialog draws its content in.
+func dialogPanel(c *ui.Context, width float32) ui.Element {
+	t := c.Theme()
+	w, _ := c.Size()
+	if w > 0 && width > w-32 {
+		width = w - 32
+	}
+	return ui.Column(c).Width(width).MaxWidthPercent(92).Gap(10).Padding(20).
+		Radius(14).Background(t.Background)
+}
+
+// dialogFooter is the row of buttons under a dialog's content.
+func dialogFooter(c *ui.Context, build func()) {
+	ui.Row(c).Gap(8).Justify(ui.End).Children(build)
+}
+
+// newProjectDialog registers a directory the agent can work in.
+func newProjectDialog(c *ui.Context, s *Session) {
+	ui.Modal(c, &s.showNewProject, func() {
+		t := c.Theme()
+		dialogPanel(c, 520).Children(func() {
+			text(c, i18n.T("New project"), 16, t.Text, 600)
+			ui.Text(c, i18n.T("Register a directory the agent can work in. The folder must already exist.")).
+				FontSize(12.5).TextColor(t.TextMuted)
+			// TODO(view): the environment selector the multi-environment
+			// client shows here.
+			ui.Field(c, i18n.T("Project name"), func() {
+				ui.TextInput(c, &s.newProjectName).Placeholder(i18n.T("Defaults to the folder's name"))
+			})
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Field(c, i18n.T("Project path"), func() {
+					ui.TextInput(c, &s.newProjectPath).Placeholder("/path/to/project")
+				}).Grow(1)
+				ui.Button(c, "").Label(i18n.T("Browse…")).Children(func() {
+					ui.Icon(c, lucide.FolderOpen()).FontSize(15)
+					ui.Text(c, i18n.T("Browse…"))
+				}).Tooltip(i18n.T("Browse…")).OnClick(func() { s.browseProject() })
+			})
+			faint(c, i18n.T("The project's path is used for diffs, files, terminals and worktrees."), 11)
+			if s.connErr != "" {
+				errorNote(c, s.connErr)
+			}
+			dialogFooter(c, func() {
+				if ui.Button(c, i18n.T("Cancel")).Clicked() {
+					s.showNewProject = false
+				}
+				b := ui.PrimaryButton(c, i18n.T("Add project")).Children(func() {
+					ui.Icon(c, lucide.FolderPlus()).FontSize(15)
+					ui.Text(c, i18n.T("Add project"))
+				})
+				if s.projectBusy {
+					b.Disabled(true)
+				}
+				b.OnClick(s.createProject)
+			})
+		})
+	})
+}
+
+// approvalDialog asks about the first tool call a supervised run is
+// waiting on.
+func approvalDialog(c *ui.Context, s *Session) {
+	if len(s.approvals) == 0 {
+		return
+	}
+	request := s.approvals[0]
+	description := i18n.T("A supervised agent wants to use ") + request.Tool + "."
+	for _, thread := range s.threads {
+		if thread.ID == request.ThreadID {
+			description = i18n.T("In ") + thread.Title + i18n.T(", the agent wants to use ") + request.Tool + "."
+			break
+		}
+	}
+	open := len(s.approvals) > 0
+	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
+		t := c.Theme()
+		backdrop.Background(ui.RGBA(0, 0, 0, 0.3))
+		panel.Width(440).MaxWidthPercent(92).MaxHeightPercent(80).Gap(10).Padding(20).
+			Radius(14).Background(t.Background)
+		ui.Column(c).Gap(10).Children(func() {
+			text(c, i18n.T("Allow tool call?"), 16, t.Text, 600)
+			ui.Text(c, description).FontSize(12.5).TextColor(t.TextMuted)
+			if raw, err := json.MarshalIndent(request.Input, "", "  "); err == nil && len(request.Input) > 0 {
+				ui.Scroll(c).MaxHeight(280).Children(func() {
+					ui.Column(c).Padding(10).Radius(8).Background(t.Surface).Children(func() {
+						ui.Text(c, string(raw)).FontSize(11.5).LineHeight(16).
+							Font("monospace").TextColor(t.Text).Selectable()
+					})
+				})
+			}
+			if len(s.approvals) > 1 {
+				faint(c, i18n.T("%d more waiting", len(s.approvals)-1), 11.5)
+			}
+			dialogFooter(c, func() {
+				if ui.Button(c, i18n.T("Deny")).Children(func() {
+					ui.Icon(c, lucide.X()).FontSize(15)
+					ui.Text(c, i18n.T("Deny"))
+				}).Clicked() {
+					s.resolveApproval(request.ID, false, i18n.T("Denied by the person running T3Go."))
+				}
+				if ui.PrimaryButton(c, i18n.T("Allow")).Children(func() {
+					ui.Icon(c, lucide.Check()).FontSize(15)
+					ui.Text(c, i18n.T("Allow"))
+				}).Clicked() {
+					s.resolveApproval(request.ID, true, "")
+				}
+			})
+		})
+	})
+}
+
+// renameDeleteDialogs are the rename and delete confirmations the
+// sidebar's menus ask for.
+func renameDeleteDialogs(c *ui.Context, s *Session) {
+	t := c.Theme()
+	if s.pendingRename.Name != "" {
+		s.renameOpen = true
+		ui.Modal(c, &s.renameOpen, func() {
+			dialogPanel(c, 380).Children(func() {
+				text(c, i18n.T("Rename"), 16, t.Text, 600)
+				ui.Field(c, i18n.T("Name"), func() {
+					ui.TextInput(c, &s.renameName).AutoFocus()
+				})
+				if s.connErr != "" {
+					errorNote(c, s.connErr)
+				}
+				dialogFooter(c, func() {
+					if ui.Button(c, i18n.T("Cancel")).Clicked() {
+						s.cancelRename()
+					}
+					ui.PrimaryButton(c, i18n.T("Rename")).OnClick(s.confirmRename)
+				})
+			})
+		})
+	}
+	if s.pendingDelete.Name != "" {
+		s.deleteOpen = true
+		ui.Modal(c, &s.deleteOpen, func() {
+			dialogPanel(c, 400).Children(func() {
+				text(c, i18n.T("Delete"), 16, t.Text, 600)
+				ui.Text(c, i18n.T("Delete %s? This cannot be undone.", s.pendingDelete.Name)).
+					FontSize(12.5).TextColor(t.TextMuted)
+				dialogFooter(c, func() {
+					if ui.Button(c, i18n.T("Cancel")).Clicked() {
+						s.cancelDelete()
+					}
+					if ui.Button(c, i18n.T("Delete")).Children(func() {
+						ui.Icon(c, lucide.Trash()).FontSize(15).TextColor(t.Danger)
+						ui.Text(c, i18n.T("Delete")).TextColor(t.Danger)
+					}).Clicked() {
+						s.confirmDelete()
+					}
+				})
+			})
+		})
+	}
+}
+
+// paletteThreads lists the threads whose title matches the palette's
+// query, above the message hits.
+func (s *Session) paletteThreads() []proto.Thread {
+	query := strings.ToLower(strings.TrimSpace(s.paletteQuery))
+	if query == "" {
+		return nil
+	}
+	var out []proto.Thread
+	for _, thread := range s.threads {
+		if threadMatches(thread, query) {
+			out = append(out, thread)
+		}
+	}
+	return out
+}
+
+// diffBusy is whether a diff the dialog asked for is still loading. The
+// load calls keep the text empty until it arrives.
+func (s *Session) diffBusy() bool {
+	return s.diffText == "" && s.workingDiff == "" && s.rightBusy
+}
+
+// paletteDialog searches the environment's threads and actions.
+//
+// TODO(view): the palette's command set fills in with the actions' port;
+// this one searches the threads and the messages already.
+func paletteDialog(c *ui.Context, s *Session) {
+	ui.Modal(c, &s.showPalette, func() {
+		t := c.Theme()
+		dialogPanel(c, 720).Children(func() {
+			query := ui.SearchField(c, &s.paletteQuery).Label(i18n.T("Search commands")).
+				Placeholder(i18n.T("Search threads, messages and actions…")).AutoFocus()
+			if query.Changed() {
+				s.searchMessages(s.paletteQuery)
+			}
+			if s.searchErr != "" {
+				errorNote(c, s.searchErr)
+			}
+			ui.Scroll(c).Height(420).Gap(2).Children(func() {
+				if s.searchBusy {
+					ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(8).Children(func() {
+						ui.Spinner(c).Label(i18n.T("Searching"))
+						faint(c, i18n.T("Searching…"), 12)
+					})
+				}
+				for _, hit := range s.searchHits {
+					hit := hit
+					hitRow := ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 8).Radius(6).
+						Children(func() {
+							ui.Icon(c, lucide.MessageCircle()).FontSize(13).TextColor(t.TextMuted)
+							ui.Text(c, hit.ThreadTitle).FontSize(12.5).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
+							ui.Text(c, hit.Snippet).FontSize(11).TextColor(t.TextMuted).SingleLine().MinWidth(0).MaxWidthPercent(45)
+						})
+					if hitRow.RowClicked() {
+						s.showPalette = false
+						s.selectThread(hit.ThreadID)
+					}
+				}
+				for _, thread := range s.paletteThreads() {
+					thread := thread
+					threadRow := ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 8).Radius(6).
+						Children(func() {
+							ui.Icon(c, lucide.MessageSquare()).FontSize(13).TextColor(t.TextMuted)
+							ui.Text(c, thread.Title).FontSize(12.5).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
+						})
+					if threadRow.RowClicked() {
+						s.showPalette = false
+						s.selectThread(thread.ID)
+					}
+				}
+				if len(s.searchHits) == 0 && len(s.paletteThreads()) == 0 {
+					faint(c, i18n.T("No threads, messages or commands match."), 12)
+				}
+			})
+			dialogFooter(c, func() {
+				if ui.Button(c, i18n.T("Close")).Clicked() {
+					s.showPalette = false
+				}
+			})
+		})
+	})
+}
+
+// branchesDialog lists the thread's branches and switches among them.
+func branchesDialog(c *ui.Context, s *Session) {
+	ui.Modal(c, &s.showBranches, func() {
+		t := c.Theme()
+		dialogPanel(c, 420).Children(func() {
+			text(c, i18n.T("Branches"), 16, t.Text, 600)
+			ui.Scroll(c).MaxHeight(320).Gap(2).Children(func() {
+				for _, branch := range s.branches {
+					branch := branch
+					current := branch.Current
+					row := ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 8).Radius(6)
+					row.Children(func() {
+						ui.Icon(c, lucide.GitBranch()).FontSize(13).TextColor(t.TextMuted)
+						ui.Text(c, branch.Name).FontSize(12.5).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
+						if current {
+							text(c, i18n.T("Current"), 10.5, t.Accent)
+						}
+					})
+					if !current && row.RowClicked() {
+						s.switchBranch(branch.Name)
+						s.showBranches = false
+					}
+				}
+			})
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Field(c, i18n.T("New branch"), func() {
+					ui.TextInput(c, &s.branchName).Placeholder(i18n.T("name-from-the-title"))
+				}).Grow(1)
+				ui.Button(c, i18n.T("Create")).OnClick(func() { s.createBranch() })
+			})
+			dialogFooter(c, func() {
+				if ui.Button(c, i18n.T("Close")).Clicked() {
+					s.showBranches = false
+				}
+			})
+		})
+	})
+}
+
+// runsDialog lists the thread's runs, with each one's diff.
+func runsDialog(c *ui.Context, s *Session) {
+	ui.Modal(c, &s.showRuns, func() {
+		t := c.Theme()
+		dialogPanel(c, 560).Children(func() {
+			text(c, i18n.T("Run history"), 16, t.Text, 600)
+			ui.Scroll(c).MaxHeight(360).Gap(6).Children(func() {
+				for _, run := range s.detail.Runs {
+					run := run
+					ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 8).Radius(6).Children(func() {
+						ui.Icon(c, lucide.Clock()).FontSize(13).TextColor(t.TextMuted)
+						ui.Text(c, run.StartedAt.Local().Format("Jan 2 15:04")).FontSize(12).TextColor(t.Text).SingleLine()
+						ui.Text(c, runModelLabel(run)).FontSize(11).TextColor(t.TextMuted).SingleLine().Grow(1).MinWidth(0)
+						ui.Button(c, i18n.T("Diff")).OnClick(func() {
+							s.showRuns = false
+							s.openRunDiff(run.ID)
+						})
+						ui.Button(c, i18n.T("Restore")).OnClick(func() {
+							s.pendingRestore = run.ID
+							s.showRestore = true
+						})
+					})
+				}
+				if len(s.detail.Runs) == 0 {
+					faint(c, i18n.T("No runs yet."), 12)
+				}
+			})
+			dialogFooter(c, func() {
+				if ui.Button(c, i18n.T("Close")).Clicked() {
+					s.showRuns = false
+				}
+			})
+		})
+	})
+}
+
+// runModelLabel names a run's model, or its provider.
+func runModelLabel(run proto.Run) string {
+	if run.Model != "" {
+		return run.Model
+	}
+	return run.Provider
+}
+
+// diffDialog shows one run's checkpoint diff, or the thread's working
+// changes, in the diff viewer.
+func diffDialog(c *ui.Context, s *Session) {
+	ui.Modal(c, &s.showDiff, func() {
+		t := c.Theme()
+		dialogPanel(c, 860).Children(func() {
+			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
+				text(c, i18n.T("Changes"), 16, t.Text, 600)
+				ui.Spacer(c)
+				if s.diffDiscard != "" {
+					ui.Button(c, i18n.T("Discard")).Children(func() {
+						ui.Icon(c, lucide.Undo()).FontSize(15)
+						ui.Text(c, i18n.T("Discard"))
+					}).OnClick(func() { s.discardWorkingFiles() })
+				}
+				if ui.Button(c, "").Label(i18n.T("Close diff")).Children(func() {
+					ui.Icon(c, lucide.X()).FontSize(15)
+				}).Tooltip(i18n.T("Close diff")).Clicked() {
+					s.showDiff = false
+				}
+			})
+			if s.diffBusy() {
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Spinner(c).Label(i18n.T("Loading diff"))
+					faint(c, i18n.T("Loading diff…"), 12)
+				})
+			}
+			ui.Box(c).Height(480).FillWidth().Children(func() {
+				s.diffViewer(c)
+			})
+		})
+	})
+}
+
+// diffViewer draws the diff text the dialog holds, or the message that
+// there is nothing to show.
+func (s *Session) diffViewer(c *ui.Context) {
+	t := c.Theme()
+	text := s.diffText
+	if text == "" {
+		text = s.workingDiff
+	}
+	if strings.TrimSpace(text) == "" {
+		faint(c, i18n.T("No changes."), 12)
+		return
+	}
+	files, err := editor.ParsePatch(text)
+	if err != nil || len(files) == 0 {
+		// Not a patch, or one without files: show it as text.
+		ui.Scroll(c).Fill().Children(func() {
+			ui.Column(c).Padding(10).Children(func() {
+				ui.Text(c, text).FontSize(11.5).LineHeight(16).Font("monospace").
+					TextColor(t.Text).Selectable()
+			})
+		})
+		return
+	}
+	diff := &editor.DiffState{}
+	diff.SetPatch(files[0])
+	// One file at a time for now: a chooser lands with the files surface.
+	if len(files) > 1 {
+		names := make([]string, 0, len(files))
+		for _, f := range files {
+			names = append(names, f.NewName)
+		}
+		ui.Row(c).Gap(6).Wrap().Children(func() {
+			for i, name := range names {
+				i, name := i, name
+				ui.Button(c, name).OnClick(func() {
+					s.diffFileIndex = i
+				})
+			}
+		})
+		diff = &editor.DiffState{}
+		diff.SetPatch(files[min(s.diffFileIndex, len(files)-1)])
+	}
+	editor.DiffView(c, diff).Grow(1).FillWidth()
+}
+
+// editMessageDialog changes a message the reader sent.
+func editMessageDialog(c *ui.Context, s *Session) {
+	if s.editingMessage.ID == "" {
+		return
+	}
+	s.editOpen = true
+	ui.Modal(c, &s.editOpen, func() {
+		t := c.Theme()
+		dialogPanel(c, 520).Children(func() {
+			text(c, i18n.T("Edit message"), 16, t.Text, 600)
+			ui.TextArea(c, &s.editDraft).Lines(3, 10)
+			dialogFooter(c, func() {
+				if ui.Button(c, i18n.T("Cancel")).Clicked() {
+					s.cancelEditMessage()
+				}
+				ui.PrimaryButton(c, i18n.T("Save and rerun")).OnClick(s.confirmEditMessage)
+			})
+		})
+	})
+}
+
+// promptArgsDialog fills the arguments a skill or command asks for.
+func promptArgsDialog(c *ui.Context, s *Session) {
+	ui.Modal(c, &s.showPromptArgs, func() {
+		t := c.Theme()
+		dialogPanel(c, 460).Children(func() {
+			text(c, s.promptName, 16, t.Text, 600)
+			values := s.promptArgValues
+			for i, def := range s.promptArgsDefs {
+				if i >= len(values.Values) {
+					break
+				}
+				def := def
+				index := i
+				ui.Field(c, def.Name, func() {
+					ui.TextInput(c, &values.Values[index]).Placeholder(def.Description)
+				})
+			}
+			s.promptArgValues = values
+			dialogFooter(c, func() {
+				if ui.Button(c, i18n.T("Cancel")).Clicked() {
+					s.showPromptArgs = false
+				}
+				ui.PrimaryButton(c, i18n.T("Run")).OnClick(s.submitPromptArgs)
+			})
+		})
+	})
+}
+
+// customModelDialog adds a model id the environment's CLIs accept but do
+// not list.
+func customModelDialog(c *ui.Context, s *Session) {
+	ui.Modal(c, &s.showCustomModel, func() {
+		t := c.Theme()
+		dialogPanel(c, 440).Children(func() {
+			text(c, i18n.T("Custom model"), 16, t.Text, 600)
+			ui.Field(c, i18n.T("Provider"), func() {
+				ui.TextInput(c, &s.customModelProvider).Placeholder("claude")
+			})
+			ui.Field(c, i18n.T("Model id"), func() {
+				ui.TextInput(c, &s.customModelID).Placeholder("model-id")
+			})
+			ui.Field(c, i18n.T("Display name"), func() {
+				ui.TextInput(c, &s.customModelName)
+			})
+			if s.customModelErr != "" {
+				errorNote(c, s.customModelErr)
+			}
+			dialogFooter(c, func() {
+				if ui.Button(c, i18n.T("Cancel")).Clicked() {
+					s.showCustomModel = false
+				}
+				ui.PrimaryButton(c, i18n.T("Add model")).OnClick(s.addCustomModel)
+			})
+		})
+	})
+}
+
+// dirsDialog lists the folders of the environment's machine, for the
+// project path a new project names.
+//
+// TODO(view): the breadcrumb bar and the new-folder button land with the
+// surface's port.
+func dirsDialog(c *ui.Context, s *Session) {
+	ui.Modal(c, &s.showDirs, func() {
+		t := c.Theme()
+		dialogPanel(c, 520).Children(func() {
+			text(c, i18n.T("Choose a folder"), 16, t.Text, 600)
+			faint(c, s.dirs.Path, 11)
+			if s.dirsBusy {
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Spinner(c).Label(i18n.T("Loading folders"))
+				})
+			}
+			if s.dirsErr != "" {
+				errorNote(c, s.dirsErr)
+			}
+			ui.Scroll(c).MaxHeight(320).Gap(2).Children(func() {
+				if s.dirs.Parent != "" {
+					parentRow := ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 8).Radius(6).Children(func() {
+						ui.Icon(c, lucide.ArrowLeft()).FontSize(13).TextColor(t.TextMuted)
+						faint(c, "..", 12.5)
+					})
+					if parentRow.RowClicked() {
+						s.loadDirs(s.dirs.Parent)
+					}
+				}
+				for _, entry := range s.dirs.Entries {
+					entry := entry
+					entryRow := ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 8).Radius(6).Children(func() {
+						ui.Icon(c, lucide.Folder()).FontSize(13).TextColor(t.TextMuted)
+						ui.Text(c, entry.Name).FontSize(12.5).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
+					})
+					if entryRow.RowClicked() {
+						s.loadDirs(entry.Path)
+					}
+				}
+			})
+			dialogFooter(c, func() {
+				if ui.Button(c, i18n.T("Cancel")).Clicked() {
+					s.closeDirs()
+				}
+				ui.PrimaryButton(c, i18n.T("Use this folder")).OnClick(s.useDirs)
+			})
+		})
+	})
+}
+
+// devicesDialog lists the simulators the environment machine has, with
+// their screens.
+func devicesDialog(c *ui.Context, s *Session) {
+	ui.Modal(c, &s.showDevices, func() {
+		t := c.Theme()
+		dialogPanel(c, 560).Children(func() {
+			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
+				text(c, i18n.T("Devices"), 16, t.Text, 600)
+				ui.Spacer(c)
+				live := s.deviceLive
+				ui.Checkbox(c, &live, i18n.T("Live screenshot")).OnChange(func() {
+					s.setDeviceLive(live)
+				})
+			})
+			if s.deviceErr != "" {
+				errorNote(c, s.deviceErr)
+			}
+			ui.Scroll(c).MaxHeight(320).Gap(4).Children(func() {
+				for _, device := range s.devices {
+					device := device
+					ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 8).Radius(6).Children(func() {
+						ui.Icon(c, lucide.Smartphone()).FontSize(13).TextColor(t.TextMuted)
+						ui.Text(c, device.Name).FontSize(12.5).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
+						if device.State == "booted" {
+							faint(c, i18n.T("Running"), 11)
+						} else {
+							ui.Button(c, i18n.T("Boot")).OnClick(func() { s.bootDevice(device.ID) })
+						}
+					})
+				}
+				if len(s.devices) == 0 {
+					faint(c, i18n.T("No simulators on this machine."), 12)
+				}
+			})
+			if s.deviceSelected != "" && len(s.deviceImage) > 0 {
+				ui.Box(c).Height(280).FillWidth().Children(func() {
+					s.deviceScreen(c)
+				})
+			}
+			dialogFooter(c, func() {
+				if ui.Button(c, i18n.T("Close")).Clicked() {
+					s.showDevices = false
+				}
+			})
+		})
+	})
+}
+
+// deviceScreen draws the screenshot a simulator took.
+func (s *Session) deviceScreen(c *ui.Context) {
+	bitmap := s.deviceBitmap()
+	if bitmap == nil {
+		faint(c, i18n.T("No screenshot yet."), 12)
+		return
+	}
+	ui.Image(c, bitmap).Fit(ui.Contain).Fill()
+}
+
+// deviceBitmap decodes the latest screenshot once, keeping the bitmap for
+// the frames that draw it.
+func (s *Session) deviceBitmap() *ui.Bitmap {
+	if len(s.deviceImage) == 0 {
+		return nil
+	}
+	if s.deviceBitmapCache == nil || s.deviceBitmapKey != s.deviceShot {
+		bitmap, err := ui.DecodeBitmap(s.deviceImage)
+		if err != nil {
+			return nil
+		}
+		s.deviceBitmapCache, s.deviceBitmapKey = bitmap, s.deviceShot
+	}
+	return s.deviceBitmapCache
+}
+
+// restoreDialog asks before a run's checkpoint takes the files back.
+func restoreDialog(c *ui.Context, s *Session) {
+	ui.Modal(c, &s.showRestore, func() {
+		t := c.Theme()
+		dialogPanel(c, 460).Children(func() {
+			text(c, i18n.T("Restore this run?"), 16, t.Text, 600)
+			ui.Text(c, i18n.T("The tracked files go back to how this run's checkpoint left them. The current files are backed up first.")).
+				FontSize(12.5).TextColor(t.TextMuted)
+			dialogFooter(c, func() {
+				if ui.Button(c, i18n.T("Cancel")).Clicked() {
+					s.showRestore = false
+					s.pendingRestore = ""
+				}
+				ui.PrimaryButton(c, i18n.T("Restore")).OnClick(func() {
+					s.restoreRun()
+					s.showRestore = false
+				})
+			})
+		})
+	})
+}
+
+// settingsDialog is the client's settings.
+//
+// TODO(view): the sections fill in one by one; this first pass carries
+// the section list, General and Appearance.
+func settingsDialog(c *ui.Context, s *Session) {
+	ui.Modal(c, &s.showSettings, func() {
+		t := c.Theme()
+		ui.Row(c).Gap(0).Children(func() {
+			// The section list, as the old settings dialog showed it.
+			ui.Column(c).Width(190).MaxWidthPercent(30).Gap(2).Padding(14).
+				Radius(14).Background(t.Background).Children(func() {
+				text(c, i18n.T("Settings"), 16, t.Text, 600).Margin(0, 0, 6, 0)
+				for _, section := range settingsSections() {
+					selected := s.settingsSection == section.key
+					row := ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 8).Radius(7)
+					row.Children(func() {
+						ui.Icon(c, section.icon()).FontSize(14).TextColor(t.TextMuted)
+						ui.Text(c, section.label).FontSize(12.5).
+							TextColor(t.Text).SingleLine()
+					})
+					if selected {
+						row.Background(t.Surface)
+					}
+					if row.RowClicked() {
+						s.setSettingsSection(section.key)
+					}
+				}
+			})
+			// The section's page.
+			ui.Column(c).Width(560).MaxWidthPercent(70).Gap(12).Padding(20).
+				Radius(14).Background(t.Background).Children(func() {
+				ui.Row(c).AlignItems(ui.Center).Children(func() {
+					text(c, s.settingsSectionLabel(), 16, t.Text, 600).Grow(1)
+					iconBtn(c, lucide.X(), i18n.T("Close settings"), func() { s.closeSettings() })
+				})
+				ui.Scroll(c).MaxHeight(440).Children(func() {
+					s.settingsSectionView(c)
+				})
+				if s.settingsSaveErr != "" {
+					errorNote(c, s.settingsSaveErr)
+				}
+			})
+		})
+	})
+}
+
+// settingsSection is one entry of the settings dialog's list.
+type settingsSection struct {
+	key   string
+	label string
+	icon  func() *ui.SVG
+}
+
+// settingsSections lists the settings dialog's sections in order.
+func settingsSections() []settingsSection {
+	return []settingsSection{
+		{key: "general", label: i18n.T("General"), icon: lucide.Settings},
+		{key: "providers", label: i18n.T("Providers"), icon: lucide.Cpu},
+		{key: "usage", label: i18n.T("Usage"), icon: lucide.ChartColumn},
+		{key: "worktrees", label: i18n.T("Worktrees"), icon: lucide.GitFork},
+		{key: "access", label: i18n.T("Access"), icon: lucide.KeyRound},
+		{key: "appearance", label: i18n.T("Appearance"), icon: lucide.Sparkles},
+		{key: "environments", label: i18n.T("Environments"), icon: lucide.Network},
+		{key: "background", label: i18n.T("Background server"), icon: lucide.Power},
+		{key: "shortcuts", label: i18n.T("Shortcuts"), icon: lucide.Keyboard},
+		{key: "about", label: i18n.T("About"), icon: lucide.Info},
+	}
+}
+
+// settingsSectionLabel names the section the settings dialog shows.
+func (s *Session) settingsSectionLabel() string {
+	for _, section := range settingsSections() {
+		if section.key == s.settingsSection {
+			return section.label
+		}
+	}
+	return s.settingsSection
+}
+
+// settingsSectionView draws one settings section.
+func (s *Session) settingsSectionView(c *ui.Context) {
+	switch s.settingsSection {
+	case "general":
+		s.settingsGeneral(c)
+	case "appearance":
+		s.settingsAppearance(c)
+	default:
+		// TODO(view): the remaining sections port with their data logic.
+		faint(c, i18n.T("This section is on its way."), 12)
+	}
+}
+
+// settingsGeneral edits the environment's title and defaults.
+func (s *Session) settingsGeneral(c *ui.Context) {
+	draft := s.settingsDraft
+	ui.Column(c).Gap(12).Children(func() {
+		settingsSectionTitle(c, i18n.T("General"), i18n.T("The environment's name and defaults for new threads."))
+		ui.Field(c, i18n.T("Environment title"), func() {
+			ui.TextInput(c, &draft.Title).Placeholder("T3Go")
+		})
+		if ui.PrimaryButton(c, i18n.T("Save")).Clicked() {
+			s.settingsDraft = draft
+			s.saveSettings(draft)
+		}
+	})
+}
+
+// settingsAppearance edits the client's theme, accent and language.
+func (s *Session) settingsAppearance(c *ui.Context) {
+	ui.Column(c).Gap(12).Children(func() {
+		settingsSectionTitle(c, i18n.T("Appearance"), i18n.T("Saved automatically on this client, across all environments."))
+		faint(c, i18n.T("Language"), 12)
+		segmentChoice(c, languageNames(), i18n.Current().Name(), func(choice string) {
+			for _, lang := range i18n.Languages() {
+				if lang.Name() == choice {
+					setClientLanguage(lang)
+				}
+			}
+		})
+		faint(c, i18n.T("Theme"), 12)
+		segmentChoice(c, []string{"system", "light", "dark"}, s.appearance.Theme, func(choice string) {
+			prefs := s.appearance
+			prefs.Theme = choice
+			s.saveClientAppearance(prefs)
+		})
+		faint(c, i18n.T("Accent"), 12)
+		ui.Row(c).Gap(6).Wrap().Children(func() {
+			for _, choice := range accentChoices {
+				choice := choice
+				swatch := c.Theme().TextMuted.Alpha(0.25)
+				if choice.hex != "" {
+					swatch = ui.Hex(choice.hex)
+				}
+				swatchName := choice.name
+				b := ui.Row(c).AlignItems(ui.Center).Gap(6).Padding(4, 8).Radius(6).
+					Border(1, c.Theme().Border).Children(func() {
+					ui.Box(c).Size(13, 13).Radius(7).Background(swatch)
+					faint(c, swatchName, 12)
+				})
+				if s.appearance.Accent == choice.hex {
+					b.Background(c.Theme().Surface)
+				}
+				if b.RowClicked() {
+					prefs := s.appearance
+					prefs.Accent = choice.hex
+					s.saveClientAppearance(prefs)
+				}
+			}
+		})
+	})
+}
+
+// languageNames lists the interface languages by their own names.
+func languageNames() []string {
+	var names []string
+	for _, lang := range i18n.Languages() {
+		names = append(names, lang.Name())
+	}
+	return names
+}
+
+var _ = fmt.Sprintf

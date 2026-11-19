@@ -1,0 +1,399 @@
+// Package app is the T3Go client, a MyGo native UI application. The same
+// views run on the desktop, in a browser and on phones; the data layer
+// they draw is one environment session per connection, every field of
+// which lives on the main thread.
+package app
+
+import (
+	"log"
+
+	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
+
+	"github.com/tk/t3go/internal/app/icons/lucide"
+	"github.com/tk/t3go/internal/i18n"
+)
+
+// appID names the client's data directory, the one the NSGo client used,
+// so its saved environments, drafts and preferences carry over.
+const appID = "dev.nsgo.t3go"
+
+var (
+	store   *fileStore
+	manager *Manager
+	win     *mygo.Window
+)
+
+// Main runs the client: it opens the storage, the language and the
+// window, and starts every saved environment's session.
+func Main() {
+	store = openStorage(appID)
+	initClientLanguage(store)
+	mygo.App.WhenReady(func() {
+		win = mygo.NewWindow(mygo.WindowOptions{
+			Title:     "T3Go",
+			Width:     1100,
+			Height:    760,
+			MinWidth:  480,
+			MinHeight: 480,
+			Content:   ui.View(root),
+		})
+		win.OnClosed(func() {
+			if manager != nil {
+				for _, s := range manager.sessions {
+					if s != nil {
+						s.disposeEnvironmentSession()
+					}
+				}
+			}
+			// A local environment server started for this client watches
+			// the process and stops itself, unless it was started to
+			// outlive the client.
+			store.Close()
+		})
+		manager = newManager(win, store)
+		manager.start()
+	})
+	if err := mygo.App.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// root draws the window: the theme, the shortcuts, and either the
+// connection screen or the workspace.
+func root(c *ui.Context) {
+	if manager == nil {
+		manager = newManager(win, store)
+		manager.start()
+	}
+	t := themeFor(manager.appearance, c.Theme())
+	c.SetTheme(t)
+	if a := manager.active; a != nil {
+		a.md.Theme = markdownTheme(*t)
+	}
+	if !c.FocusTakesText() {
+		appShortcuts(c)
+	}
+	manager.view(c)
+}
+
+// appShortcuts binds the client's own keys. A focused text field keeps
+// what it types: MyGo runs window shortcuts only when the focus takes no
+// text.
+func appShortcuts(c *ui.Context) {
+	a := manager.active
+	if a == nil {
+		return
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyK) {
+		a.openPalette()
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyN) {
+		a.openNewThread()
+	}
+	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyN) {
+		a.openNewProject()
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyComma) {
+		a.openSettings()
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyB) {
+		a.setSidebarOpen(!a.sidebarOpen)
+	}
+}
+
+// view draws the manager's window: the connection screen until the
+// active environment answers, then its workspace.
+func (m *Manager) view(c *ui.Context) {
+	a := m.active
+	if a == nil {
+		connectScreen(c, nil, m)
+		return
+	}
+	if !a.connected {
+		if a.profile.ID == "" && m.pending != nil {
+			connectScreen(c, m.pending, m)
+			return
+		}
+		if a.profile.ID == "" {
+			connectScreen(c, a, m)
+			return
+		}
+		if a.connecting && !anySessionReady(m) {
+			connectingScreen(c, m)
+			return
+		}
+	}
+	m.workspace(c)
+}
+
+func anySessionReady(m *Manager) bool {
+	for _, s := range m.sessions {
+		if s != nil && (s.connected || s.offline) {
+			return true
+		}
+	}
+	return false
+}
+
+// connectingScreen is what shows while every saved environment tries to
+// answer.
+func connectingScreen(c *ui.Context, m *Manager) {
+	ui.Column(c).Fill().Center().Background(c.Theme().Background).Children(func() {
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+			ui.Spinner(c).Label(i18n.T("Connecting environments"))
+			text(c, i18n.T("Connecting environments"), 13, c.Theme().TextMuted)
+		})
+		if m.localErr != "" {
+			errorNote(c, m.localErr)
+		}
+	})
+}
+
+// workspace is the connected layout: the sidebar and the conversation,
+// with the surfaces panel on the right when it is open.
+func (m *Manager) workspace(c *ui.Context) {
+	a := m.active
+	if compact(c) {
+		narrowLayout(c, a)
+		return
+	}
+	split := ui.Split(c, &a.sidebarWidth, func() {
+		sidebar(c, a)
+	}, func() {
+		a.mainPane(c)
+	}).Fill()
+	if split.Changed() {
+		a.persistSplitWidths()
+	}
+
+	// The dialogs and overlays of every session sit above the workspace.
+	overlays(c, a, m)
+}
+
+// mainPane is the sidebar's other side: the conversation, and the
+// surfaces panel when it is open.
+func (s *Session) mainPane(c *ui.Context) {
+	if s.rightOpen {
+		split := ui.Split(c, &s.rightWidth, func() {
+			conversation(c, s)
+		}, func() {
+			rightPanel(c, s)
+		}).Fill()
+		if split.Changed() {
+			s.persistSplitWidths()
+		}
+		return
+	}
+	conversation(c, s)
+}
+
+// conversation is the right of the sidebar: the thread, or the welcome
+// screen, under its header.
+func conversation(c *ui.Context, a *Session) {
+	ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
+		a.header(c)
+		a.banner(c)
+		ui.Box(c).Fill().Clip().Children(func() {
+			a.content(c)
+		})
+	})
+}
+
+// narrowLayout is the phone layout: one column.
+func narrowLayout(c *ui.Context, a *Session) {
+	ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
+		a.narrowView(c)
+	})
+	overlays(c, a, nil)
+}
+
+// overlays draws the dialogs and toasts above the workspace: the active
+// session's, and the manager's own.
+func overlays(c *ui.Context, a *Session, m *Manager) {
+	if a != nil {
+		a.dialogs(c)
+	}
+	if m != nil {
+		m.dialogs(c)
+	}
+}
+
+// banner draws the error line above the content, with a way to dismiss
+// it, and the reconnected notice.
+func (s *Session) banner(c *ui.Context) {
+	if s.connectionRecovered {
+		ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 12).
+			Background(c.Theme().Surface).BorderWidth(0, 0, 1, 0).BorderColor(c.Theme().Border).
+			Children(func() {
+				ui.Icon(c, lucide.Check()).FontSize(13).TextColor(c.Theme().Success)
+				text(c, i18n.T("Reconnected to the environment."), 12, c.Theme().TextMuted)
+				ui.Spacer(c)
+				if ui.Button(c, i18n.T("Dismiss")).Clicked() {
+					s.connectionRecovered = false
+				}
+			})
+	}
+	if s.connErr != "" && !s.transportBlocked {
+		ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 12).
+			Background(c.Theme().Surface).BorderWidth(0, 0, 1, 0).BorderColor(c.Theme().Border).
+			Children(func() {
+				ui.Text(c, s.connErr).FontSize(12).TextColor(c.Theme().Danger).MaxLines(3).Grow(1)
+				if ui.Button(c, i18n.T("Dismiss")).Clicked() {
+					s.connErr = ""
+				}
+			})
+	}
+}
+
+// content draws what the header belongs to: the open thread, the
+// new-thread page, or the welcome screen.
+func (s *Session) content(c *ui.Context) {
+	if s.showNewThread && !compact(c) {
+		s.newThreadPage(c)
+		return
+	}
+	if s.selected == "" {
+		welcome(c, s)
+		return
+	}
+	s.threadPane(c)
+}
+
+// welcome is what an environment with nothing open shows.
+func welcome(c *ui.Context, s *Session) {
+	t := c.Theme()
+	message := i18n.T("Create a project to give your agent a workspace, or start a thread in one you already have.")
+	if n := len(s.projects); n > 0 {
+		message = i18n.T("You have %d %s ready. Pick a thread from the sidebar or start a fresh one.",
+			n, plural(n, i18n.T("project"), i18n.T("projects")))
+	}
+	ui.Column(c).Fill().Center().Padding(24).Children(func() {
+		ui.Column(c).MaxWidth(420).WidthPercent(100).AlignItems(ui.Center).Gap(12).
+			Padding(24).Radius(14).Border(1, t.Border).Background(t.Surface).Children(func() {
+			brandWordmark(c, 24)
+			ui.Text(c, i18n.T("Welcome to ")+s.envName()).FontSize(19).Bold().TextColor(t.Text)
+			ui.Text(c, message).FontSize(12.5).LineHeight(19).TextAlign(ui.Center).TextColor(t.TextMuted)
+			ui.Row(c).Gap(8).WidthPercent(100).Children(func() {
+				ui.PrimaryButton(c, i18n.T("New thread")).Grow(1).OnClick(s.openNewThread)
+				ui.Button(c, i18n.T("New project")).Grow(1).OnClick(s.openNewProject)
+			})
+		})
+	})
+}
+
+// header is the conversation's top bar: the panel toggles, the thread's
+// title and branch, and its actions.
+func (s *Session) header(c *ui.Context) {
+	t := c.Theme()
+	if compact(c) {
+		s.mobileHeader(c)
+		return
+	}
+	ui.Row(c).AlignItems(ui.Center).Gap(10).Padding(8, 12).
+		BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+		toggle := ui.Button(c, "").Label(i18n.T("Toggle sidebar")).
+			Tooltip(i18n.T("Toggle sidebar")).Children(func() {
+			ui.Icon(c, lucide.PanelLeft()).FontSize(16)
+		})
+		if toggle.Clicked() {
+			s.setSidebarOpen(!s.sidebarOpen)
+		}
+		if !s.sidebarOpen {
+			toggle.Background(t.SurfaceHover)
+		}
+		s.headerTitle(c)
+		ui.Spacer(c)
+		if s.detail.Thread.ID != "" {
+			s.branchMenuButton(c)
+			ui.Button(c, "").Label(i18n.T("Thread actions")).
+				Tooltip(i18n.T("Thread actions")).Children(func() {
+				ui.Icon(c, lucide.Ellipsis()).FontSize(16)
+			}).PopoverMenuButton(func(m *ui.Menu) {
+				if m.Item(i18n.T("Run history")).Chosen() {
+					s.openRuns()
+				}
+				if m.Item(i18n.T("Open in editor")).Chosen() {
+					s.openInEditor()
+				}
+				if m.Item(i18n.T("Changes in this thread")).Chosen() {
+					s.openDiff()
+				}
+			})
+		}
+		right := ui.Button(c, "").Label(i18n.T("Toggle right panel")).
+			Tooltip(i18n.T("Toggle right panel")).Children(func() {
+			ui.Icon(c, lucide.PanelRight()).FontSize(16)
+		})
+		if right.Clicked() {
+			s.setRightOpen(!s.rightOpen)
+		}
+		if s.rightOpen {
+			right.Background(t.SurfaceHover)
+		}
+	})
+}
+
+// headerTitle names the open thread, or the page the workspace shows.
+func (s *Session) headerTitle(c *ui.Context) {
+	t := c.Theme()
+	if s.showNewThread && !compact(c) {
+		ui.Row(c).AlignItems(ui.Center).Gap(7).Grow(1).Children(func() {
+			brandWordmark(c, 17)
+			faint(c, "/", 12)
+			text(c, i18n.T("New thread"), 12.5, t.Text, 500)
+			ui.Spacer(c)
+			if ui.Button(c, i18n.T("Cancel")).Clicked() {
+				s.showNewThread = false
+			}
+		})
+		return
+	}
+	d := s.detail
+	if d.Thread.ID == "" {
+		ui.Row(c).Gap(6).Grow(1).AlignItems(ui.Center).Children(func() {
+			s.environmentStatus(c)
+		})
+		return
+	}
+	ui.Row(c).AlignItems(ui.Center).Gap(7).Grow(1).MinWidth(0).Children(func() {
+		ui.Column(c).Gap(1).Children(func() {
+			ui.Text(c, d.Thread.Title).FontSize(13.5).FontWeight(600).TextColor(t.Text).SingleLine().MaxWidth(360)
+			s.environmentStatus(c)
+		})
+	})
+}
+
+// environmentStatus is one quiet line under the title: the environment
+// and how it is reached.
+func (s *Session) environmentStatus(c *ui.Context) {
+	t := c.Theme()
+	_, label := s.connectionStatus()
+	if label == "" {
+		return
+	}
+	ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+		if s.offline {
+			ui.Icon(c, lucide.CloudOff()).FontSize(11).TextColor(t.TextMuted)
+		}
+		text(c, label, 10, t.TextMuted)
+	})
+}
+
+// branchMenuButton shows and switches the thread's branch.
+func (s *Session) branchMenuButton(c *ui.Context) {
+	branch := s.detail.Thread.Branch
+	if s.detail.Git != nil && s.detail.Git.Branch != "" {
+		branch = s.detail.Git.Branch
+	}
+	if branch == "" {
+		branch = "detached"
+	}
+	ui.Button(c, "").Label(i18n.T("Branch") + " " + branch).Children(func() {
+		ui.Icon(c, lucide.GitBranch()).FontSize(14)
+		ui.Text(c, branch).SingleLine().MaxWidth(160)
+	}).OnClick(func() {
+		s.showBranches = true
+		s.loadBranches(s.selected)
+	})
+}
