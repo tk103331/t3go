@@ -12,6 +12,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/tk/t3go/internal/client"
 	"github.com/tk/t3go/internal/i18n"
@@ -343,6 +344,11 @@ type Session struct {
 	// deviceBitmapCache is the decoded screenshot, made once per shot.
 	deviceBitmapCache *ui.Bitmap
 	deviceBitmapKey   string
+
+	// diffState is the diff viewer's state for the patch diffStateKey,
+	// kept across frames.
+	diffState    *editor.DiffState
+	diffStateKey string
 }
 
 func newSession(win *mygo.Window, shared appStorage, manager *Manager, profile client.EnvironmentProfile) *Session {

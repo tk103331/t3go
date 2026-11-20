@@ -434,23 +434,27 @@ func prettyFileJSON(content string) string {
 }
 
 // diffPatchViewer shows a unified patch in the diff viewer, falling back
-// to plain text when the text is not a patch.
+// to plain text when the text is not a patch. The viewer's state keeps
+// across frames, so its scroll and expansions survive a rebuild.
 func (s *Session) diffPatchViewer(c *ui.Context, patch string) {
 	if strings.TrimSpace(patch) == "" {
 		faint(c, i18n.T("No changes."), 12)
 		return
 	}
-	files, err := editor.ParsePatch(patch)
-	if err != nil || len(files) == 0 {
-		ui.Scroll(c).Fill().Children(func() {
-			ui.Column(c).Padding(10).Children(func() {
-				ui.Text(c, patch).FontSize(11.5).LineHeight(16).Font("monospace").
-					TextColor(c.Theme().Text).Selectable()
+	if s.diffState == nil || s.diffStateKey != patch {
+		files, err := editor.ParsePatch(patch)
+		if err != nil || len(files) == 0 {
+			ui.Scroll(c).Fill().Children(func() {
+				ui.Column(c).Padding(10).Children(func() {
+					ui.Text(c, patch).FontSize(11.5).LineHeight(16).Font("monospace").
+						TextColor(c.Theme().Text).Selectable()
+				})
 			})
-		})
-		return
+			return
+		}
+		diff := &editor.DiffState{}
+		diff.SetPatch(files[min(s.diffFileIndex, len(files)-1)])
+		s.diffState, s.diffStateKey = diff, patch
 	}
-	diff := &editor.DiffState{}
-	diff.SetPatch(files[min(s.diffFileIndex, len(files)-1)])
-	editor.DiffView(c, diff).Grow(1).FillWidth()
+	editor.DiffView(c, s.diffState).Grow(1).FillWidth()
 }
