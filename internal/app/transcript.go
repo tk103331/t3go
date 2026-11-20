@@ -130,6 +130,8 @@ func (s *Session) threadPane(c *ui.Context) {
 			ui.Column(c).WidthPercent(100).MaxWidth(760).Gap(6).Children(func() {
 				s.queuedBlock(c)
 				s.planBanner(c)
+				s.composerMentions(c)
+				s.composerSuggestions(c)
 				spec := composerSpec{
 					Draft:          &s.draft,
 					Label:          i18n.T("Message"),

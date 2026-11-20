@@ -367,7 +367,7 @@ func runModelLabel(run proto.Run) string {
 }
 
 // diffDialog shows one run's checkpoint diff, or the thread's working
-// changes, in the diff viewer.
+// changes, in the diff viewer, with the checkout's git controls.
 func diffDialog(c *ui.Context, s *Session) {
 	ui.Modal(c, &s.showDiff, func() {
 		t := c.Theme()
@@ -400,10 +400,104 @@ func diffDialog(c *ui.Context, s *Session) {
 					faint(c, i18n.T("Loading diff…"), 12)
 				})
 			}
-			ui.Box(c).Height(480).FillWidth().Children(func() {
+			ui.Box(c).Height(420).FillWidth().Children(func() {
 				s.diffViewer(c)
 			})
+			s.gitControls(c)
 		})
+	})
+}
+
+// gitControls are the Changes dialog's git controls: the checkout's
+// status line, the commit message, and the actions.
+func (s *Session) gitControls(c *ui.Context) {
+	t := c.Theme()
+	git := s.detail.Git
+	branch := ""
+	if git != nil {
+		branch = git.Branch
+	}
+	if git == nil || !git.Repo {
+		return
+	}
+	ui.Column(c).Gap(8).Children(func() {
+		var detail []string
+		if git.Dirty {
+			detail = append(detail, i18n.T("uncommitted changes"))
+		}
+		if git.Ahead > 0 {
+			detail = append(detail, i18n.T("%d ahead", git.Ahead))
+		}
+		if git.Behind > 0 {
+			detail = append(detail, i18n.T("%d behind", git.Behind))
+		}
+		branchField := text(c, branch, 12, t.Text, 600)
+		if len(s.branches) > 1 {
+			branchField = ui.Button(c, "").Label(i18n.T("Branch") + " " + branch).Children(func() {
+				ui.Icon(c, lucide.GitBranch()).FontSize(14)
+				ui.Text(c, branch).SingleLine().MaxWidth(160)
+			}).PopoverMenuButton(func(m *ui.Menu) {
+				for _, ref := range s.branches {
+					ref := ref
+					if m.Item(ref.Name).Checked(ref.Current).Chosen() {
+						s.switchBranch(ref.Name)
+					}
+				}
+			})
+		}
+		ui.Row(c).AlignItems(ui.Center).Gap(4).MinWidth(0).Children(func() {
+			branchField.Padding(0)
+			if len(detail) > 0 {
+				faint(c, strings.Join(detail, " · "), 11.5)
+			}
+			ui.Spacer(c)
+		})
+		ui.Field(c, i18n.T("Commit message"), func() {
+			ui.TextInput(c, &s.gitMessage).Placeholder(i18n.T("Commit message (defaults to an update)"))
+		})
+		ui.Row(c).Wrap().AlignItems(ui.Center).Gap(6).Children(func() {
+			commit := ui.Button(c, i18n.T("Commit")).Children(func() {
+				ui.Icon(c, lucide.Check()).FontSize(15)
+				ui.Text(c, i18n.T("Commit"))
+			})
+			if s.gitBusy {
+				commit.Disabled(true)
+			}
+			commit.OnClick(func() { s.runGitAction(proto.GitCommit) })
+			push := ui.Button(c, i18n.T("Push")).Children(func() {
+				ui.Icon(c, lucide.ArrowUp()).FontSize(15)
+				ui.Text(c, i18n.T("Push"))
+			})
+			if s.gitBusy {
+				push.Disabled(true)
+			}
+			push.OnClick(func() { s.runGitAction(proto.GitPush) })
+			cp := ui.Button(c, i18n.T("Commit & push")).Children(func() {
+				ui.Icon(c, lucide.ArrowUp()).FontSize(15)
+				ui.Text(c, i18n.T("Commit & push"))
+			})
+			if s.gitBusy {
+				cp.Disabled(true)
+			}
+			cp.OnClick(func() { s.runGitAction(proto.GitCommitPush) })
+			pr := ui.PrimaryButton(c, i18n.T("Create PR")).Children(func() {
+				ui.Icon(c, lucide.GitPullRequest()).FontSize(15)
+				ui.Text(c, i18n.T("Create PR"))
+			})
+			if s.gitBusy {
+				pr.Disabled(true)
+			}
+			pr.OnClick(func() { s.runGitAction(proto.GitCommitPR) })
+			if s.gitBusy {
+				ui.Spinner(c).Size(14, 14).Label(i18n.T("Running git action"))
+			}
+		})
+		if s.gitNote != "" {
+			ui.Text(c, s.gitNote).FontSize(11.5).LineHeight(16).TextColor(t.TextMuted)
+		}
+		if s.gitPR != "" {
+			ui.Text(c, s.gitPR).FontSize(11.5).TextColor(t.Accent).SingleLine()
+		}
 	})
 }
 
