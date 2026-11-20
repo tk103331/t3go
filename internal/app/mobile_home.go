@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"hash/fnv"
 	"sort"
 	"strings"
@@ -351,81 +350,5 @@ func (s *Session) mobileBottomNavigation(c *ui.Context) {
 			s.loadMobileUsage()
 		})
 		tab(lucide.Settings(), i18n.T("Settings"), "settings", s.openSettings)
-	})
-}
-
-// mobilePullRequestsPage is the phone's pull request list.
-//
-// TODO(view): the environment and state filters the old page had land
-// with the rows' port; the summary loads and the rows draw already.
-func (s *Session) mobilePullRequestsPage(c *ui.Context) {
-	t := c.Theme()
-	ui.Scroll(c).Fill().Children(func() {
-		ui.Column(c).Padding(12).Gap(8).Children(func() {
-			if s.mobilePRBusy {
-				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-					ui.Spinner(c).Size(14, 14).Label(i18n.T("Loading pull requests"))
-				})
-			}
-			if s.mobilePRErr != "" {
-				errorNote(c, s.mobilePRErr)
-			}
-			if len(s.mobilePRRows) == 0 && !s.mobilePRBusy {
-				faint(c, i18n.T("No pull requests for these projects."), 12)
-			}
-			for _, row := range s.mobilePRRows {
-				row := row
-				ui.Column(c).Gap(3).Padding(10, 12).Radius(8).Background(t.Surface).Children(func() {
-					ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
-						ui.Icon(c, lucide.GitPullRequest()).FontSize(14).TextColor(t.TextMuted)
-						ui.Text(c, row.PR.Title).FontSize(13).FontWeight(500).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
-					})
-					faint(c, row.Environment+" · "+row.Project+" · #"+fmt.Sprintf("%d", row.PR.Number), 10.5)
-					ui.Text(c, row.PR.HeadBranch+" → "+row.PR.BaseBranch).FontSize(10.5).
-						Font("monospace").TextColor(t.TextMuted).SingleLine()
-				})
-			}
-		})
-	})
-}
-
-// mobileUsagePage is the phone's usage summary.
-//
-// TODO(view): the environment and metric pickers land with the rows'
-// port; the totals and the days draw already.
-func (s *Session) mobileUsagePage(c *ui.Context) {
-	t := c.Theme()
-	ui.Scroll(c).Fill().Children(func() {
-		ui.Column(c).Padding(12).Gap(10).Children(func() {
-			if s.usageErr != "" {
-				errorNote(c, s.usageErr)
-			}
-			ui.Row(c).Gap(6).Children(func() {
-				usageCard(c, "Runs", fmt.Sprint(s.usageReport.Totals.Runs))
-				usageCard(c, "Tokens", humanTokens(s.usageReport.Totals.Tokens))
-				usageCard(c, "Cost", "$"+fmt.Sprintf("%.2f", s.usageReport.Totals.Cost))
-			})
-			var max int64
-			for _, day := range s.usageReport.Days {
-				if day.Tokens > max {
-					max = day.Tokens
-				}
-			}
-			if max > 0 {
-				ui.Row(c).AlignItems(ui.End).Gap(2).Height(96).Children(func() {
-					for _, day := range s.usageReport.Days {
-						day := day
-						height := float32(2)
-						if day.Tokens > 0 {
-							height = 4 + 90*float32(day.Tokens)/float32(max)
-						}
-						ui.Box(c).Grow(1).MinWidth(2).Height(height).Radius(2).
-							Background(t.Accent.Alpha(0.55))
-					}
-				})
-			} else {
-				faint(c, i18n.T("No usage recorded in this range."), 11.5)
-			}
-		})
 	})
 }

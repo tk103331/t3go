@@ -99,6 +99,12 @@ func startEnv(t *testing.T) (*server.Server, *httptest.Server, config.Config) {
 // startApp runs the client's root view against the environment, with a
 // memory store that already knows the address and the token.
 func startApp(t *testing.T, ts *httptest.Server, cfg config.Config, entries map[string]string) (*Tester, *Session) {
+	return startAppAt(t, ts, cfg, 1100, 760, entries)
+}
+
+// startAppAt runs the client's root view at a window size, so a phone's
+// layout can be tested at its own dimensions.
+func startAppAt(t *testing.T, ts *httptest.Server, cfg config.Config, width, height int, entries map[string]string) (*Tester, *Session) {
 	t.Helper()
 	if entries == nil {
 		entries = map[string]string{}
@@ -113,7 +119,7 @@ func startApp(t *testing.T, ts *httptest.Server, cfg config.Config, entries map[
 	// has to exist first: build them here and give the root a manager.
 	mgr := newManagerForTest(post, store)
 	mgr.start()
-	tt := ui.NewTester(mgr.view, 1100, 760)
+	tt := ui.NewTester(mgr.view, width, height)
 	t.Cleanup(func() {
 		for _, s := range mgr.sessions {
 			s.disposeEnvironmentSession()
