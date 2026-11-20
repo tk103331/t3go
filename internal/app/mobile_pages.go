@@ -340,3 +340,85 @@ func providerName(id string) string {
 	}
 	return id
 }
+
+// settingsSectionSaves is whether a section's page shows a save button.
+func settingsSectionSaves(section string) bool {
+	switch section {
+	case "providers", "access":
+		return true
+	}
+	return false
+}
+
+// mobileSettingsPage is the phone's settings: an index of the sections,
+// or the section's page with a save footer.
+func (s *Session) mobileSettingsPage(c *ui.Context) {
+	t := c.Theme()
+	if s.mobileSettingsDetail != "" {
+		ui.Column(c).Fill().Children(func() {
+			ui.Scroll(c).Grow(1).Children(func() {
+				ui.Column(c).Padding(18).Children(func() {
+					s.settingsSectionView(c)
+				})
+			})
+			if settingsSectionSaves(s.settingsSection) {
+				target := s.settingsTarget()
+				if target != nil && target.settingsConnectionReady() {
+					ui.Row(c).Gap(8).Padding(8, 18).Children(func() {
+						ui.Spacer(c)
+						save := ui.PrimaryButton(c, i18n.T("Save")).Children(func() {
+							ui.Icon(c, lucide.Check()).FontSize(15)
+							ui.Text(c, i18n.T("Save"))
+						})
+						if s.settingsSaveBusy {
+							save.Disabled(true)
+						}
+						save.OnClick(func() { s.saveTargetSettings(target) })
+					})
+				}
+			}
+		})
+		return
+	}
+	row := func(title, detail string, icon *ui.SVG, press func()) {
+		r := ui.Row(c).AlignItems(ui.Center).Gap(12).MinHeight(58).Padding(12, 16).FillWidth().Children(func() {
+			ui.Icon(c, icon).FontSize(24).TextColor(t.Text)
+			ui.Column(c).Gap(4).Grow(1).MinWidth(0).Children(func() {
+				ui.Text(c, title).FontSize(16).TextColor(t.Text)
+				ui.Text(c, detail).FontSize(12).TextColor(t.TextMuted).MaxLines(2)
+			})
+			ui.Icon(c, lucide.ChevronRight()).FontSize(18).TextColor(t.TextMuted)
+		})
+		if r.RowClicked() {
+			press()
+		}
+	}
+	count := 1
+	if s.manager != nil {
+		count = len(s.manager.profiles)
+	}
+	ui.Scroll(c).Fill().Children(func() {
+		ui.Column(c).Padding(18).Gap(22).Children(func() {
+			ui.Column(c).Radius(24).Background(t.Surface).Children(func() {
+				row(i18n.T("Environments"), i18n.T("%d saved · manage connections and names", count),
+					lucide.Network(), func() { s.openMobileSettingsSection("environments") })
+				row(i18n.T("Appearance"), i18n.T("Theme and accent on this client"),
+					lucide.Settings(), func() { s.openMobileSettingsSection("general") })
+				row(i18n.T("Providers"), i18n.T("CLI status, models and sign in by environment"),
+					lucide.Bot(), func() { s.openMobileSettingsSection("providers") })
+				row(i18n.T("Worktrees"), i18n.T("Checkouts used by your threads"),
+					lucide.GitBranch(), func() { s.openMobileSettingsSection("worktrees") })
+				row(i18n.T("Projects"), i18n.T("Folders and conversations across environments"),
+					lucide.Folder(), func() { s.mobilePage = "projects" })
+				row(i18n.T("About"), i18n.T("Server and protocol information"),
+					lucide.Info(), func() { s.openMobileSettingsSection("about") })
+			})
+		})
+	})
+}
+
+// openMobileSettingsSection opens the phone's settings on one section.
+func (s *Session) openMobileSettingsSection(section string) {
+	s.setSettingsSection(section)
+	s.mobileSettingsDetail = section
+}

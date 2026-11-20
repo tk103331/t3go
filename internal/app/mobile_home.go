@@ -76,6 +76,8 @@ func (s *Session) mobileHomeScreen(c *ui.Context) {
 				s.mobilePullRequestsPage(c)
 			case "usage":
 				s.mobileUsagePage(c)
+			case "settings":
+				s.mobileSettingsPage(c)
 			case "projects":
 				s.mobileThreadsPage(c)
 			default:
@@ -106,6 +108,11 @@ func (s *Session) mobileHomeHeader(c *ui.Context) {
 		title = i18n.T("Usage")
 	case "prs":
 		title = i18n.T("Pull requests")
+	case "settings":
+		title = i18n.T("Settings")
+		if s.mobileSettingsDetail != "" {
+			title = s.settingsSectionLabel()
+		}
 	case "projects":
 		title = i18n.T("Projects")
 	default:
@@ -121,6 +128,14 @@ func (s *Session) mobileHomeHeader(c *ui.Context) {
 		if s.mobilePage == "threads" {
 			iconBtn(c, lucide.Search(), i18n.T("Search threads"), func() {
 				s.mobileThreadSearch = true
+			})
+		}
+		if s.mobilePage == "settings" && s.mobileSettingsDetail != "" {
+			iconBtn(c, lucide.ChevronLeft(), i18n.T("Back to settings"), func() {
+				if s.mobileSettingsDetail == "environments" {
+					s.setSettingsSection("environments")
+				}
+				s.mobileSettingsDetail = ""
 			})
 		}
 		if s.mobilePage == "projects" {

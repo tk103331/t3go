@@ -119,7 +119,17 @@ func startAppAt(t *testing.T, ts *httptest.Server, cfg config.Config, width, hei
 	// has to exist first: build them here and give the root a manager.
 	mgr := newManagerForTest(post, store)
 	mgr.start()
-	tt := ui.NewTester(mgr.view, width, height)
+	// The view draws the manager directly; keep the client's narrow flag
+	// current for it, as the window's root does.
+	narrow := width < 760
+	wrapped := func(c *ui.Context) {
+		compactView = narrow
+		if mgr.active != nil {
+			mgr.active.narrow = narrow
+		}
+		mgr.view(c)
+	}
+	tt := ui.NewTester(wrapped, width, height)
 	t.Cleanup(func() {
 		for _, s := range mgr.sessions {
 			s.disposeEnvironmentSession()
@@ -257,14 +267,23 @@ func TestUICreateThreadInProject(t *testing.T) {
 	session.newThreadModel = "ui-fake-1"
 	session.createPreparedThread(true)
 	created := ""
-	tester.wait(t, 10*time.Second, func() bool {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		tester.post.drain()
+		tester.tt.Frame()
 		threads, err := srv.Store.Threads(ctx, beta.ID, false)
-		if err != nil || len(threads) == 0 {
-			return false
+		if err == nil && len(threads) > 0 {
+			created = threads[0].ID
+			break
 		}
-		created = threads[0].ID
-		return true
-	}, "the thread to land in Beta")
+		if session.connErr != "" {
+			t.Fatalf("create failed: %v", session.connErr)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if created == "" {
+		t.Fatalf("the thread did not land in Beta; connErr=%q showNewThread=%v", session.connErr, session.showNewThread)
+	}
 	tester.wait(t, 10*time.Second, func() bool {
 		return session.selected == created
 	}, "the client to open the created thread")

@@ -88,3 +88,50 @@ func TestUIMobilePages(t *testing.T) {
 		t.Fatalf("the usage page does not switch to tokens: %v", tester.tt.Texts())
 	}
 }
+
+// TestUIMobileSettings opens the phone's settings index and its
+// sections.
+func TestUIMobileSettings(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+
+	ctx := context.Background()
+	if _, err := srv.Service.CreateProject(ctx, "Mobile", gitRepo(t)); err != nil {
+		t.Fatalf("project: %v", err)
+	}
+
+	tester, session := startAppAt(t, ts, cfg, 390, 844, nil)
+
+	tester.wait(t, 15*time.Second, func() bool {
+		return session != nil && session.connected
+	}, "the environment to connect")
+
+	// The phone's settings open as a page, not a dialog.
+	session.openSettings()
+	tester.wait(t, 5*time.Second, func() bool {
+		tester.post.drain()
+		tester.tt.Frame()
+		return session.mobilePage == "settings" && !session.showSettings
+	}, "the settings page to open")
+	tester.pump()
+	if !tester.tt.HasText(i18n.T("Environments")) || !tester.tt.HasText(i18n.T("Appearance")) {
+		t.Fatalf("the settings index is missing its rows: %v", tester.tt.Texts())
+	}
+
+	// A section's page opens and comes back.
+	session.openMobileSettingsSection("providers")
+	tester.pump()
+	if !tester.tt.HasText(i18n.T("Detected providers")) {
+		t.Fatalf("the providers page did not open: %v", tester.tt.Texts())
+	}
+	session.mobileSettingsDetail = ""
+	tester.pump()
+
+	// The environments page lists the saved environment.
+	session.openMobileSettingsSection("environments")
+	tester.pump()
+	if !tester.tt.HasText(session.envName()) {
+		t.Fatalf("the environments page does not list the environment: %v", tester.tt.Texts())
+	}
+	session.mobileSettingsDetail = ""
+	session.mobilePage = "threads"
+}

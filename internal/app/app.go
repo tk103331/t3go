@@ -69,6 +69,10 @@ func (a *clientApp) root(c *ui.Context) {
 		a.manager = newManager(a.win, a.store)
 		a.manager.start()
 	}
+	compactView = compact(c)
+	if active := a.manager.active; active != nil {
+		active.narrow = compact(c)
+	}
 	t := themeFor(a.manager.appearance, c.Theme())
 	c.SetTheme(t)
 	if active := a.manager.active; active != nil {
