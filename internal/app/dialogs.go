@@ -737,14 +737,12 @@ func (s *Session) settingsSectionView(c *ui.Context) {
 		s.settingsEnvironments(c)
 	case "background":
 		s.settingsBackground(c)
+	case "access":
+		s.settingsAccess(c)
 	case "shortcuts":
 		s.settingsShortcuts(c)
 	case "about":
 		s.settingsAbout(c)
-	default:
-		// TODO(view): the access section port lands with the Relay access
-		// views.
-		faint(c, i18n.T("This section is on its way."), 12)
 	}
 }
 
