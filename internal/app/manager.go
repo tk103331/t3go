@@ -76,12 +76,17 @@ type Manager struct {
 // newManager loads the saved environments and prepares the manager. The
 // session for the active profile is created in start.
 func newManager(win *mygo.Window, store appStorage) *Manager {
-	account := loadRelayAccount(store)
-	post := func(fn func()) {
-		if win != nil {
-			win.Update(fn)
-		}
+	var post func(func())
+	if win != nil {
+		post = win.Update
 	}
+	return newManagerPost(win, post, store)
+}
+
+// newManagerPost builds the manager with an explicit main-thread poster,
+// which tests give instead of a window.
+func newManagerPost(win *mygo.Window, post func(func()), store appStorage) *Manager {
+	account := loadRelayAccount(store)
 	m := &Manager{
 		post:             post,
 		win:              win,

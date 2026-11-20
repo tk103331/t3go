@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,17 +23,26 @@ import (
 // the state through it; the test drains it onto its own goroutine before
 // every frame, as the window would.
 type testPost struct {
+	mu  sync.Mutex
 	fns []func()
 }
 
 func (p *testPost) Update(fn func()) {
+	p.mu.Lock()
 	p.fns = append(p.fns, fn)
+	p.mu.Unlock()
 }
 
 func (p *testPost) drain() {
-	for len(p.fns) > 0 {
+	for {
+		p.mu.Lock()
+		if len(p.fns) == 0 {
+			p.mu.Unlock()
+			return
+		}
 		fns := p.fns
 		p.fns = nil
+		p.mu.Unlock()
 		for _, fn := range fns {
 			fn()
 		}
@@ -108,11 +118,7 @@ func startApp(t *testing.T, ts *httptest.Server, cfg config.Config, entries map[
 			s.disposeEnvironmentSession()
 		}
 	})
-	session := mgr.active
-	if session != nil {
-		session.post = post.Update
-	}
-	return &Tester{tt: tt, post: post, manager: mgr}, session
+	return &Tester{tt: tt, post: post, manager: mgr}, mgr.active
 }
 
 // Tester bundles the headless view with the post queue it drains.
@@ -143,9 +149,9 @@ func (t *Tester) wait(t2 *testing.T, limit time.Duration, want func() bool, msg 
 }
 
 // newManagerForTest builds a manager whose window is nil, posting onto
-// the test's queue.
+// the test's queue from the first session's first callback on.
 func newManagerForTest(post *testPost, store appStorage) *Manager {
-	return newManager(nil, store)
+	return newManagerPost(nil, post.Update, store)
 }
 
 func TestUIListAndThread(t *testing.T) {
