@@ -489,3 +489,518 @@ func (s *Session) settingsBackground(c *ui.Context) {
 		}
 	})
 }
+
+// settingsAccess configures pairing only for the local environment: the
+// pairing link and QR code, the routes that carry it, and whether the
+// environment server keeps running for paired devices.
+func (s *Session) settingsAccess(c *ui.Context) {
+	t := c.Theme()
+	if !isLocalEnvironmentProfile(s.profile) {
+		ui.Column(c).Gap(8).Children(func() {
+			settingsSectionTitle(c, i18n.T("Access"),
+				i18n.T("Device pairing is available only for the T3Go environment running on this machine."))
+			ui.Text(c, i18n.T("Select the local environment to manage Access.")).
+				FontSize(12).TextColor(t.TextMuted)
+		})
+		return
+	}
+	target := s.localSettingsTarget()
+	if target == nil {
+		ui.Column(c).Gap(8).Children(func() {
+			settingsSectionTitle(c, i18n.T("Access"),
+				i18n.T("Device pairing is available only for the T3Go environment running on this machine."))
+			ui.Text(c, i18n.T("No local environment is connected.")).
+				FontSize(12).TextColor(t.TextMuted)
+		})
+		return
+	}
+	on := target.settingsDraft.AccessEnabled
+	hasLANCard := target.hasLANAccessCard()
+	ui.Column(c).Gap(10).Children(func() {
+		settingsSectionTitle(c, i18n.T("Access"),
+			i18n.T("Local desktop use needs no account. Devices on the same Wi-Fi pair directly; Relay is only for access across networks."))
+		if hasLANCard {
+			s.lanAccessCard(c)
+		}
+		// The pairing switch writes through the draft and rebuilds the
+		// link from the environment's routes.
+		ui.Row(c).AlignItems(ui.Center).Gap(12).Padding(10, 12).Radius(9).
+			Background(t.Surface).Children(func() {
+			ui.Column(c).Gap(2).Grow(1).MinWidth(0).Children(func() {
+				ui.Text(c, i18n.T("Allow device pairing")).FontSize(13).FontWeight(600).TextColor(t.Text)
+				ui.Text(c, i18n.T("Shows a pairing link and QR code for this machine. Credentials stay in local environment storage.")).
+					FontSize(11).LineHeight(16).TextColor(t.TextMuted).MaxLines(3)
+			})
+			ui.Switch(c, &on).Label(i18n.T("Allow device pairing")).OnChange(func() {
+				draft := target.settingsDraft
+				draft.AccessEnabled = on
+				target.settingsDraft = draft
+				target.refreshAccess()
+			})
+		})
+		if !on {
+			s.backgroundServerCard(c)
+			return
+		}
+		directRoute, hasDirect := firstAccessRoute(target.profile, "direct")
+		relayRoute, hasRelay := firstAccessRoute(target.profile, "relay")
+		modeDirect, modeRelay := accessRouteMode(target.settingsDraft)
+		toggleRoute := func(direct, value bool) {
+			draft := target.settingsDraft
+			currentDirect, currentRelay := accessRouteMode(draft)
+			if direct {
+				currentDirect = value
+			} else {
+				currentRelay = value
+			}
+			if currentDirect || currentRelay {
+				setAccessRouteMode(&draft, currentDirect, currentRelay)
+			}
+			target.settingsDraft = draft
+			target.refreshAccess()
+		}
+		faint(c, i18n.T("Pairing routes"), 12)
+		if !hasLANCard {
+			directDetail := i18n.T("No direct route saved for this environment.")
+			if hasDirect {
+				directDetail = directRoute.URL
+			}
+			s.accessRouteRow(c, i18n.T("LAN direct"), directDetail, hasDirect,
+				modeDirect && hasDirect, modeDirect && hasDirect && (!modeRelay || !hasRelay),
+				func(value bool) { toggleRoute(true, value) })
+		}
+		relayDetail := i18n.T("No relay route saved for this environment.")
+		if hasRelay {
+			relayDetail = relayRoute.URL + " · " + relayAccessStateLabel(target.relayAccess)
+		}
+		s.accessRouteRow(c, "Relay", relayDetail, hasRelay,
+			modeRelay && hasRelay, modeRelay && hasRelay && (!modeDirect || !hasDirect),
+			func(value bool) { toggleRoute(false, value) })
+		if !hasRelay {
+			faint(c, i18n.T("Remote access (optional)"), 12)
+			s.relayConfigurationCard(c)
+		}
+		link := target.accessLink
+		if target.accessErr != "" {
+			ui.Text(c, target.accessErr).FontSize(11.5).TextColor(t.Danger)
+			s.backgroundServerCard(c)
+			return
+		}
+		if warning := accessRouteWarning(link); warning != "" {
+			ui.Text(c, warning).FontSize(11).TextColor(t.Danger)
+		}
+		ui.Column(c).Gap(8).Padding(10, 12).Radius(9).Background(t.Surface).Children(func() {
+			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
+				ui.Icon(c, lucide.KeyRound()).FontSize(16).TextColor(t.TextMuted)
+				text(c, i18n.T("Pairing link"), 12, t.Text, 600).Grow(1)
+				ui.Button(c, i18n.T("Copy link")).Children(func() {
+					ui.Icon(c, lucide.Copy()).FontSize(15)
+					ui.Text(c, i18n.T("Copy link"))
+				}).OnClick(func() { s.setClipboard(link) })
+			})
+			ui.Text(c, link).FontSize(10.5).LineHeight(15).Font("monospace").
+				TextColor(t.TextMuted).MaxLines(4).Selectable()
+		})
+		if len(target.accessQR) > 0 {
+			if bitmap, err := ui.DecodeBitmap(target.accessQR); err == nil {
+				ui.Column(c).AlignItems(ui.Center).Padding(8).Children(func() {
+					ui.Image(c, bitmap).Size(220, 220).Radius(8)
+				})
+			}
+		}
+		s.backgroundServerCard(c)
+	})
+}
+
+// accessRouteRow is one pairing route with its switch.
+func (s *Session) accessRouteRow(c *ui.Context, label, detail string, available, checked, disabled bool, onChange func(bool)) {
+	t := c.Theme()
+	on := checked
+	ui.Row(c).AlignItems(ui.Center).Gap(12).Padding(8, 10).Radius(8).
+		Background(t.Surface).Children(func() {
+		ui.Column(c).Gap(2).Grow(1).MinWidth(0).Children(func() {
+			ui.Text(c, label).FontSize(12.5).FontWeight(600).TextColor(t.Text)
+			ui.Text(c, detail).FontSize(10.5).TextColor(t.TextMuted).MaxLines(2)
+		})
+		if available {
+			sw := ui.Switch(c, &on).Label(label + i18n.T(" pairing route"))
+			if disabled {
+				sw.Disabled(true)
+			}
+			sw.OnChange(func() { onChange(on) })
+		} else {
+			faint(c, i18n.T("Not configured"), 11)
+		}
+	})
+}
+
+// relayConfigurationCard connects this machine to the Relay account the
+// client is signed into.
+func (s *Session) relayConfigurationCard(c *ui.Context) {
+	t := c.Theme()
+	target := s.localSettingsTarget()
+	if target == nil {
+		return
+	}
+	session, server, signedIn := target.relayAccountSession()
+	ui.Column(c).Gap(8).Padding(9, 11).Radius(8).Border(1, t.Border).
+		Background(t.Surface).Children(func() {
+		ui.Column(c).Gap(2).Grow(1).MinWidth(0).Children(func() {
+			text(c, i18n.T("Relay access"), 12.5, t.Text, 600)
+			ui.Text(c, i18n.T("Use the Relay account already signed in under Account.")).
+				FontSize(10.5).TextColor(t.TextMuted).MaxLines(2)
+		})
+		if signedIn {
+			name := strings.TrimSpace(session.User.Name)
+			if name == "" {
+				name = session.User.Email
+			}
+			ui.Row(c).AlignItems(ui.Center).Gap(9).Padding(8, 10).Radius(7).
+				Background(t.Background).Children(func() {
+				ui.Icon(c, lucide.UserRound()).FontSize(18).TextColor(t.Accent)
+				ui.Column(c).Gap(1).Grow(1).MinWidth(0).Children(func() {
+					ui.Text(c, name).FontSize(11.5).FontWeight(600).TextColor(t.Text).SingleLine()
+					ui.Text(c, session.User.Email+" · "+server).FontSize(10.5).TextColor(t.TextMuted).MaxLines(2)
+				})
+			})
+		} else {
+			ui.Text(c, i18n.T("No Relay account is signed in. Sign in once under Account, then return here to connect this machine.")).
+				FontSize(10.5).LineHeight(15).TextColor(t.TextMuted).MaxLines(3)
+		}
+		if target.relayErr != "" {
+			ui.Text(c, target.relayErr).FontSize(10.5).TextColor(t.Danger).MaxLines(4)
+		}
+		if target.relayBusy {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Spinner(c).Size(14, 14).Label(i18n.T("Connecting Relay"))
+			})
+		} else if signedIn {
+			ui.PrimaryButton(c, i18n.T("Connect Relay")).Children(func() {
+				ui.Icon(c, lucide.Link()).FontSize(15)
+				ui.Text(c, i18n.T("Connect Relay"))
+			}).OnClick(target.configureRelay)
+		} else {
+			ui.Button(c, i18n.T("Open Account")).Children(func() {
+				ui.Icon(c, lucide.UserRound()).FontSize(15)
+				ui.Text(c, i18n.T("Open Account"))
+			}).OnClick(func() {
+				target.setSettingsSection("environments")
+				s.manager.accountOpen = true
+			})
+		}
+	})
+}
+
+// lanAccessCard exposes the built-in server on the local network. This is
+// the no-account path used by a phone on the same Wi-Fi.
+func (s *Session) lanAccessCard(c *ui.Context) {
+	t := c.Theme()
+	if !s.hasLANAccessCard() {
+		return
+	}
+	address := s.localLANURL()
+	direct, _ := accessRouteMode(s.settingsDraft)
+	value := s.manager.lan && direct
+	detail := i18n.T("Turn this on to pair a phone over the same Wi-Fi. The pairing link still requires this environment's token.")
+	if value {
+		if address == "" {
+			detail = i18n.T("LAN access is on, but no private network address was detected. Reconnect this machine to Wi-Fi.")
+		} else {
+			detail = address + i18n.T(" · Same Wi-Fi only; no account required.")
+		}
+	}
+	ui.Row(c).AlignItems(ui.Center).Gap(12).Padding(10, 12).Radius(9).
+		Background(t.Surface).Children(func() {
+		ui.Column(c).Gap(2).Grow(1).MinWidth(0).Children(func() {
+			ui.Text(c, i18n.T("LAN direct")).FontSize(13).FontWeight(600).TextColor(t.Text)
+			ui.Text(c, detail).FontSize(11).LineHeight(16).TextColor(t.TextMuted).MaxLines(3)
+		})
+		ui.Switch(c, &value).Label(i18n.T("Allow direct access from devices on this LAN")).OnChange(func() {
+			draft := s.settingsDraft
+			_, relay := accessRouteMode(draft)
+			setAccessRouteMode(&draft, value, relay)
+			s.settingsDraft = draft
+			s.manager.setLANAccess(value)
+			s.refreshAccess()
+		})
+	})
+}
+
+// backgroundServerCard decides whether paired devices keep reaching this
+// machine once the window closes. Only a package that ships the
+// environment server has one to keep running.
+func (s *Session) backgroundServerCard(c *ui.Context) {
+	t := c.Theme()
+	if s.manager == nil || bundledServerPath() == "" {
+		return
+	}
+	value := s.manager.background
+	ui.Row(c).AlignItems(ui.Center).Gap(12).Padding(10, 12).Radius(9).
+		Background(t.Surface).Children(func() {
+		ui.Column(c).Gap(2).Grow(1).MinWidth(0).Children(func() {
+			ui.Text(c, i18n.T("Keep running in the background")).FontSize(13).FontWeight(600).TextColor(t.Text)
+			ui.Text(c, i18n.T("Paired devices and agent runs reach this machine through its server. Closing T3Go stops that server unless it is kept running here.")).
+				FontSize(11).LineHeight(16).TextColor(t.TextMuted).MaxLines(4)
+		})
+		ui.Switch(c, &value).Label(i18n.T("Keep the local environment server running in the background")).OnChange(func() {
+			s.manager.setBackgroundServer(value)
+		})
+	})
+}
+
+// settingsAccess configures pairing only for the local environment: the
+// pairing link and QR code, the routes that carry it, and whether the
+// environment server keeps running for paired devices.
+func (s *Session) settingsAccess(c *ui.Context) {
+	t := c.Theme()
+	if !isLocalEnvironmentProfile(s.profile) {
+		ui.Column(c).Gap(8).Children(func() {
+			settingsSectionTitle(c, i18n.T("Access"),
+				i18n.T("Device pairing is available only for the T3Go environment running on this machine."))
+			ui.Text(c, i18n.T("Select the local environment to manage Access.")).
+				FontSize(12).TextColor(t.TextMuted)
+		})
+		return
+	}
+	target := s.localSettingsTarget()
+	if target == nil {
+		ui.Column(c).Gap(8).Children(func() {
+			settingsSectionTitle(c, i18n.T("Access"), i18n.T("Device pairing is available only for the T3Go environment running on this machine."))
+			ui.Text(c, i18n.T("No local environment is connected.")).
+				FontSize(12).TextColor(t.TextMuted)
+		})
+		return
+	}
+	on := target.settingsDraft.AccessEnabled
+	hasLANCard := target.hasLANAccessCard()
+	ui.Column(c).Gap(10).Children(func() {
+		settingsSectionTitle(c, i18n.T("Access"),
+			i18n.T("Local desktop use needs no account. Devices on the same Wi-Fi pair directly; Relay is only for access across networks."))
+		if hasLANCard {
+			s.lanAccessCard(c)
+		}
+		// The pairing switch writes through the draft and rebuilds the
+		// link from the environment's routes.
+		ui.Row(c).AlignItems(ui.Center).Gap(12).Padding(10, 12).Radius(9).
+			Background(t.Surface).Children(func() {
+			ui.Column(c).Gap(2).Grow(1).MinWidth(0).Children(func() {
+				ui.Text(c, i18n.T("Allow device pairing")).FontSize(13).FontWeight(600).TextColor(t.Text)
+				ui.Text(c, i18n.T("Shows a pairing link and QR code for this machine. Credentials stay in local environment storage.")).
+					FontSize(11).LineHeight(16).TextColor(t.TextMuted).MaxLines(3)
+			})
+			ui.Switch(c, &on).Label(i18n.T("Allow device pairing")).OnChange(func() {
+				draft := target.settingsDraft
+				draft.AccessEnabled = on
+				target.settingsDraft = draft
+				target.refreshAccess()
+			})
+		})
+		if !on {
+			s.backgroundServerCard(c)
+			return
+		}
+		directRoute, hasDirect := firstAccessRoute(target.profile, "direct")
+		relayRoute, hasRelay := firstAccessRoute(target.profile, "relay")
+		modeDirect, modeRelay := accessRouteMode(target.settingsDraft)
+		toggleRoute := func(direct, value bool) {
+			draft := target.settingsDraft
+			currentDirect, currentRelay := accessRouteMode(draft)
+			if direct {
+				currentDirect = value
+			} else {
+				currentRelay = value
+			}
+			if currentDirect || currentRelay {
+				setAccessRouteMode(&draft, currentDirect, currentRelay)
+			}
+			target.settingsDraft = draft
+			target.refreshAccess()
+		}
+		faint(c, i18n.T("Pairing routes"), 12)
+		directDetail := i18n.T("No direct route saved for this environment.")
+		if hasDirect {
+			directDetail = directRoute.URL
+		}
+		if !hasLANCard {
+			s.accessRouteRow(c, i18n.T("LAN direct"), directDetail, hasDirect,
+				modeDirect && hasDirect, modeDirect && hasDirect && (!modeRelay || !hasRelay),
+				func(value bool) { toggleRoute(true, value) })
+		}
+		relayDetail := i18n.T("No relay route saved for this environment.")
+		if hasRelay {
+			relayDetail = relayRoute.URL + " · " + relayAccessStateLabel(target.relayAccess)
+		}
+		s.accessRouteRow(c, "Relay", relayDetail, hasRelay,
+			modeRelay && hasRelay, modeRelay && hasRelay && (!modeDirect || !hasDirect),
+			func(value bool) { toggleRoute(false, value) })
+		if !hasRelay {
+			faint(c, i18n.T("Remote access (optional)"), 12)
+			s.relayConfigurationCard(c)
+		}
+		link := target.accessLink
+		if target.accessErr != "" {
+			ui.Text(c, target.accessErr).FontSize(11.5).TextColor(t.Danger)
+			s.backgroundServerCard(c)
+			return
+		}
+		if warning := accessRouteWarning(link); warning != "" {
+			ui.Text(c, warning).FontSize(11).TextColor(t.Danger)
+		}
+		ui.Column(c).Gap(8).Padding(10, 12).Radius(9).Background(t.Surface).Children(func() {
+			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
+				ui.Icon(c, lucide.KeyRound()).FontSize(16).TextColor(t.TextMuted)
+				text(c, i18n.T("Pairing link"), 12, t.Text, 600).Grow(1)
+				ui.Button(c, i18n.T("Copy link")).Children(func() {
+					ui.Icon(c, lucide.Copy()).FontSize(15)
+					ui.Text(c, i18n.T("Copy link"))
+				}).OnClick(func() { s.setClipboard(link) })
+			})
+			ui.Text(c, link).FontSize(10.5).LineHeight(15).Font("monospace").
+				TextColor(t.TextMuted).MaxLines(4).Selectable()
+		})
+		if len(target.accessQR) > 0 {
+			if bitmap, err := ui.DecodeBitmap(target.accessQR); err == nil {
+				ui.Column(c).AlignItems(ui.Center).Padding(8).Children(func() {
+					ui.Image(c, bitmap).Size(220, 220).Radius(8)
+				})
+			}
+		}
+		s.backgroundServerCard(c)
+	})
+}
+
+// accessRouteRow is one pairing route with its switch.
+func (s *Session) accessRouteRow(c *ui.Context, label, detail string, available, checked, disabled bool, onChange func(bool)) {
+	t := c.Theme()
+	on := checked
+	ui.Row(c).AlignItems(ui.Center).Gap(12).Padding(8, 10).Radius(8).
+		Background(t.Surface).Children(func() {
+		ui.Column(c).Gap(2).Grow(1).MinWidth(0).Children(func() {
+			ui.Text(c, label).FontSize(12.5).FontWeight(600).TextColor(t.Text)
+			ui.Text(c, detail).FontSize(10.5).TextColor(t.TextMuted).MaxLines(2)
+		})
+		if available {
+			sw := ui.Switch(c, &on).Label(label + i18n.T(" pairing route"))
+			if disabled {
+				sw.Disabled(true)
+			}
+			sw.OnChange(func() { onChange(on) })
+		} else {
+			faint(c, i18n.T("Not configured"), 11)
+		}
+	})
+}
+
+// relayConfigurationCard connects this machine to the Relay account the
+// client is signed into.
+func (s *Session) relayConfigurationCard(c *ui.Context) {
+	t := c.Theme()
+	target := s.localSettingsTarget()
+	if target == nil {
+		return
+	}
+	session, server, signedIn := target.relayAccountSession()
+	ui.Column(c).Gap(8).Padding(9, 11).Radius(8).Border(1, t.Border).
+		Background(t.Surface).Children(func() {
+		ui.Column(c).Gap(2).Grow(1).MinWidth(0).Children(func() {
+			text(c, i18n.T("Relay access"), 12.5, t.Text, 600)
+			ui.Text(c, i18n.T("Use the Relay account already signed in under Account.")).
+				FontSize(10.5).TextColor(t.TextMuted).MaxLines(2)
+		})
+		if signedIn {
+			name := strings.TrimSpace(session.User.Name)
+			if name == "" {
+				name = session.User.Email
+			}
+			ui.Row(c).AlignItems(ui.Center).Gap(9).Padding(8, 10).Radius(7).
+				Background(t.Background).Children(func() {
+				ui.Icon(c, lucide.UserRound()).FontSize(18).TextColor(t.Accent)
+				ui.Column(c).Gap(1).Grow(1).MinWidth(0).Children(func() {
+					ui.Text(c, name).FontSize(11.5).FontWeight(600).TextColor(t.Text).SingleLine()
+					ui.Text(c, session.User.Email+" · "+server).FontSize(10.5).TextColor(t.TextMuted).MaxLines(2)
+				})
+			})
+		} else {
+			ui.Text(c, i18n.T("No Relay account is signed in. Sign in once under Account, then return here to connect this machine.")).
+				FontSize(10.5).LineHeight(15).TextColor(t.TextMuted).MaxLines(3)
+		}
+		if target.relayErr != "" {
+			ui.Text(c, target.relayErr).FontSize(10.5).TextColor(t.Danger).MaxLines(4)
+		}
+		if target.relayBusy {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Spinner(c).Size(14, 14).Label(i18n.T("Connecting Relay"))
+			})
+		} else if signedIn {
+			ui.PrimaryButton(c, i18n.T("Connect Relay")).Children(func() {
+				ui.Icon(c, lucide.Link()).FontSize(15)
+				ui.Text(c, i18n.T("Connect Relay"))
+			}).OnClick(target.configureRelay)
+		} else {
+			ui.Button(c, i18n.T("Open Account")).Children(func() {
+				ui.Icon(c, lucide.UserRound()).FontSize(15)
+				ui.Text(c, i18n.T("Open Account"))
+			}).OnClick(func() {
+				target.setSettingsSection("environments")
+				s.manager.accountOpen = true
+			})
+		}
+	})
+}
+
+// lanAccessCard exposes the built-in server on the local network. This is
+// the no-account path used by a phone on the same Wi-Fi.
+func (s *Session) lanAccessCard(c *ui.Context) {
+	t := c.Theme()
+	if !s.hasLANAccessCard() {
+		return
+	}
+	address := s.localLANURL()
+	direct, _ := accessRouteMode(s.settingsDraft)
+	detail := i18n.T("Turn this on to pair a phone over the same Wi-Fi. The pairing link still requires this environment's token.")
+	if s.manager.lan && direct {
+		if address == "" {
+			detail = i18n.T("LAN access is on, but no private network address was detected. Reconnect this machine to Wi-Fi.")
+		} else {
+			detail = address + i18n.T(" · Same Wi-Fi only; no account required.")
+		}
+	}
+	value := s.manager.lan && direct
+	ui.Row(c).AlignItems(ui.Center).Gap(12).Padding(10, 12).Radius(9).
+		Background(t.Surface).Children(func() {
+		ui.Column(c).Gap(2).Grow(1).MinWidth(0).Children(func() {
+			ui.Text(c, i18n.T("LAN direct")).FontSize(13).FontWeight(600).TextColor(t.Text)
+			ui.Text(c, detail).FontSize(11).LineHeight(16).TextColor(t.TextMuted).MaxLines(3)
+		})
+		ui.Switch(c, &value).Label(i18n.T("Allow direct access from devices on this LAN")).OnChange(func() {
+			draft := s.settingsDraft
+			_, relay := accessRouteMode(draft)
+			setAccessRouteMode(&draft, value, relay)
+			s.settingsDraft = draft
+			s.manager.setLANAccess(value)
+			s.refreshAccess()
+		})
+	})
+}
+
+// backgroundServerCard decides whether paired devices keep reaching this
+// machine once the window closes. Only a package that ships the
+// environment server has one to keep running.
+func (s *Session) backgroundServerCard(c *ui.Context) {
+	t := c.Theme()
+	if s.manager == nil || bundledServerPath() == "" {
+		return
+	}
+	value := s.manager.background
+	ui.Row(c).AlignItems(ui.Center).Gap(12).Padding(10, 12).Radius(9).
+		Background(t.Surface).Children(func() {
+		ui.Column(c).Gap(2).Grow(1).MinWidth(0).Children(func() {
+			ui.Text(c, i18n.T("Keep running in the background")).FontSize(13).FontWeight(600).TextColor(t.Text)
+			ui.Text(c, i18n.T("Paired devices and agent runs reach this machine through its server. Closing T3Go stops that server unless it is kept running here.")).
+				FontSize(11).LineHeight(16).TextColor(t.TextMuted).MaxLines(4)
+		})
+		ui.Switch(c, &value).Label(i18n.T("Keep the local environment server running in the background")).OnChange(func() {
+			s.manager.setBackgroundServer(value)
+		})
+	})
+}
