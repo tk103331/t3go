@@ -69,8 +69,7 @@ func (s *Session) settingsProviders(c *ui.Context) {
 			}
 			refresh.OnClick(target.refreshProviders)
 		})
-		// TODO(view): the ACP agent registry's editor port lands with the
-		// provider catalog's views.
+		target.providerSettingsSection(c)
 		faint(c, i18n.T("Detected providers"), 11)
 		ui.Column(c).Gap(6).Children(func() {
 			if len(providers) == 0 {

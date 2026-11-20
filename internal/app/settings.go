@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/tk/t3go/internal/client"
 	"github.com/tk/t3go/internal/i18n"
 	"github.com/tk/t3go/internal/proto"
+	"sort"
 )
 
 // Access belongs to the server running on this machine. A loopback direct
@@ -829,4 +831,181 @@ func (s *Session) setThreadSettled(id string, settled bool) {
 type mobilePullRequest struct {
 	EnvironmentID, Environment, Project string
 	PR                                  proto.PullRequest
+}
+
+// preferredRegistryDistribution picks the registry distribution the add
+// button installs by default.
+func preferredRegistryDistribution(agent proto.ACPRegistryAgent) string {
+	for _, distribution := range agent.Distributions {
+		if distribution == "npx" || distribution == "uvx" || distribution == "binary" {
+			return distribution
+		}
+	}
+	return ""
+}
+
+// openProviderAdd opens the add-provider panel and primes the registry
+// search.
+func (s *Session) openProviderAdd() {
+	s.providerAddOpen = true
+	s.providerManageErr = ""
+	s.searchProviderCatalog(false)
+}
+
+// searchProviderCatalog queries the environment's ACP Registry cache.
+func (s *Session) searchProviderCatalog(refresh bool) {
+	if !s.settingsConnectionReady() {
+		s.providerCatalogErr = i18n.T("Connect this environment to search the ACP Registry.")
+		return
+	}
+	s.providerSeq++
+	seq := s.providerSeq
+	query := s.providerSearchQuery
+	s.providerCatalogBusy = true
+	s.providerCatalogErr = ""
+	s.call(func(ctx context.Context, c *client.Client) error {
+		agents, err := c.ACPRegistry(ctx, query, refresh)
+		if err != nil {
+			return err
+		}
+		s.win.Update(func() {
+			if seq != s.providerSeq {
+				return
+			}
+			sort.SliceStable(agents, func(i, j int) bool {
+				return strings.ToLower(agents[i].Name) < strings.ToLower(agents[j].Name)
+			})
+			s.providerCatalog = agents
+			s.providerCatalogBusy = false
+		})
+		return nil
+	}, func(err error) {
+		if seq != s.providerSeq {
+			return
+		}
+		s.win.Update(func() {
+			s.providerCatalogBusy = false
+			if err != nil {
+				s.providerCatalogErr = friendlyError(err)
+			}
+		})
+	})
+}
+
+// acpProviderID mints an id for a configured ACP provider that is unique
+// among the ones the environment already has.
+func acpProviderID(name, agentID string, existing []proto.ACPProviderSettings) string {
+	baseID := strings.ToLower(strings.TrimSpace(agentID))
+	if baseID == "" {
+		baseID = strings.ToLower(strings.TrimSpace(name))
+	}
+	var cleaned strings.Builder
+	for _, r := range baseID {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			cleaned.WriteRune(r)
+		case r == '-', r == '_':
+			cleaned.WriteRune('-')
+		default:
+			if cleaned.Len() > 0 && !strings.HasSuffix(cleaned.String(), "-") {
+				cleaned.WriteByte('-')
+			}
+		}
+	}
+	id := "acp-" + strings.Trim(cleaned.String(), "-")
+	if id == "acp-" {
+		id = "acp-provider"
+	}
+	candidate := id
+	for n := 2; ; n++ {
+		used := false
+		for _, configured := range existing {
+			if configured.ID == candidate {
+				used = true
+				break
+			}
+		}
+		if !used {
+			return candidate
+		}
+		candidate = fmt.Sprintf("%s-%d", id, n)
+	}
+}
+
+// addRegistryProvider adds a registry agent to the environment's
+// settings, preparing a binary distribution's install first.
+func (s *Session) addRegistryProvider(agent proto.ACPRegistryAgent, distribution string) {
+	if s.providerPrepareID != "" {
+		return
+	}
+	settings := s.settingsDraft
+	for _, configured := range settings.ACPProviders {
+		if configured.Source == "registry" && configured.AgentID == agent.ID {
+			s.providerManageErr = agent.Name + i18n.T(" is already configured for this environment.")
+			return
+		}
+	}
+	add := func() {
+		s.updateProviderSettings(func(settings *proto.Settings) {
+			settings.ACPProviders = append(settings.ACPProviders, proto.ACPProviderSettings{
+				ID: acpProviderID(agent.Name, agent.ID, settings.ACPProviders), Name: agent.Name,
+				Enabled: true, Source: "registry", AgentID: agent.ID, Version: agent.Version,
+				Distribution: distribution,
+			})
+		})
+		s.providerAddOpen = false
+	}
+	if distribution != "binary" {
+		add()
+		return
+	}
+	s.providerPrepareID = agent.ID
+	s.providerManageErr = ""
+	s.call(func(ctx context.Context, c *client.Client) error {
+		_, err := c.PrepareACPRegistry(ctx, agent.ID)
+		return err
+	}, func(err error) {
+		s.win.Update(func() {
+			s.providerPrepareID = ""
+			if err != nil {
+				s.providerManageErr = friendlyError(err)
+				return
+			}
+			add()
+		})
+	})
+}
+
+// addLocalACPProvider adds a locally executable ACP agent.
+func (s *Session) addLocalACPProvider() {
+	name := strings.TrimSpace(s.providerLocalName)
+	path := strings.TrimSpace(s.providerLocalPath)
+	if name == "" {
+		s.providerManageErr = i18n.T("Enter a provider name.")
+		return
+	}
+	if path == "" {
+		s.providerManageErr = i18n.T("Enter the local ACP executable.")
+		return
+	}
+	s.updateProviderSettings(func(settings *proto.Settings) {
+		settings.ACPProviders = append(settings.ACPProviders, proto.ACPProviderSettings{
+			ID: acpProviderID(name, "", settings.ACPProviders), Name: name, Enabled: true, Source: "local",
+			CommandPath: path, CommandArgs: commandArgs(s.providerLocalArgs),
+		})
+	})
+	s.providerLocalName, s.providerLocalPath, s.providerLocalArgs = "", "", ""
+	s.providerAddOpen = false
+}
+
+// providerSettingsSource names where a configured ACP provider came from.
+func providerSettingsSource(source string) string {
+	switch source {
+	case "registry":
+		return i18n.T("ACP Registry")
+	case "local":
+		return i18n.T("Local ACP")
+	default:
+		return source
+	}
 }
