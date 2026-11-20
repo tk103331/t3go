@@ -97,13 +97,7 @@ func TestUIRunHistory(t *testing.T) {
 	tester.pump()
 	// The diff viewer is a pair of text fields: its lines live in their
 	// accessibility values, not in the plain texts.
-	shown := false
-	for _, a := range tester.tt.AccessAll() {
-		if strings.Contains(a.Value, "changed by the agent") {
-			shown = true
-		}
-	}
-	if !shown {
+	if !tester.accessValueHas("changed by the agent") {
 		var values []string
 		for _, a := range tester.tt.AccessAll() {
 			if a.Value != "" {

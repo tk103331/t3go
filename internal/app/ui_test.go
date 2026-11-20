@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -126,6 +127,17 @@ type Tester struct {
 	tt      *ui.Tester
 	post    *testPost
 	manager *Manager
+}
+
+// accessValueHas reports whether any element's accessibility value
+// carries the text, as a code editor's or a diff side's text does.
+func (t *Tester) accessValueHas(want string) bool {
+	for _, a := range t.tt.AccessAll() {
+		if strings.Contains(a.Value, want) {
+			return true
+		}
+	}
+	return false
 }
 
 // pump drains the client's queue and draws until settle.
