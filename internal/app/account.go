@@ -98,7 +98,7 @@ func (m *Manager) signInRelayAccount() {
 		if err == nil {
 			environments, err = client.RelayAccountEnvironments(ctx, server, session.Token, allowHTTP)
 		}
-		m.win.Update(func() {
+		m.post(func() {
 			m.accountBusy = false
 			if err != nil {
 				m.accountErr = friendlyError(err)
@@ -140,7 +140,7 @@ func (m *Manager) refreshRelayAccount(silent bool) {
 		ctx, cancel := context.WithTimeout(m.lifetime, 30*time.Second)
 		defer cancel()
 		environments, err := client.RelayAccountEnvironments(ctx, server, token, allowHTTP)
-		m.win.Update(func() {
+		m.post(func() {
 			m.accountBusy = false
 			if err != nil {
 				if client.IsAuthorizationError(err) {

@@ -104,7 +104,7 @@ func (m *Manager) startLocalEnvironment() {
 	lan := m.lan
 	go func() {
 		srv, err := startLocalServer(ctx, background, lan)
-		m.win.Update(func() {
+		m.post(func() {
 			m.localStarting = false
 			if err != nil {
 				if !errors.Is(err, errNoBundledServer) {

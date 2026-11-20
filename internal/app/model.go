@@ -27,6 +27,9 @@ func settingsEqual(a, b proto.Settings) bool {
 // written on the main thread; work on other goroutines reaches the state
 // through the window's Update.
 type Session struct {
+	// post runs a function on the main thread, from any goroutine. The
+	// window provides it in the app; tests queue onto their own loop.
+	post       func(func())
 	win        *mygo.Window
 	lifetime   context.Context
 	store      appStorage
@@ -343,6 +346,15 @@ type Session struct {
 }
 
 func newSession(win *mygo.Window, shared appStorage, manager *Manager, profile client.EnvironmentProfile) *Session {
+	post := func(fn func()) {
+		if manager != nil {
+			manager.post(fn)
+			return
+		}
+		if win != nil {
+			win.Update(fn)
+		}
+	}
 	var storage appStorage = shared
 	if manager != nil {
 		if manager.migrating && !manager.adding && len(manager.profiles) == 0 {
@@ -355,6 +367,7 @@ func newSession(win *mygo.Window, shared appStorage, manager *Manager, profile c
 		storage = environmentStorage{base: manager.store, id: id, legacy: profile.Legacy}
 	}
 	s := &Session{
+		post:     post,
 		win:      win,
 		lifetime: managerLifetime,
 		store:    storage,

@@ -112,7 +112,7 @@ func (s *Session) loadDetail(id string) {
 		if err != nil {
 			return
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			if s.selected != id || s.client() != c {
 				return
 			}
@@ -431,7 +431,7 @@ func (s *Session) attachFiles(files []pickedFile) {
 			defer cancel()
 			src, err := f.open()
 			if err != nil {
-				s.win.Update(func() { s.connErr = i18n.T("Could not read ") + f.Name + ": " + err.Error() })
+				s.post(func() { s.connErr = i18n.T("Could not read ") + f.Name + ": " + err.Error() })
 				return
 			}
 			attachment, uploadErr := c.Upload(ctx, f.Name, f.MIME, src)
@@ -439,7 +439,7 @@ func (s *Session) attachFiles(files []pickedFile) {
 			if f.Temporary && f.Path != "" {
 				_ = os.Remove(f.Path)
 			}
-			s.win.Update(func() {
+			s.post(func() {
 				if uploadErr != nil {
 					s.connErr = friendlyError(uploadErr)
 					return
@@ -488,7 +488,7 @@ func (s *Session) attachNewThreadFiles(files []pickedFile) {
 			defer cancel()
 			src, err := f.open()
 			if err != nil {
-				s.win.Update(func() { s.connErr = i18n.T("Could not read ") + f.Name + ": " + err.Error() })
+				s.post(func() { s.connErr = i18n.T("Could not read ") + f.Name + ": " + err.Error() })
 				return
 			}
 			attachment, uploadErr := c.Upload(ctx, f.Name, f.MIME, src)
@@ -496,7 +496,7 @@ func (s *Session) attachNewThreadFiles(files []pickedFile) {
 			if f.Temporary && f.Path != "" {
 				_ = os.Remove(f.Path)
 			}
-			s.win.Update(func() {
+			s.post(func() {
 				if uploadErr != nil {
 					s.connErr = friendlyError(uploadErr)
 					return
@@ -682,7 +682,7 @@ func (s *Session) runGitAction(action proto.GitAction) {
 		ctx, cancel := context.WithTimeout(s.lifetime, 2*time.Minute)
 		defer cancel()
 		res, err := c.GitAction(ctx, id, in)
-		s.win.Update(func() {
+		s.post(func() {
 			s.gitBusy = false
 			if err != nil {
 				s.gitNote = friendlyError(err)
@@ -782,7 +782,7 @@ func (s *Session) confirmMobileCommit() {
 		c := s.client()
 		if newBranch {
 			if _, err := c.CreateBranch(ctx, id, branch); err != nil {
-				s.win.Update(func() {
+				s.post(func() {
 					s.gitBusy = false
 					s.gitNote = friendlyError(err)
 				})
@@ -794,7 +794,7 @@ func (s *Session) confirmMobileCommit() {
 			Message: message,
 			Files:   files,
 		})
-		s.win.Update(func() {
+		s.post(func() {
 			s.gitBusy = false
 			if err != nil {
 				s.gitNote = friendlyError(err)
@@ -979,7 +979,7 @@ func (s *Session) ensureAgentCommands() {
 		ctx, cancel := context.WithTimeout(s.lifetime, 20*time.Second)
 		defer cancel()
 		commands, err := c.AgentCommands(ctx, id)
-		s.win.Update(func() {
+		s.post(func() {
 			s.agentCommandsBusy = false
 			if err != nil || s.selected != id {
 				return
@@ -1005,7 +1005,7 @@ func (s *Session) ensureFileIndex() {
 		ctx, cancel := context.WithTimeout(s.lifetime, 30*time.Second)
 		defer cancel()
 		entries, err := c.FilesRecursive(ctx, id)
-		s.win.Update(func() {
+		s.post(func() {
 			s.fileIndexBusy = false
 			if err != nil || s.selected != id {
 				return
@@ -1154,7 +1154,7 @@ func (s *Session) openTerminal() {
 				break
 			}
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			s.terminals = sessions
 			s.terminalSession = active
 			s.terminalBusy = false
@@ -1220,7 +1220,7 @@ func (s *Session) loadTerminalSessions() {
 				break
 			}
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			if s.selected != id {
 				return
 			}
@@ -1248,7 +1248,7 @@ func (s *Session) newTerminal() {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			s.terminals = append(s.terminals, session)
 			s.terminalSession = session
 			s.terminalBusy = false
@@ -1282,7 +1282,7 @@ func (s *Session) restartTerminal() {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			list := s.terminals
 			next := make([]proto.TerminalSession, 0, len(list))
 			for _, item := range list {
@@ -1431,7 +1431,7 @@ func (s *Session) loadFiles(path string) {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			s.rightBusy = false
 			s.filesPath = path
 			s.filesEntries = entries
@@ -1460,7 +1460,7 @@ func (s *Session) openFile(path string) {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			s.rightBusy = false
 			s.fileSelected = path
 			s.file = file
@@ -1505,7 +1505,7 @@ func (s *Session) loadGraph(id string) {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			s.rightBusy = false
 			s.graph = commits
 			s.rightErr = ""
@@ -1530,7 +1530,7 @@ func (s *Session) loadPullRequest(id string) {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			s.rightBusy = false
 			s.pullRequest = pr
 			s.prDetail = detail
@@ -1551,7 +1551,7 @@ func (s *Session) loadWorkingDiff(threadID string) {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			if s.selected != threadID {
 				return
 			}

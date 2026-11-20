@@ -142,7 +142,7 @@ func (s *Session) refreshRelayAccess() {
 		ctx, cancel := context.WithTimeout(s.lifetime, 10*time.Second)
 		defer cancel()
 		status, err := c.RelayAccess(ctx)
-		s.win.Update(func() {
+		s.post(func() {
 			if seq != s.relaySeq {
 				return
 			}
@@ -181,7 +181,7 @@ func (s *Session) configureRelay() {
 		ctx, cancel := context.WithTimeout(s.lifetime, 45*time.Second)
 		defer cancel()
 		status, err := c.ConfigureRelay(ctx, in)
-		s.win.Update(func() {
+		s.post(func() {
 			s.relayBusy = false
 			if seq != s.relaySeq {
 				return
@@ -209,7 +209,7 @@ func (s *Session) scheduleRelayStatusRefresh() {
 				return
 			case <-timer.C:
 			}
-			s.win.Update(func() {
+			s.post(func() {
 				if s.settingsSection == "access" {
 					s.refreshRelayAccess()
 				}
@@ -550,7 +550,7 @@ func (s *Session) callProjectTarget(fn func(context.Context, *client.Client) err
 		defer stop()
 		defer cancel()
 		err := fn(ctx, c)
-		s.win.Update(func() { done(err) })
+		s.post(func() { done(err) })
 	}()
 }
 
@@ -740,7 +740,7 @@ func (s *Session) loadMobilePullRequests() {
 				}
 			}
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			if seq != s.mobilePRSeq {
 				return
 			}
@@ -868,7 +868,7 @@ func (s *Session) searchProviderCatalog(refresh bool) {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			if seq != s.providerSeq {
 				return
 			}
@@ -883,7 +883,7 @@ func (s *Session) searchProviderCatalog(refresh bool) {
 		if seq != s.providerSeq {
 			return
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			s.providerCatalogBusy = false
 			if err != nil {
 				s.providerCatalogErr = friendlyError(err)
@@ -965,7 +965,7 @@ func (s *Session) addRegistryProvider(agent proto.ACPRegistryAgent, distribution
 		_, err := c.PrepareACPRegistry(ctx, agent.ID)
 		return err
 	}, func(err error) {
-		s.win.Update(func() {
+		s.post(func() {
 			s.providerPrepareID = ""
 			if err != nil {
 				s.providerManageErr = friendlyError(err)

@@ -18,29 +18,32 @@ import (
 // so its saved environments, drafts and preferences carry over.
 const appID = "dev.nsgo.t3go"
 
-var (
+// clientApp is the running client: its storage and its environment
+// manager, the root of the window's view. Tests build one of their own
+// with a memory store.
+type clientApp struct {
 	store   *fileStore
 	manager *Manager
 	win     *mygo.Window
-)
+}
 
 // Main runs the client: it opens the storage, the language and the
 // window, and starts every saved environment's session.
 func Main() {
-	store = openStorage(appID)
-	initClientLanguage(store)
+	a := &clientApp{store: openStorage(appID)}
+	initClientLanguage(a.store)
 	mygo.App.WhenReady(func() {
-		win = mygo.NewWindow(mygo.WindowOptions{
+		a.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:     "T3Go",
 			Width:     1100,
 			Height:    760,
 			MinWidth:  480,
 			MinHeight: 480,
-			Content:   ui.View(root),
+			Content:   ui.View(a.root),
 		})
-		win.OnClosed(func() {
-			if manager != nil {
-				for _, s := range manager.sessions {
+		a.win.OnClosed(func() {
+			if a.manager != nil {
+				for _, s := range a.manager.sessions {
 					if s != nil {
 						s.disposeEnvironmentSession()
 					}
@@ -49,10 +52,10 @@ func Main() {
 			// A local environment server started for this client watches
 			// the process and stops itself, unless it was started to
 			// outlive the client.
-			store.Close()
+			a.store.Close()
 		})
-		manager = newManager(win, store)
-		manager.start()
+		a.manager = newManager(a.win, a.store)
+		a.manager.start()
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
@@ -61,44 +64,44 @@ func Main() {
 
 // root draws the window: the theme, the shortcuts, and either the
 // connection screen or the workspace.
-func root(c *ui.Context) {
-	if manager == nil {
-		manager = newManager(win, store)
-		manager.start()
+func (a *clientApp) root(c *ui.Context) {
+	if a.manager == nil {
+		a.manager = newManager(a.win, a.store)
+		a.manager.start()
 	}
-	t := themeFor(manager.appearance, c.Theme())
+	t := themeFor(a.manager.appearance, c.Theme())
 	c.SetTheme(t)
-	if a := manager.active; a != nil {
-		a.md.Theme = markdownTheme(*t)
+	if active := a.manager.active; active != nil {
+		active.md.Theme = markdownTheme(*t)
 	}
 	if !c.FocusTakesText() {
-		appShortcuts(c)
+		a.shortcuts(c)
 	}
-	manager.view(c)
+	a.manager.view(c)
 }
 
-// appShortcuts binds the client's own keys. A focused text field keeps
-// what it types: MyGo runs window shortcuts only when the focus takes no
+// shortcuts binds the client's own keys. A focused text field keeps what
+// it types: MyGo runs window shortcuts only when the focus takes no
 // text.
-func appShortcuts(c *ui.Context) {
-	a := manager.active
-	if a == nil {
+func (a *clientApp) shortcuts(c *ui.Context) {
+	active := a.manager.active
+	if active == nil {
 		return
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyK) {
-		a.openPalette()
+		active.openPalette()
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyN) {
-		a.openNewThread()
+		active.openNewThread()
 	}
 	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyN) {
-		a.openNewProject()
+		active.openNewProject()
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyComma) {
-		a.openSettings()
+		active.openSettings()
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyB) {
-		a.setSidebarOpen(!a.sidebarOpen)
+		active.setSidebarOpen(!active.sidebarOpen)
 	}
 }
 

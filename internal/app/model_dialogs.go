@@ -63,7 +63,7 @@ func (s *Session) createBranch() {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			s.branches = branches
 			s.showBranch = false
 			s.loadDetail(id)
@@ -109,7 +109,7 @@ func (s *Session) openPullRequest(number int) {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			s.prViewBusy = false
 			s.prView = detail
 		})
@@ -240,7 +240,7 @@ func (s *Session) loadUsage(days int) {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			if seq != s.usageSeq {
 				return
 			}
@@ -268,7 +268,7 @@ func (s *Session) loadPreviewServers() {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			s.previewServers = servers
 			s.previewDetail = detail
 			s.previewBusy = false
@@ -301,7 +301,7 @@ func (s *Session) loadDevices() {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			s.devices = devices
 			s.deviceDetail = detail
 			selected := s.deviceSelected
@@ -356,7 +356,7 @@ func (s *Session) loadDeviceShot() {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			if s.deviceSelected == id {
 				s.deviceImage = shot
 				s.deviceErr = ""
@@ -468,7 +468,7 @@ func (s *Session) loadPullRequests(threadID string) {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			if s.selected != threadID {
 				return
 			}
@@ -490,7 +490,7 @@ func (s *Session) loadBranches(threadID string) {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			if s.selected == threadID {
 				s.branches = branches
 			}
@@ -516,7 +516,7 @@ func (s *Session) switchBranch(name string) {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			s.gitBusy = false
 			s.branches = branches
 			s.gitNote = i18n.T("On ") + name
@@ -577,7 +577,7 @@ func (s *Session) updateThreadSettings(patch map[string]any) {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			s.upsertThread(thread)
 			detail := s.detail
 			if detail.Thread.ID == id {
@@ -649,7 +649,7 @@ func (s *Session) forkThread(messageID, content string) {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			s.upsertThread(thread)
 			s.selectThread(thread.ID)
 		})
@@ -678,7 +678,7 @@ func (s *Session) loadDiff(threadID, runID string) {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			if diff == "" {
 				diff = i18n.T("This run made no changes.")
 			}
@@ -1210,7 +1210,7 @@ func (s *Session) searchMessages(query string) {
 			if err != nil {
 				return err
 			}
-			s.win.Update(func() {
+			s.post(func() {
 				if s.searchSeq != seq {
 					return
 				}

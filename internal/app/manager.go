@@ -18,6 +18,8 @@ import (
 // field is read and written on the main thread; work on other goroutines
 // reaches the manager through the window's Update.
 type Manager struct {
+	// post runs a function on the main thread, from any goroutine.
+	post     func(func())
 	win      *mygo.Window
 	lifetime context.Context
 	store    appStorage
@@ -75,7 +77,13 @@ type Manager struct {
 // session for the active profile is created in start.
 func newManager(win *mygo.Window, store appStorage) *Manager {
 	account := loadRelayAccount(store)
+	post := func(fn func()) {
+		if win != nil {
+			win.Update(fn)
+		}
+	}
 	m := &Manager{
+		post:             post,
 		win:              win,
 		lifetime:         managerLifetime,
 		store:            store,
@@ -540,7 +548,7 @@ func (s *Session) tryAlternateRoute(failed *client.Client, preferDirect bool) {
 		ctx, cancel := context.WithTimeout(s.lifetime, 10*time.Second)
 		defer cancel()
 		next, st, err := client.ConnectEnvironment(ctx, p)
-		s.win.Update(func() {
+		s.post(func() {
 			s.routing = false
 			if s.client() != failed || s.transportBlocked {
 				return
@@ -632,7 +640,7 @@ func (s *Session) resyncEnvironment(c *client.Client) {
 		ctx, cancel := context.WithTimeout(s.lifetime, 10*time.Second)
 		defer cancel()
 		st, err := c.State(ctx)
-		s.win.Update(func() {
+		s.post(func() {
 			s.routing = false
 			if s.client() != c || s.transportBlocked {
 				return

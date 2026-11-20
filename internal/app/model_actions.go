@@ -29,7 +29,7 @@ func (s *Session) connectProfile(profile client.EnvironmentProfile) {
 		ctx, cancel := context.WithTimeout(s.lifetime, 15*time.Second)
 		defer cancel()
 		c, st, err := client.ConnectEnvironment(ctx, profile)
-		s.win.Update(func() {
+		s.post(func() {
 			if attempt != s.connectionAttempt {
 				return
 			}
@@ -142,13 +142,13 @@ func (s *Session) startStream(c *client.Client, after int64) {
 	s.streamCancel = cancel
 	s.mu.Unlock()
 	go c.StreamWithReady(ctx, after, func() {
-		s.win.Update(func() {
+		s.post(func() {
 			if ctx.Err() == nil && s.client() == c {
 				s.markOnline()
 			}
 		})
 	}, func(e proto.Event) {
-		s.win.Update(func() {
+		s.post(func() {
 			if ctx.Err() != nil || s.client() != c {
 				return
 			}
@@ -162,7 +162,7 @@ func (s *Session) startStream(c *client.Client, after int64) {
 			}
 		})
 	}, func(err error) {
-		s.win.Update(func() {
+		s.post(func() {
 			if ctx.Err() != nil || s.client() != c {
 				return
 			}
@@ -232,7 +232,7 @@ func (s *Session) reload() {
 		if err != nil {
 			return
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			if s.client() == c {
 				s.applyState(st)
 			}
@@ -262,7 +262,7 @@ func (s *Session) openSideChat() {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			if s.sideFor != id {
 				return
 			}
@@ -317,7 +317,7 @@ func (s *Session) sendSideChat() {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			s.sideDraft = ""
 			s.sideBusy = false
 			s.sideRunning = run.Status == proto.RunRunning
@@ -383,7 +383,7 @@ func (s *Session) attachSideFiles(files []pickedFile) {
 			defer cancel()
 			src, err := f.open()
 			if err != nil {
-				s.win.Update(func() { s.sideErr = i18n.T("Could not read ") + f.Name + ": " + err.Error() })
+				s.post(func() { s.sideErr = i18n.T("Could not read ") + f.Name + ": " + err.Error() })
 				return
 			}
 			attachment, uploadErr := c.Upload(ctx, f.Name, f.MIME, src)
@@ -391,7 +391,7 @@ func (s *Session) attachSideFiles(files []pickedFile) {
 			if f.Temporary && f.Path != "" {
 				_ = os.Remove(f.Path)
 			}
-			s.win.Update(func() {
+			s.post(func() {
 				if uploadErr != nil {
 					s.sideErr = friendlyError(uploadErr)
 					return
@@ -474,7 +474,7 @@ func (s *Session) setSideModel(model proto.Model) {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() { s.sideChat = updated })
+		s.post(func() { s.sideChat = updated })
 		return nil
 	}, func(err error) {
 		if err != nil {
@@ -494,7 +494,7 @@ func (s *Session) setSidePermission(permission proto.PermissionMode) {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() { s.sideChat = updated })
+		s.post(func() { s.sideChat = updated })
 		return nil
 	}, func(err error) {
 		if err != nil {
@@ -662,7 +662,7 @@ func (s *Session) refreshProviders() {
 		if err != nil {
 			return err
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			if seq != s.providersSeq {
 				return
 			}
@@ -809,7 +809,7 @@ func (s *Session) loadApprovals() {
 		if err != nil {
 			return
 		}
-		s.win.Update(func() {
+		s.post(func() {
 			if len(approvals) == 0 && len(s.approvals) == 0 {
 				return
 			}
@@ -1003,7 +1003,7 @@ func (s *Session) call(fn func(ctx context.Context, c *client.Client) error, don
 		defer cancel()
 		err := fn(ctx, c)
 		if done != nil {
-			s.win.Update(func() { done(err) })
+			s.post(func() { done(err) })
 		}
 	}()
 }

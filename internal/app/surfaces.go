@@ -638,7 +638,7 @@ func (s *Session) browserSurface(c *ui.Context) {
 // web view the first time it is needed. A web client has none.
 func (s *Session) browserWebView() *mygo.Page {
 	if s.browserWeb == nil && !jsRuntime {
-		view, err := win.NewWebView(mygo.WebViewOptions{URL: s.browserURL})
+		view, err := s.win.NewWebView(mygo.WebViewOptions{URL: s.browserURL})
 		if err != nil {
 			s.browserNote = friendlyError(err)
 			return nil
@@ -646,7 +646,7 @@ func (s *Session) browserWebView() *mygo.Page {
 		s.browserWeb = view
 		page := view.Page()
 		page.OnDidNavigate(func(url string) {
-			win.Update(func() {
+			s.post(func() {
 				s.browserInput = url
 				s.browserBack, s.browserNext = page.CanGoBack(), page.CanGoForward()
 			})

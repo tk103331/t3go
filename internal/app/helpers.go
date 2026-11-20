@@ -141,7 +141,7 @@ func (s *Session) setClipboard(text string) {
 func (s *Session) pickFiles(cb func([]string)) {
 	go func() {
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: s.win, Multiple: true})
-		s.win.Update(func() {
+		s.post(func() {
 			if err != nil {
 				cb(nil)
 				return
@@ -156,7 +156,7 @@ func (s *Session) pickFiles(cb func([]string)) {
 func (s *Session) pickDirectories(cb func([]string)) {
 	go func() {
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: s.win, Directory: true})
-		s.win.Update(func() {
+		s.post(func() {
 			if err != nil {
 				cb(nil)
 				return
@@ -169,7 +169,7 @@ func (s *Session) pickDirectories(cb func([]string)) {
 // after schedules fn on the main thread after d and returns its cancel
 // function, which reports whether the timer was stopped in time.
 func (s *Session) after(d time.Duration, fn func()) func() bool {
-	timer := time.AfterFunc(d, func() { s.win.Update(fn) })
+	timer := time.AfterFunc(d, func() { s.post(fn) })
 	return timer.Stop
 }
 
