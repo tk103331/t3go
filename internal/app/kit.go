@@ -144,3 +144,11 @@ func segmentChoice(c *ui.Context, choices []string, current string, choose func(
 
 var _ = lucide.X() // keep the import until the views fill in
 var _ = i18n.T
+
+// clickableRow is a row that acts on a click anywhere — a plain element
+// in a dialog or a panel, not only a List's row. It draws like the other
+// rows, keeps a label for assistive technology and the tests, and
+// reports Clicked where a List row's RowClicked would.
+func clickableRow(c *ui.Context, label string, build func()) ui.Element {
+	return ui.ButtonBase(c).Label(label).FillWidth().Children(build)
+}

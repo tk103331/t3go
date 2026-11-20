@@ -201,7 +201,7 @@ func (s *Session) mobileThreadsPage(c *ui.Context) {
 				}
 			}
 			if len(settled) > 0 {
-				head := ui.Row(c).AlignItems(ui.Center).Gap(10).MinHeight(44).Padding(8, 18).Children(func() {
+				head := clickableRow(c, i18n.T("Toggle settled threads"), func() {
 					ui.Text(c, i18n.T("Settled (%d)", len(settled))).FontSize(12).FontWeight(500).TextColor(t.TextMuted)
 					ui.Box(c).Grow(1).Height(1).Background(t.Border)
 					chevron := lucide.ChevronDown()
@@ -209,8 +209,8 @@ func (s *Session) mobileThreadsPage(c *ui.Context) {
 						chevron = lucide.ChevronUp()
 					}
 					ui.Icon(c, chevron).FontSize(14).TextColor(t.TextMuted)
-				})
-				if head.RowClicked() {
+				}).AlignItems(ui.Center).Gap(10).MinHeight(44).Padding(8, 18)
+				if head.Clicked() {
 					s.mobileSettledClosed = !s.mobileSettledClosed
 				}
 				if !s.mobileSettledClosed {
@@ -254,7 +254,8 @@ func (s *Session) mobileThreadRow(c *ui.Context, row mobileThread) {
 	if thread.Archived || thread.Settled {
 		titleColor = t.TextMuted
 	}
-	row_ := ui.Row(c).AlignItems(ui.Start).Gap(10).MinHeight(78).Padding(12, 18).MinWidth(0).Children(func() {
+	row_ := clickableRow(c, title, nil).AlignItems(ui.Start).Gap(10).MinHeight(78).Padding(12, 18).MinWidth(0)
+	row_.Children(func() {
 		ui.Column(c).Size(28, 28).Radius(8).Background(tint.Alpha(0.12)).Center().Children(func() {
 			ui.Text(c, projectInitials(row.project.Name)).FontSize(11).Bold().TextColor(tint)
 		})
@@ -288,7 +289,7 @@ func (s *Session) mobileThreadRow(c *ui.Context, row mobileThread) {
 			}
 		})
 	})
-	if row_.RowClicked() {
+	if row_.Clicked() {
 		session.inEnvironment(func() { session.selectThread(thread.ID) })()
 	}
 	row_.ContextMenu(func(m *ui.Menu) {
@@ -336,7 +337,7 @@ func (s *Session) mobileBottomNavigation(c *ui.Context) {
 	t := c.Theme()
 	tab := func(icon *ui.SVG, label, page string, pressed func()) {
 		selected := s.mobilePage == page
-		b := ui.Column(c).Grow(1).MinWidth(44).Height(72).Center().Gap(5).Children(func() {
+		b := clickableRow(c, label, func() {
 			badge := ui.Column(c).Size(56, 34).Radius(20).Center().Children(func() {
 				ui.Icon(c, icon).FontSize(26).TextColor(t.Text)
 			})
@@ -344,8 +345,8 @@ func (s *Session) mobileBottomNavigation(c *ui.Context) {
 				badge.Background(t.Text.Alpha(0.13))
 			}
 			ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(t.Text)
-		})
-		if b.RowClicked() {
+		}).Grow(1).MinWidth(44).Height(72).Center().Gap(5)
+		if b.Clicked() {
 			pressed()
 		}
 	}

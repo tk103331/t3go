@@ -35,15 +35,15 @@ func (s *Session) slashCommands() []slashCommand {
 
 // suggestionRow is one row of a suggestion card.
 func suggestionRow(c *ui.Context, icon *ui.SVG, label, detail string, run func()) bool {
-	t := c.Theme()
-	row := ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 8).Radius(6).FillWidth().Children(func() {
+	row := clickableRow(c, label, func() {
+		t := c.Theme()
 		ui.Icon(c, icon).FontSize(14).TextColor(t.TextMuted)
 		ui.Text(c, label).FontSize(12).Font("monospace").TextColor(t.Text).SingleLine()
 		if detail != "" {
 			ui.Text(c, detail).FontSize(11).TextColor(t.TextMuted).SingleLine().Grow(1).MinWidth(0)
 		}
-	})
-	if row.RowClicked() {
+	}).Padding(6, 8).Radius(6)
+	if row.Clicked() {
 		run()
 		return true
 	}

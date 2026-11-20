@@ -135,3 +135,31 @@ func TestUIMobileSettings(t *testing.T) {
 	session.mobileSettingsDetail = ""
 	session.mobilePage = "threads"
 }
+
+// TestUISettingsNavSwitches clicks the settings dialog's nav and checks
+// the section page follows.
+func TestUISettingsNavSwitches(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	ctx := context.Background()
+	if _, err := srv.Service.CreateProject(ctx, "Nav", gitRepo(t)); err != nil {
+		t.Fatalf("project: %v", err)
+	}
+
+	tester, session := startApp(t, ts, cfg, nil)
+	tester.wait(t, 15*time.Second, func() bool {
+		return session != nil && session.connected
+	}, "the environment to connect")
+	session.setSettingsSection("general")
+	session.openSettings()
+	tester.pump()
+
+	// Click the Providers row by its label, as a reader does.
+	if err := tester.tt.Click(i18n.T("Providers")); err != nil {
+		t.Fatalf("click: %v", err)
+	}
+	tester.wait(t, 5*time.Second, func() bool {
+		tester.post.drain()
+		tester.tt.Frame()
+		return session.settingsSection == "providers" && tester.tt.HasText(i18n.T("Detected providers"))
+	}, "the providers page to open")
+}

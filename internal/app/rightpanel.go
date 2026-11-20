@@ -244,14 +244,14 @@ func (s *Session) filesSurface(c *ui.Context) {
 				if entry.Directory {
 					icon = lucide.Folder()
 				}
-				row := ui.Row(c).AlignItems(ui.Center).Gap(8).FillWidth().Padding(4, 6).Radius(6).Children(func() {
+				row := clickableRow(c, entry.Name, func() {
 					ui.Icon(c, icon).FontSize(14).TextColor(t.TextMuted)
 					ui.Text(c, entry.Name).FontSize(12).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
 					if !entry.Directory {
 						faint(c, humanSize(entry.Size), 10.5)
 					}
-				})
-				if row.RowClicked() {
+				}).AlignItems(ui.Center).Gap(8).Padding(4, 6).Radius(6)
+				if row.Clicked() {
 					if entry.Directory {
 						s.loadFiles(entry.Path)
 					} else {
@@ -319,12 +319,12 @@ func (s *Session) workingDiffSurface(c *ui.Context) {
 							detail += i18n.T(" · staged")
 						}
 						ui.Row(c).AlignItems(ui.Center).Gap(2).Padding(2, 4).Children(func() {
-							pathRow := ui.Row(c).AlignItems(ui.Center).Gap(5).Grow(1).MinWidth(0).Children(func() {
+							pathRow := clickableRow(c, file.Path, func() {
 								ui.Icon(c, lucide.FileText()).FontSize(11).TextColor(t.TextMuted)
 								ui.Text(c, file.Path).FontSize(10.5).Font("monospace").
 									TextColor(t.Text).SingleLine().MinWidth(0)
-							})
-							if pathRow.RowClicked() {
+							}).AlignItems(ui.Center).Gap(5).Grow(1).MinWidth(0)
+							if pathRow.Clicked() {
 								s.showFilePatch(file.Path)
 							}
 							faint(c, detail, 9.5)

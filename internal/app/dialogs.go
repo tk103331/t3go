@@ -293,15 +293,14 @@ func branchesDialog(c *ui.Context, s *Session) {
 				for _, branch := range s.branches {
 					branch := branch
 					current := branch.Current
-					row := ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 8).Radius(6)
-					row.Children(func() {
+					row := clickableRow(c, branch.Name, func() {
 						ui.Icon(c, lucide.GitBranch()).FontSize(13).TextColor(t.TextMuted)
 						ui.Text(c, branch.Name).FontSize(12.5).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
 						if current {
 							text(c, i18n.T("Current"), 10.5, t.Accent)
 						}
-					})
-					if !current && row.RowClicked() {
+					}).Padding(6, 8).Radius(6)
+					if !current && row.Clicked() {
 						s.switchBranch(branch.Name)
 						s.showBranches = false
 					}
@@ -610,21 +609,21 @@ func dirsDialog(c *ui.Context, s *Session) {
 			}
 			ui.Scroll(c).MaxHeight(320).Gap(2).Children(func() {
 				if s.dirs.Parent != "" {
-					parentRow := ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 8).Radius(6).Children(func() {
+					parentRow := clickableRow(c, i18n.T("Parent folder"), func() {
 						ui.Icon(c, lucide.ArrowLeft()).FontSize(13).TextColor(t.TextMuted)
 						faint(c, "..", 12.5)
-					})
-					if parentRow.RowClicked() {
+					}).Padding(6, 8).Radius(6)
+					if parentRow.Clicked() {
 						s.loadDirs(s.dirs.Parent)
 					}
 				}
 				for _, entry := range s.dirs.Entries {
 					entry := entry
-					entryRow := ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 8).Radius(6).Children(func() {
+					entryRow := clickableRow(c, entry.Name, func() {
 						ui.Icon(c, lucide.Folder()).FontSize(13).TextColor(t.TextMuted)
 						ui.Text(c, entry.Name).FontSize(12.5).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
-					})
-					if entryRow.RowClicked() {
+					}).Padding(6, 8).Radius(6)
+					if entryRow.Clicked() {
 						s.loadDirs(entry.Path)
 					}
 				}
@@ -749,16 +748,15 @@ func settingsDialog(c *ui.Context, s *Session) {
 				text(c, i18n.T("Settings"), 16, t.Text, 600).Margin(0, 0, 6, 0)
 				for _, section := range settingsSections() {
 					selected := s.settingsSection == section.key
-					row := ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 8).Radius(7)
-					row.Children(func() {
+					row := clickableRow(c, section.label, func() {
 						ui.Icon(c, section.icon()).FontSize(14).TextColor(t.TextMuted)
 						ui.Text(c, section.label).FontSize(12.5).
 							TextColor(t.Text).SingleLine()
-					})
+					}).Padding(6, 8).Radius(7)
 					if selected {
 						row.Background(t.Surface)
 					}
-					if row.RowClicked() {
+					if row.Clicked() {
 						s.setSettingsSection(section.key)
 					}
 				}
@@ -882,15 +880,14 @@ func (s *Session) settingsAppearance(c *ui.Context) {
 					swatch = ui.Hex(choice.hex)
 				}
 				swatchName := choice.name
-				b := ui.Row(c).AlignItems(ui.Center).Gap(6).Padding(4, 8).Radius(6).
-					Border(1, c.Theme().Border).Children(func() {
+				b := clickableRow(c, "Accent "+choice.name, func() {
 					ui.Box(c).Size(13, 13).Radius(7).Background(swatch)
 					faint(c, swatchName, 12)
-				})
+				}).Padding(4, 8).Radius(6).Border(1, c.Theme().Border)
 				if s.appearance.Accent == choice.hex {
 					b.Background(c.Theme().Surface)
 				}
-				if b.RowClicked() {
+				if b.Clicked() {
 					prefs := s.appearance
 					prefs.Accent = choice.hex
 					s.saveClientAppearance(prefs)

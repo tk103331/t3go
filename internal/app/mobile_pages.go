@@ -85,13 +85,13 @@ func (s *Session) mobilePullRequestsPage(c *ui.Context) {
 					continue
 				}
 				count++
-				rowEl := ui.Column(c).Padding(18).MinHeight(84).Gap(8).Children(func() {
+				rowEl := clickableRow(c, row.PR.Title, func() {
 					ui.Text(c, fmt.Sprintf("#%d  %s", row.PR.Number, row.PR.Title)).FontSize(16).FontWeight(500).TextColor(t.Text)
 					faint(c, row.Project+" · "+row.Environment, 12)
 					ui.Text(c, row.PR.HeadBranch+" → "+row.PR.BaseBranch+" · "+row.PR.State).
 						FontSize(12).TextColor(t.TextMuted).SingleLine()
-				})
-				if rowEl.RowClicked() {
+				}).Padding(18).MinHeight(84).Gap(8)
+				if rowEl.Clicked() {
 					c.OpenURL(row.PR.URL)
 				}
 			}
@@ -381,15 +381,15 @@ func (s *Session) mobileSettingsPage(c *ui.Context) {
 		return
 	}
 	row := func(title, detail string, icon *ui.SVG, press func()) {
-		r := ui.Row(c).AlignItems(ui.Center).Gap(12).MinHeight(58).Padding(12, 16).FillWidth().Children(func() {
+		r := clickableRow(c, title, func() {
 			ui.Icon(c, icon).FontSize(24).TextColor(t.Text)
 			ui.Column(c).Gap(4).Grow(1).MinWidth(0).Children(func() {
 				ui.Text(c, title).FontSize(16).TextColor(t.Text)
 				ui.Text(c, detail).FontSize(12).TextColor(t.TextMuted).MaxLines(2)
 			})
 			ui.Icon(c, lucide.ChevronRight()).FontSize(18).TextColor(t.TextMuted)
-		})
-		if r.RowClicked() {
+		}).AlignItems(ui.Center).Gap(12).MinHeight(58).Padding(12, 16)
+		if r.Clicked() {
 			press()
 		}
 	}

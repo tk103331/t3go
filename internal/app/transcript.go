@@ -362,11 +362,8 @@ func (s *Session) reasoningCard(c *ui.Context, m proto.Message) {
 	card := ui.Column(c).MinWidth(0).Padding(7, 9).Radius(9).
 		Border(1, t.TextMuted.Alpha(0.13)).Background(t.Surface)
 	card.Children(func() {
-		head := ui.Row(c).AlignItems(ui.Center).Gap(5).FillWidth()
-		head.Children(func() {
+		head := clickableRow(c, title, func() {
 			ui.Icon(c, lucide.ChevronRight()).FontSize(12).TextColor(t.TextMuted)
-			if open {
-			}
 			ui.Icon(c, lucide.Brain()).FontSize(12).TextColor(t.TextMuted)
 			ui.Text(c, title).FontSize(11.5).FontWeight(600).TextColor(t.TextMuted)
 			if running {
@@ -377,8 +374,8 @@ func (s *Session) reasoningCard(c *ui.Context, m proto.Message) {
 				}
 			}
 			ui.Spacer(c)
-		})
-		if head.RowClicked() {
+		}).AlignItems(ui.Center).Gap(5).FillWidth()
+		if head.Clicked() {
 			s.setExpanded(key, !open)
 		}
 		if open {
@@ -401,7 +398,7 @@ func (s *Session) toolCard(c *ui.Context, m proto.Message) {
 	card := ui.Column(c).MinWidth(0).Padding(6, 9).Radius(8).
 		Border(1, t.TextMuted.Alpha(0.1)).Background(t.Surface)
 	card.Children(func() {
-		row := ui.Row(c).AlignItems(ui.Center).Gap(4).MinWidth(0).FillWidth()
+		row := clickableRow(c, head, nil).AlignItems(ui.Center).Gap(4).MinWidth(0).FillWidth()
 		row.Children(func() {
 			arrow := ui.Icon(c, lucide.ChevronRight()).FontSize(13).TextColor(t.TextMuted)
 			if open {
@@ -430,7 +427,7 @@ func (s *Session) toolCard(c *ui.Context, m proto.Message) {
 			}
 			ui.Spacer(c)
 		})
-		if row.RowClicked() {
+		if row.Clicked() {
 			s.setExpanded(key, !open)
 		}
 		if open {
@@ -473,12 +470,11 @@ func (s *Session) changedFilesBlock(c *ui.Context, files []string) {
 					continue
 				}
 				target := relative
-				fileRow := ui.Row(c).AlignItems(ui.Center).Gap(5).Padding(2, 4).Radius(5).
-					Children(func() {
-						ui.Icon(c, lucide.FileText()).FontSize(11).TextColor(t.TextMuted)
-						ui.Text(c, path).FontSize(11).Font("monospace").TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
-					})
-				if fileRow.RowClicked() {
+				fileRow := clickableRow(c, path, func() {
+					ui.Icon(c, lucide.FileText()).FontSize(11).TextColor(t.TextMuted)
+					ui.Text(c, path).FontSize(11).Font("monospace").TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
+				}).AlignItems(ui.Center).Gap(5).Padding(2, 4).Radius(5)
+				if fileRow.Clicked() {
 					s.showSurface("files")
 					s.openFile(target)
 				}
