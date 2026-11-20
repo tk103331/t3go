@@ -23,6 +23,7 @@ type appStorage interface {
 // goroutine so bursts of changes cost one or two writes.
 type fileStore struct {
 	mu      sync.Mutex
+	writeMu sync.Mutex
 	path    string
 	entries map[string]string
 	loading bool
@@ -129,12 +130,25 @@ func (s *fileStore) flusher() {
 		case <-s.writes:
 			s.write()
 		case <-s.done:
-			return
+			// One last write, then the writer stops: a pending change
+			// runs first, so a close never drops one.
+			for {
+				select {
+				case <-s.writes:
+					s.write()
+				default:
+					return
+				}
+			}
 		}
 	}
 }
 
 func (s *fileStore) write() {
+	// Close writes from the main thread while the flusher may be writing
+	// already; the lock keeps one tmp file per moment.
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	s.mu.Lock()
 	data, err := json.Marshal(s.entries)
 	dir := filepath.Dir(s.path)
@@ -167,7 +181,8 @@ func (s *fileStore) write() {
 	}
 }
 
-// Close stops the writer, writing what is left.
+// Close stops the writer, writing what is left. The flusher may drain
+// one last change after it; the write lock keeps the two apart.
 func (s *fileStore) Close() {
 	s.write()
 	close(s.done)

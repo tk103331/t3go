@@ -170,80 +170,110 @@ func renameDeleteDialogs(c *ui.Context, s *Session) {
 	}
 }
 
-// paletteThreads lists the threads whose title matches the palette's
-// query, above the message hits.
-func (s *Session) paletteThreads() []proto.Thread {
-	query := strings.ToLower(strings.TrimSpace(s.paletteQuery))
-	if query == "" {
-		return nil
+// paletteItem is one row of the command palette.
+type paletteItem struct {
+	id          string
+	group       string
+	label       string
+	description string
+	icon        *ui.SVG
+}
+
+// paletteItems lists what the palette shows: the client's actions, then
+// every environment's threads, then the messages the search found.
+func (s *Session) paletteItems() []paletteItem {
+	items := []paletteItem{
+		{id: "new-thread", group: i18n.T("Actions"), label: i18n.T("New thread"), icon: lucide.MessageSquarePlus()},
+		{id: "new-project", group: i18n.T("Actions"), label: i18n.T("New project"), icon: lucide.FolderPlus()},
+		{id: "settings", group: i18n.T("Actions"), label: i18n.T("Settings"), icon: lucide.Settings()},
+		{id: "toggle-archived", group: i18n.T("View"), label: s.archivedLabel(), icon: lucide.Archive()},
+		{id: "toggle-sidebar", group: i18n.T("View"), label: i18n.T("Toggle sidebar"), icon: lucide.PanelLeft()},
 	}
-	var out []proto.Thread
-	for _, thread := range s.threads {
-		if threadMatches(thread, query) {
-			out = append(out, thread)
+	showArchived := s.showArchived
+	sessions := []*Session{s}
+	if s.manager != nil {
+		sessions = nil
+		for _, p := range s.manager.profiles {
+			if session := s.manager.sessions[p.ID]; session != nil {
+				sessions = append(sessions, session)
+			}
 		}
 	}
-	return out
+	for _, session := range sessions {
+		projects := map[string]string{}
+		for _, p := range session.projects {
+			projects[p.ID] = p.Name
+		}
+		for _, t := range session.threads {
+			if t.Archived && !showArchived {
+				continue
+			}
+			items = append(items, paletteItem{
+				id: "thread:" + session.threadKey(t.ID), group: i18n.T("Threads"),
+				label: t.Title, description: projects[t.ProjectID] + " · " + session.envName(),
+				icon: lucide.MessageSquare(),
+			})
+		}
+	}
+	for _, hit := range s.searchHits {
+		items = append(items, paletteItem{
+			id: "message:" + hit.ThreadID + ":" + hit.MessageID, group: i18n.T("Messages"),
+			label: hit.Snippet, description: hit.ProjectName + " · " + hit.ThreadTitle,
+			icon: lucide.MessageCircle(),
+		})
+	}
+	return items
 }
 
-// diffBusy is whether a diff the dialog asked for is still loading. The
-// load calls keep the text empty until it arrives.
-func (s *Session) diffBusy() bool {
-	return s.diffText == "" && s.workingDiff == "" && s.rightBusy
-}
-
-// paletteDialog searches the environment's threads and actions.
-//
-// TODO(view): the palette's command set fills in with the actions' port;
-// this one searches the threads and the messages already.
+// paletteDialog searches the environment's threads, messages and
+// actions, with the arrows and Enter choosing from the list.
 func paletteDialog(c *ui.Context, s *Session) {
 	ui.Modal(c, &s.showPalette, func() {
 		t := c.Theme()
+		query := strings.ToLower(strings.TrimSpace(s.paletteQuery))
+		var items []paletteItem
+		for _, item := range s.paletteItems() {
+			if query == "" || strings.Contains(strings.ToLower(item.label+" "+item.description), query) {
+				items = append(items, item)
+			}
+		}
 		dialogPanel(c, 720).Children(func() {
-			query := ui.SearchField(c, &s.paletteQuery).Label(i18n.T("Search commands")).
+			field := ui.SearchField(c, &s.paletteQuery).Label(i18n.T("Search commands")).
 				Placeholder(i18n.T("Search threads, messages and actions…")).AutoFocus()
-			if query.Changed() {
+			if field.Changed() {
 				s.searchMessages(s.paletteQuery)
 			}
 			if s.searchErr != "" {
 				errorNote(c, s.searchErr)
 			}
-			ui.Scroll(c).Height(420).Gap(2).Children(func() {
-				if s.searchBusy {
-					ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(8).Children(func() {
-						ui.Spinner(c).Label(i18n.T("Searching"))
-						faint(c, i18n.T("Searching…"), 12)
-					})
-				}
-				for _, hit := range s.searchHits {
-					hit := hit
-					hitRow := ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 8).Radius(6).
-						Children(func() {
-							ui.Icon(c, lucide.MessageCircle()).FontSize(13).TextColor(t.TextMuted)
-							ui.Text(c, hit.ThreadTitle).FontSize(12.5).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
-							ui.Text(c, hit.Snippet).FontSize(11).TextColor(t.TextMuted).SingleLine().MinWidth(0).MaxWidthPercent(45)
-						})
-					if hitRow.RowClicked() {
-						s.showPalette = false
-						s.selectThread(hit.ThreadID)
-					}
-				}
-				for _, thread := range s.paletteThreads() {
-					thread := thread
-					threadRow := ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 8).Radius(6).
-						Children(func() {
-							ui.Icon(c, lucide.MessageSquare()).FontSize(13).TextColor(t.TextMuted)
-							ui.Text(c, thread.Title).FontSize(12.5).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
-						})
-					if threadRow.RowClicked() {
-						s.showPalette = false
-						s.selectThread(thread.ID)
-					}
-				}
-				if len(s.searchHits) == 0 && len(s.paletteThreads()) == 0 {
+			if len(items) == 0 {
+				ui.Column(c).Padding(16).Children(func() {
 					faint(c, i18n.T("No threads, messages or commands match."), 12)
+				})
+			} else {
+				s.paletteRow = min(s.paletteRow, len(items)-1)
+				s.paletteList.Key = func(i int) any { return items[i].id }
+				s.paletteList.Selected = &s.paletteRow
+				s.paletteList.Label = func(i int) string { return items[i].label }
+				list := ui.List(c, &s.paletteList, len(items), func(i int) {
+					item := items[i]
+					row := ui.Row(c).AlignItems(ui.Center).Gap(8).Padding(6, 8).Radius(6).FillWidth().Children(func() {
+						ui.Icon(c, item.icon).FontSize(14).TextColor(t.TextMuted)
+						ui.Text(c, item.label).FontSize(12.5).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
+						if item.description != "" {
+							ui.Text(c, item.description).FontSize(11).TextColor(t.TextMuted).
+								SingleLine().MinWidth(0).MaxWidthPercent(45)
+						}
+						faint(c, item.group, 9.5)
+					})
+					if row.RowClicked() {
+						s.runCommand(item.id)
+					}
+				}).Height(420).FillWidth().Gap(1)
+				if list.Submitted() {
+					s.runCommand(items[s.paletteRow].id)
 				}
-			})
+			}
 			dialogFooter(c, func() {
 				if ui.Button(c, i18n.T("Close")).Clicked() {
 					s.showPalette = false
@@ -364,7 +394,7 @@ func diffDialog(c *ui.Context, s *Session) {
 					s.showDiff = false
 				}
 			})
-			if s.diffBusy() {
+			if strings.Contains(s.diffText, i18n.T("Loading diff…")) {
 				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 					ui.Spinner(c).Label(i18n.T("Loading diff"))
 					faint(c, i18n.T("Loading diff…"), 12)
@@ -697,8 +727,23 @@ func (s *Session) settingsSectionView(c *ui.Context) {
 		s.settingsGeneral(c)
 	case "appearance":
 		s.settingsAppearance(c)
+	case "providers":
+		s.settingsProviders(c)
+	case "usage":
+		s.settingsUsage(c)
+	case "worktrees":
+		s.settingsWorktrees(c)
+	case "environments":
+		s.settingsEnvironments(c)
+	case "background":
+		s.settingsBackground(c)
+	case "shortcuts":
+		s.settingsShortcuts(c)
+	case "about":
+		s.settingsAbout(c)
 	default:
-		// TODO(view): the remaining sections port with their data logic.
+		// TODO(view): the access section port lands with the Relay access
+		// views.
 		faint(c, i18n.T("This section is on its way."), 12)
 	}
 }

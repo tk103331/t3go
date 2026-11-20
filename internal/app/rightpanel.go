@@ -58,7 +58,19 @@ func rightPanel(c *ui.Context, s *Session) {
 				_ = tab
 			}
 			ui.Spacer(c)
-			iconBtn(c, lucide.Plus(), i18n.T("Add surface"), func() { s.openSurface("") })
+			ui.Button(c, "").Label(i18n.T("Add surface")).Children(func() {
+				ui.Icon(c, lucide.Plus()).FontSize(15)
+			}).Tooltip(i18n.T("Add surface")).PopoverMenuButton(func(m *ui.Menu) {
+				for _, name := range []string{"files", "terminal", "pr", "diff", "graph", "preview", "device", "sidechat", "browser"} {
+					name := name
+					if name == s.surface {
+						continue
+					}
+					if m.Item(surfaceTitle(name)).Chosen() {
+						s.openSurface(name)
+					}
+				}
+			})
 			iconBtn(c, lucide.X(), i18n.T("Close right panel"), func() { s.setRightOpen(false) })
 		})
 		ui.Box(c).Grow(1).FillWidth().Clip().Children(func() {
@@ -395,42 +407,6 @@ func (s *Session) terminalSurface(c *ui.Context) {
 		ui.Column(c).Grow(1).Center().Children(func() {
 			faint(c, i18n.T("Starting shell…"), 12)
 		})
-	})
-}
-
-func (s *Session) pullRequestSurface(c *ui.Context) {
-	ui.Column(c).Fill().Center().Children(func() {
-		faint(c, "TODO(view): pull request surface", 12)
-	})
-}
-
-func (s *Session) previewSurface(c *ui.Context) {
-	ui.Column(c).Fill().Center().Children(func() {
-		faint(c, "TODO(view): preview surface", 12)
-	})
-}
-
-func (s *Session) deviceSurface(c *ui.Context) {
-	ui.Column(c).Fill().Center().Children(func() {
-		faint(c, "TODO(view): device surface", 12)
-	})
-}
-
-func (s *Session) sideChatSurface(c *ui.Context) {
-	ui.Column(c).Fill().Center().Children(func() {
-		faint(c, "TODO(view): side chat surface", 12)
-	})
-}
-
-func (s *Session) browserSurface(c *ui.Context) {
-	ui.Column(c).Fill().Center().Children(func() {
-		faint(c, "TODO(view): browser surface", 12)
-	})
-}
-
-func (s *Session) graphSurface(c *ui.Context) {
-	ui.Column(c).Fill().Center().Children(func() {
-		faint(c, "TODO(view): git graph surface", 12)
 	})
 }
 

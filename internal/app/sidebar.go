@@ -439,3 +439,11 @@ func (s *Session) sidebarFooter(c *ui.Context) {
 		iconBtn(c, lucide.Settings(), i18n.T("Settings"), s.openSettings)
 	})
 }
+
+// archivedLabel names the archived toggle's action.
+func (s *Session) archivedLabel() string {
+	if s.showArchived {
+		return i18n.T("Hide archived")
+	}
+	return "Archived"
+}

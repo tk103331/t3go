@@ -300,6 +300,7 @@ type Session struct {
 	browserNote  string
 	browserBack  bool
 	browserNext  bool
+	browserWeb   *mygo.WebView
 
 	terminalSession proto.TerminalSession
 	terminals       []proto.TerminalSession
@@ -320,6 +321,8 @@ type Session struct {
 	sidebarRows    []inboxRow
 	transcriptList ui.ListState
 	tabs           []string
+	paletteList    ui.ListState
+	paletteRow     int
 
 	// md is how the transcript renders a reply: the Markdown options with
 	// the theme the conversation colors itself in.
