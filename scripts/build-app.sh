@@ -17,7 +17,7 @@ esac
 
 target=${1:-$default}
 output=${2:-dist}
-resources=cmd/t3go-app/resources
+resources=resources
 
 case "$target" in
   macos_arm64) server_os=darwin; server_arch=arm64; server_name=t3go ;;
@@ -33,6 +33,8 @@ esac
 
 mkdir -p "$resources"
 rm -f "$resources/t3go" "$resources/t3go.exe"
+# A phone talks to an environment; it never runs one. MyGo copies the
+# resources directory into every platform's app.
 if [ -n "$server_os" ]; then
   echo "building the environment server for $server_os/$server_arch"
   GOOS=$server_os GOARCH=$server_arch CGO_ENABLED=0 go build -o "$resources/$server_name" ./cmd/t3go
@@ -44,4 +46,14 @@ if [ -n "$server_os" ]; then
 fi
 
 echo "building the client for $target"
-go tool nsgo build -target "$target" -output "$output" ./cmd/t3go-app
+case "$target" in
+  ios|ios_simulator) platform="ios/simulator" ;;
+  android*) platform="android/${target#android_}" ;;
+  macos_arm64) platform="darwin/arm64" ;;
+  macos_x64) platform="darwin/x64" ;;
+  windows_arm64) platform="windows/arm64" ;;
+  windows_x64) platform="windows/x64" ;;
+  linux_arm64) platform="linux/arm64" ;;
+  linux_x64) platform="linux/x64" ;;
+esac
+go tool mygo build -platform "$platform" -out "$output"

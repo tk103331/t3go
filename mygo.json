@@ -1,0 +1,15 @@
+{
+  "name": "T3Go",
+  "identifier": "dev.nsgo.t3go",
+  "version": "0.1.0",
+  "main": "./cmd/t3go-app",
+  "icon": "cmd/t3go-app/assets/Icon.png",
+  "ios": {
+    "infoPlist": {
+      "NSCameraUsageDescription": "Scan a T3Go pairing QR code to add an environment."
+    }
+  },
+  "android": {
+    "permissions": ["CAMERA"]
+  }
+}
