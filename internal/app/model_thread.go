@@ -1369,7 +1369,7 @@ func (s *Session) openSurface(name string) {
 		s.loadPreviewServers()
 	case "device":
 		s.loadDevices()
-	case "chat":
+	case "chat", "sidechat":
 		s.openSideChat()
 	}
 }
