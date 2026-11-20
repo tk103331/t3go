@@ -635,9 +635,10 @@ func (s *Session) browserSurface(c *ui.Context) {
 }
 
 // browserWebView returns the page the browser surface shows, opening the
-// web view the first time it is needed. A web client has none.
+// web view the first time it is needed. A web client has none, and a
+// test's headless window does either.
 func (s *Session) browserWebView() *mygo.Page {
-	if s.browserWeb == nil && !jsRuntime {
+	if s.browserWeb == nil && !jsRuntime && s.win != nil {
 		view, err := s.win.NewWebView(mygo.WebViewOptions{URL: s.browserURL})
 		if err != nil {
 			s.browserNote = friendlyError(err)
