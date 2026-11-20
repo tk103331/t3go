@@ -31,7 +31,7 @@ func (s *Session) narrowView(c *ui.Context) {
 		})
 		return
 	}
-	s.mobileHome(c)
+	s.mobileHomeScreen(c)
 }
 
 // mobileHeader is the open thread's top bar on a phone: back, the title
@@ -72,24 +72,6 @@ func (s *Session) mobileHeader(c *ui.Context) {
 				}
 			})
 		}
-	})
-}
-
-// mobileHome is the phone's first screen: the thread list.
-//
-// TODO(view): the phone home aggregates every environment's sessions,
-// with Working and Settled groups, projects and the bottom bar.
-func (s *Session) mobileHome(c *ui.Context) {
-	t := c.Theme()
-	ui.Column(c).Fill().Background(t.Background).Children(func() {
-		ui.Row(c).Padding(8, 12).Children(func() {
-			ui.SearchField(c, &s.sidebarQuery).Label(i18n.T("Search threads")).
-				Placeholder(i18n.T("Search threads")).Grow(1)
-		})
-		ui.Box(c).Grow(1).FillWidth().ClipY().Children(func() {
-			s.sidebarInbox(c)
-		})
-		s.sidebarFooter(c)
 	})
 }
 
