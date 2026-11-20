@@ -26,7 +26,7 @@ func connectScreen(c *ui.Context, s *Session, m *Manager) {
 			ui.Text(c, i18n.T("Enter the server address and access token to open your projects and threads.")).
 				FontSize(12.5).LineHeight(18).TextColor(t.TextMuted)
 			if m != nil {
-				if ui.Button(c, i18n.T("Sign in to Relay")).Label(i18n.T("Sign in to Relay")).Children(func() {
+				if ui.Button(c, "").Label(i18n.T("Sign in to Relay")).Label(i18n.T("Sign in to Relay")).Children(func() {
 					ui.Icon(c, lucide.UserRound()).FontSize(15)
 					ui.Text(c, i18n.T("Sign in to Relay"))
 				}).Clicked() {
@@ -58,7 +58,7 @@ func connectScreen(c *ui.Context, s *Session, m *Manager) {
 				if s.connecting {
 					connectLabel = i18n.T("Connecting…")
 				}
-				ui.PrimaryButton(c, connectLabel).Children(func() {
+				ui.PrimaryButton(c, "").Label(connectLabel).Children(func() {
 					ui.Icon(c, lucide.LogIn()).FontSize(15)
 					ui.Text(c, connectLabel)
 				}).OnClick(func() {
@@ -66,7 +66,7 @@ func connectScreen(c *ui.Context, s *Session, m *Manager) {
 				}).Grow(1)
 				faint(c, i18n.T("Find the token in the environment data directory, or run `t3go pair`."), 11)
 				if m != nil && (m.pending != s || len(m.profiles) == 0) {
-					ui.Button(c, i18n.T("Saved environments")).Children(func() {
+					ui.Button(c, "").Label(i18n.T("Saved environments")).Children(func() {
 						ui.Icon(c, lucide.Network()).FontSize(15)
 						ui.Text(c, i18n.T("Saved environments"))
 					}).OnClick(func() {
@@ -131,7 +131,7 @@ func environmentsDialog(c *ui.Context, m *Manager) {
 								m.showEnvironments = false
 							})
 						}
-						ui.Button(c, "").Label(i18n.T("Forget environment")).Children(func() {
+						ui.Button(c, "").Label("").Label(i18n.T("Forget environment")).Children(func() {
 							ui.Icon(c, lucide.Trash()).FontSize(14).TextColor(t.Danger)
 						}).Tooltip(i18n.T("Forget environment")).OnClick(func() {
 							m.forget(p.ID)
@@ -143,7 +143,7 @@ func environmentsDialog(c *ui.Context, m *Manager) {
 				if ui.Button(c, i18n.T("Close")).Clicked() {
 					m.showEnvironments = false
 				}
-				ui.PrimaryButton(c, i18n.T("Add environment")).Children(func() {
+				ui.PrimaryButton(c, "").Label(i18n.T("Add environment")).Children(func() {
 					ui.Icon(c, lucide.Plus()).FontSize(15)
 					ui.Text(c, i18n.T("Add environment"))
 				}).OnClick(func() {

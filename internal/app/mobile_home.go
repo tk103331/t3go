@@ -148,7 +148,7 @@ func (s *Session) mobileHomeHeader(c *ui.Context) {
 			iconBtn(c, lucide.RefreshCw(), i18n.T("Refresh pull requests"), s.loadMobilePullRequests)
 		}
 		if s.mobilePage != "settings" && s.mobilePage != "usage" && s.mobilePage != "prs" {
-			ui.Button(c, "").Label(i18n.T("Filter threads")).Children(func() {
+			ui.Button(c, "").Label("").Label(i18n.T("Filter threads")).Children(func() {
 				ui.Icon(c, lucide.ListFilter()).FontSize(22)
 			}).PopoverMenuButton(func(m *ui.Menu) {
 				if m.Item(s.archivedLabel()).Chosen() {
@@ -227,7 +227,7 @@ func (s *Session) mobileThreadsPage(c *ui.Context) {
 				ui.Column(c).Padding(24).Gap(10).Children(func() {
 					ui.Text(c, i18n.T("Your conversations")).FontSize(18).FontWeight(600).TextColor(t.Text)
 					ui.Text(c, message).FontSize(14).TextColor(t.TextMuted)
-					ui.Button(c, i18n.T("Projects")).Children(func() {
+					ui.Button(c, "").Label(i18n.T("Projects")).Children(func() {
 						ui.Icon(c, lucide.FolderOpen()).FontSize(15)
 						ui.Text(c, i18n.T("Projects"))
 					}).OnClick(func() { s.mobilePage = "projects" })

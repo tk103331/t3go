@@ -396,7 +396,7 @@ func (s *Session) branchMenuButton(c *ui.Context) {
 	if branch == "" {
 		branch = "detached"
 	}
-	ui.Button(c, "").Label(i18n.T("Branch") + " " + branch).Children(func() {
+	ui.Button(c, "").Label("").Label(i18n.T("Branch") + " " + branch).Children(func() {
 		ui.Icon(c, lucide.GitBranch()).FontSize(14)
 		ui.Text(c, branch).SingleLine().MaxWidth(160)
 	}).OnClick(func() {

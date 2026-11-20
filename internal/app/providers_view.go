@@ -28,7 +28,7 @@ func providerSettingsHeader(c *ui.Context, name, detail string, enabled *bool, o
 		})
 		ui.Row(c).AlignItems(ui.Center).Gap(4).Children(func() {
 			if remove != nil {
-				ui.Button(c, i18n.T("Remove")).Children(func() {
+				ui.Button(c, "").Label(i18n.T("Remove")).Children(func() {
 					ui.Icon(c, lucide.Trash()).FontSize(15)
 					ui.Text(c, i18n.T("Remove"))
 				}).OnClick(remove)
@@ -121,7 +121,7 @@ func (s *Session) providerSettingsSection(c *ui.Context) {
 func (s *Session) providerAddPanel(c *ui.Context) {
 	t := c.Theme()
 	if !s.providerAddOpen {
-		ui.Button(c, i18n.T("Add ACP provider")).Children(func() {
+		ui.Button(c, "").Label(i18n.T("Add ACP provider")).Children(func() {
 			ui.Icon(c, lucide.Plus()).FontSize(15)
 			ui.Text(c, i18n.T("Add ACP provider"))
 		}).OnClick(s.openProviderAdd)
@@ -162,7 +162,7 @@ func (s *Session) providerRegistryPanel(c *ui.Context) {
 			ui.Field(c, i18n.T("Search ACP Registry"), func() {
 				ui.TextInput(c, &s.providerSearchQuery).Placeholder(i18n.T("Search agents"))
 			}).Grow(1)
-			search := ui.Button(c, i18n.T("Search")).Children(func() {
+			search := ui.Button(c, "").Label(i18n.T("Search")).Children(func() {
 				ui.Icon(c, lucide.Search()).FontSize(15)
 				ui.Text(c, i18n.T("Search"))
 			})
@@ -205,7 +205,7 @@ func (s *Session) providerRegistryPanel(c *ui.Context) {
 								if distribution == "binary" {
 									label, icon = i18n.T("Install"), lucide.Download()
 								}
-								b := ui.Button(c, label).Children(func() {
+								b := ui.Button(c, "").Label(label).Children(func() {
 									ui.Icon(c, icon).FontSize(15)
 									ui.Text(c, label)
 								})
@@ -237,7 +237,7 @@ func (s *Session) providerLocalPanel(c *ui.Context) {
 			ui.TextArea(c, &s.providerLocalArgs).Placeholder(i18n.T("One literal argument per line")).Lines(2, 6)
 		})
 		faint(c, i18n.T("The executable is started directly without a shell. Relative executable names are resolved on the environment's PATH."), 10.5)
-		ui.PrimaryButton(c, i18n.T("Add local ACP provider")).Children(func() {
+		ui.PrimaryButton(c, "").Label(i18n.T("Add local ACP provider")).Children(func() {
 			ui.Icon(c, lucide.Plus()).FontSize(15)
 			ui.Text(c, i18n.T("Add local ACP provider"))
 		}).OnClick(s.addLocalACPProvider)

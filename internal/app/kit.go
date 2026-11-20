@@ -66,7 +66,7 @@ func faint(c *ui.Context, s string, size float32) ui.Element {
 // technology and showing its action on hover.
 func iconBtn(c *ui.Context, svg *ui.SVG, label string, clicked func()) ui.Element {
 	size := touch(c) && compact(c)
-	b := ui.Button(c, "").Label(label).Children(func() {
+	b := ui.Button(c, "").Label("").Label(label).Children(func() {
 		ui.Icon(c, svg).FontSize(iconSize(c))
 	})
 	if size {

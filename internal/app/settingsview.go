@@ -60,7 +60,7 @@ func (s *Session) settingsProviders(c *ui.Context) {
 		ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
 			ui.Text(c, i18n.T("%d providers · %d models · %s", len(providers), len(models), target.envName())).
 				FontSize(11.5).TextColor(t.TextMuted).MaxLines(2).Grow(1).MinWidth(0)
-			refresh := ui.Button(c, i18n.T("Refresh")).Children(func() {
+			refresh := ui.Button(c, "").Label(i18n.T("Refresh")).Children(func() {
 				ui.Icon(c, lucide.RefreshCw()).FontSize(15)
 				ui.Text(c, i18n.T("Refresh"))
 			})
@@ -152,7 +152,7 @@ func (s *Session) settingsProviders(c *ui.Context) {
 					}
 					ui.Row(c).Wrap().Gap(4).Padding(0, 0, 2, 0).Children(func() {
 						if !provider.Installed && provider.CanInstall && provider.InstallCommand != "" {
-							ui.Button(c, i18n.T("Install")).Children(func() {
+							ui.Button(c, "").Label(i18n.T("Install")).Children(func() {
 								ui.Icon(c, lucide.Download()).FontSize(15)
 								ui.Text(c, i18n.T("Install"))
 							}).OnClick(func() {
@@ -160,14 +160,14 @@ func (s *Session) settingsProviders(c *ui.Context) {
 							})
 						}
 						if provider.Installed && provider.CanAuthenticate && provider.AuthStatus != "authenticated" && provider.LoginCommand != "" {
-							ui.Button(c, i18n.T("Sign in")).Children(func() {
+							ui.Button(c, "").Label(i18n.T("Sign in")).Children(func() {
 								ui.Icon(c, lucide.LogIn()).FontSize(15)
 								ui.Text(c, i18n.T("Sign in"))
 							}).OnClick(func() {
 								s.runSettingsProviderCommand(target, provider.LoginCommand)
 							})
 						}
-						ui.Button(c, i18n.T("Add model")).Children(func() {
+						ui.Button(c, "").Label(i18n.T("Add model")).Children(func() {
 							ui.Icon(c, lucide.Plus()).FontSize(15)
 							ui.Text(c, i18n.T("Add model"))
 						}).OnClick(func() {
@@ -415,7 +415,7 @@ func (s *Session) settingsEnvironments(c *ui.Context) {
 							s.showSettings = false
 						})
 					}
-					ui.Button(c, "").Label(i18n.T("Forget environment")).Children(func() {
+					ui.Button(c, "").Label("").Label(i18n.T("Forget environment")).Children(func() {
 						ui.Icon(c, lucide.Trash()).FontSize(14).TextColor(t.Danger)
 					}).Tooltip(i18n.T("Forget environment")).OnClick(func() {
 						s.manager.forget(p.ID)
@@ -427,7 +427,7 @@ func (s *Session) settingsEnvironments(c *ui.Context) {
 			}
 		})
 		ui.Row(c).Gap(8).Children(func() {
-			ui.PrimaryButton(c, i18n.T("Add environment")).Children(func() {
+			ui.PrimaryButton(c, "").Label(i18n.T("Add environment")).Children(func() {
 				ui.Icon(c, lucide.Plus()).FontSize(15)
 				ui.Text(c, i18n.T("Add environment"))
 			}).OnClick(func() {
@@ -592,7 +592,7 @@ func (s *Session) settingsAccess(c *ui.Context) {
 			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
 				ui.Icon(c, lucide.KeyRound()).FontSize(16).TextColor(t.TextMuted)
 				text(c, i18n.T("Pairing link"), 12, t.Text, 600).Grow(1)
-				ui.Button(c, i18n.T("Copy link")).Children(func() {
+				ui.Button(c, "").Label(i18n.T("Copy link")).Children(func() {
 					ui.Icon(c, lucide.Copy()).FontSize(15)
 					ui.Text(c, i18n.T("Copy link"))
 				}).OnClick(func() { s.setClipboard(link) })
@@ -674,12 +674,12 @@ func (s *Session) relayConfigurationCard(c *ui.Context) {
 				ui.Spinner(c).Size(14, 14).Label(i18n.T("Connecting Relay"))
 			})
 		} else if signedIn {
-			ui.PrimaryButton(c, i18n.T("Connect Relay")).Children(func() {
+			ui.PrimaryButton(c, "").Label(i18n.T("Connect Relay")).Children(func() {
 				ui.Icon(c, lucide.Link()).FontSize(15)
 				ui.Text(c, i18n.T("Connect Relay"))
 			}).OnClick(target.configureRelay)
 		} else {
-			ui.Button(c, i18n.T("Open Account")).Children(func() {
+			ui.Button(c, "").Label(i18n.T("Open Account")).Children(func() {
 				ui.Icon(c, lucide.UserRound()).FontSize(15)
 				ui.Text(c, i18n.T("Open Account"))
 			}).OnClick(func() {

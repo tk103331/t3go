@@ -23,7 +23,7 @@ func (s *Session) mobileEnvironmentMenu(c *ui.Context, chosen *string, reload fu
 			label = *chosen
 		}
 	}
-	ui.Button(c, "").Label(i18n.T("Environments")).Children(func() {
+	ui.Button(c, "").Label("").Label(i18n.T("Environments")).Children(func() {
 		ui.Icon(c, lucide.Network()).FontSize(14)
 		ui.Text(c, label).SingleLine().MaxWidth(180)
 	}).PopoverMenuButton(func(m *ui.Menu) {
@@ -52,7 +52,7 @@ func (s *Session) mobilePullRequestsPage(c *ui.Context) {
 		ui.Column(c).Padding(10, 14, 8, 14).Gap(6).Children(func() {
 			s.mobileEnvironmentMenu(c, &s.mobilePREnv, s.loadMobilePullRequests)
 			stateLabel := map[string]string{"OPEN": i18n.T("Open"), "CLOSED": "Closed", "MERGED": "Merged", "": i18n.T("All PRs")}[s.mobilePRState]
-			ui.Button(c, "").Label(i18n.T("PR state")).Children(func() {
+			ui.Button(c, "").Label("").Label(i18n.T("PR state")).Children(func() {
 				ui.Text(c, stateLabel).SingleLine()
 				ui.Icon(c, lucide.ChevronDown()).FontSize(14)
 			}).PopoverMenuButton(func(m *ui.Menu) {
@@ -204,7 +204,7 @@ func (s *Session) mobileUsagePage(c *ui.Context) {
 			if available == 0 {
 				ui.Column(c).Gap(8).Children(func() {
 					faint(c, i18n.T("Usage is unavailable. Reconnect an environment or try again."), 14)
-					ui.Button(c, i18n.T("Try again")).Children(func() {
+					ui.Button(c, "").Label(i18n.T("Try again")).Children(func() {
 						ui.Icon(c, lucide.RefreshCw()).FontSize(15)
 						ui.Text(c, i18n.T("Try again"))
 					}).OnClick(s.loadMobileUsage)
@@ -320,7 +320,7 @@ func (s *Session) mobileUsagePage(c *ui.Context) {
 					}
 				})
 			}
-			ui.Button(c, i18n.T("Refresh")).Children(func() {
+			ui.Button(c, "").Label(i18n.T("Refresh")).Children(func() {
 				ui.Icon(c, lucide.RefreshCw()).FontSize(15)
 				ui.Text(c, i18n.T("Refresh"))
 			}).OnClick(s.loadMobileUsage)
@@ -366,7 +366,7 @@ func (s *Session) mobileSettingsPage(c *ui.Context) {
 				if target != nil && target.settingsConnectionReady() {
 					ui.Row(c).Gap(8).Padding(8, 18).Children(func() {
 						ui.Spacer(c)
-						save := ui.PrimaryButton(c, i18n.T("Save")).Children(func() {
+						save := ui.PrimaryButton(c, "").Label(i18n.T("Save")).Children(func() {
 							ui.Icon(c, lucide.Check()).FontSize(15)
 							ui.Text(c, i18n.T("Save"))
 						})

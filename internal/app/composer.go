@@ -102,13 +102,13 @@ func (s *Session) composerCard(c *ui.Context, spec composerSpec) {
 			}
 			ui.Spacer(c)
 			if spec.Running {
-				ui.Button(c, spec.StopLabel).Children(func() {
+				ui.Button(c, "").Label(spec.StopLabel).Children(func() {
 					ui.Icon(c, lucide.CircleStop()).FontSize(15)
 					ui.Text(c, spec.StopLabel)
 				}).OnClick(spec.OnStop)
 				return
 			}
-			send := ui.PrimaryButton(c, spec.SendLabel).Children(func() {
+			send := ui.PrimaryButton(c, "").Label(spec.SendLabel).Children(func() {
 				ui.Icon(c, lucide.ArrowUp()).FontSize(15)
 				ui.Text(c, spec.SendLabel)
 			}).Label(spec.SendLabel)
@@ -257,7 +257,7 @@ func (s *Session) planBanner(c *ui.Context) {
 		ui.Icon(c, lucide.Lightbulb()).FontSize(15).TextColor(t.Accent)
 		ui.Text(c, i18n.T("Plan ready — review it, then start implementing.")).
 			FontSize(11.5).TextColor(t.Text).MaxLines(2).Grow(1)
-		ui.PrimaryButton(c, i18n.T("Implement")).Children(func() {
+		ui.PrimaryButton(c, "").Label(i18n.T("Implement")).Children(func() {
 			ui.Icon(c, lucide.ClipboardCheck()).FontSize(14)
 			ui.Text(c, i18n.T("Implement"))
 		}).OnClick(s.approvePlan)

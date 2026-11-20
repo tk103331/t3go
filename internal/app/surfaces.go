@@ -67,7 +67,7 @@ func (s *Session) pullRequestSurface(c *ui.Context) {
 				TextColor(t.TextMuted).SingleLine()
 			ui.Text(c, pr.URL).FontSize(11.5).TextColor(t.Accent).MaxLines(2).Selectable()
 			ui.Row(c).Gap(6).Padding(0, 0, 4, 0).Children(func() {
-				ui.PrimaryButton(c, i18n.T("Open pull request")).Children(func() {
+				ui.PrimaryButton(c, "").Label(i18n.T("Open pull request")).Children(func() {
 					ui.Icon(c, lucide.GitPullRequest()).FontSize(15)
 					ui.Text(c, i18n.T("Open pull request"))
 				}).OnClick(func() { c.OpenURL(pr.URL) })
@@ -87,7 +87,7 @@ func (s *Session) pullRequestSurface(c *ui.Context) {
 				faint(c, detail, 11)
 			}
 			ui.Row(c).Gap(6).Padding(0, 0, 4, 0).Children(func() {
-				create := ui.PrimaryButton(c, i18n.T("Create PR")).Children(func() {
+				create := ui.PrimaryButton(c, "").Label(i18n.T("Create PR")).Children(func() {
 					ui.Icon(c, lucide.GitPullRequest()).FontSize(15)
 					ui.Text(c, i18n.T("Create PR"))
 				})
@@ -134,7 +134,7 @@ func (s *Session) linkedPullRequests(c *ui.Context) {
 					ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
 						faint(c, meta, 10.5)
 						ui.Spacer(c)
-						ui.Button(c, i18n.T("Open")).Children(func() {
+						ui.Button(c, "").Label(i18n.T("Open")).Children(func() {
 							ui.Icon(c, lucide.ExternalLink()).FontSize(14)
 							ui.Text(c, i18n.T("Open"))
 						}).OnClick(func() { c.OpenURL(pr.URL) })
@@ -245,14 +245,14 @@ func (s *Session) pullRequestDetail(c *ui.Context) {
 					ui.TextArea(c, &s.prNote).Label(i18n.T("Note")).
 						Placeholder(i18n.T("Leave a note…")).Lines(2, 6)
 					ui.Row(c).Wrap().Gap(4).Children(func() {
-						ui.PrimaryButton(c, i18n.T("Approve")).Children(func() {
+						ui.PrimaryButton(c, "").Label(i18n.T("Approve")).Children(func() {
 							ui.Icon(c, lucide.CircleCheck()).FontSize(15)
 							ui.Text(c, i18n.T("Approve"))
 						}).OnClick(func() { s.submitPRReview("approve") })
 						ui.Button(c, i18n.T("Request changes")).OnClick(func() {
 							s.submitPRReview("request-changes")
 						})
-						ui.Button(c, i18n.T("Add comment")).Children(func() {
+						ui.Button(c, "").Label(i18n.T("Add comment")).Children(func() {
 							ui.Icon(c, lucide.MessageCircle()).FontSize(15)
 							ui.Text(c, i18n.T("Add comment"))
 						}).OnClick(s.submitPRComment)
@@ -260,7 +260,7 @@ func (s *Session) pullRequestDetail(c *ui.Context) {
 				}
 				ui.Row(c).Wrap().Gap(4).Padding(0, 0, 4, 0).Children(func() {
 					if pr.URL != "" {
-						ui.Button(c, i18n.T("Open on GitHub")).Children(func() {
+						ui.Button(c, "").Label(i18n.T("Open on GitHub")).Children(func() {
 							ui.Icon(c, lucide.ExternalLink()).FontSize(15)
 							ui.Text(c, i18n.T("Open on GitHub"))
 						}).OnClick(func() { c.OpenURL(pr.URL) })
@@ -323,7 +323,7 @@ func (s *Session) sideChatSurface(c *ui.Context) {
 					ui.Spinner(c).Size(14, 14).Label(i18n.T("Starting side chat"))
 				})
 			} else {
-				ui.PrimaryButton(c, i18n.T("Start side chat")).Children(func() {
+				ui.PrimaryButton(c, "").Label(i18n.T("Start side chat")).Children(func() {
 					ui.Icon(c, lucide.MessageCircleMore()).FontSize(15)
 					ui.Text(c, i18n.T("Start side chat"))
 				}).OnClick(s.openSideChat)
@@ -390,7 +390,7 @@ func (s *Session) sideChatSurface(c *ui.Context) {
 			ui.TextArea(c, &s.sideDraft).Label(i18n.T("Side question")).
 				Placeholder(i18n.T("Ask a side question…")).Lines(1, 6)
 			ui.Row(c).AlignItems(ui.Center).Gap(4).Children(func() {
-				ui.Button(c, "").Label(i18n.T("Side chat model")).Children(func() {
+				ui.Button(c, "").Label("").Label(i18n.T("Side chat model")).Children(func() {
 					ui.Text(c, shortModel(thread.Model)).FontSize(10.5).TextColor(t.TextMuted).SingleLine().MaxWidth(140)
 				}).PopoverMenuButton(func(m *ui.Menu) {
 					for _, model := range s.allModels() {
@@ -419,7 +419,7 @@ func (s *Session) sideChatSurface(c *ui.Context) {
 				if s.sideRunning {
 					ui.Button(c, i18n.T("Stop")).OnClick(s.stopSideChat)
 				} else {
-					send := ui.PrimaryButton(c, i18n.T("Send")).Children(func() {
+					send := ui.PrimaryButton(c, "").Label(i18n.T("Send")).Children(func() {
 						ui.Icon(c, lucide.Send()).FontSize(15)
 						ui.Text(c, i18n.T("Send"))
 					})
@@ -498,7 +498,7 @@ func (s *Session) previewSurface(c *ui.Context) {
 						ui.Text(c, server.URL).FontSize(10).Font("monospace").
 							TextColor(t.TextMuted).SingleLine()
 					})
-					ui.Button(c, i18n.T("Open")).Children(func() {
+					ui.Button(c, "").Label(i18n.T("Open")).Children(func() {
 						ui.Icon(c, lucide.ExternalLink()).FontSize(14)
 						ui.Text(c, i18n.T("Open"))
 					}).OnClick(func() { s.openPreviewServer(server.URL) })
@@ -524,7 +524,7 @@ func (s *Session) deviceSurface(c *ui.Context) {
 	}
 	ui.Column(c).Fill().Children(func() {
 		ui.Row(c).AlignItems(ui.Center).Gap(4).Padding(4, 10).Children(func() {
-			ui.Button(c, "").Label(i18n.T("Devices")).Children(func() {
+			ui.Button(c, "").Label("").Label(i18n.T("Devices")).Children(func() {
 				ui.Icon(c, lucide.MonitorSmartphone()).FontSize(14)
 				ui.Text(c, selector).SingleLine().MaxWidth(180)
 			}).OnClick(func() {
@@ -574,12 +574,12 @@ func (s *Session) deviceSurface(c *ui.Context) {
 					ui.Image(c, bitmap).Fit(ui.Contain).Fill()
 				})
 				ui.Row(c).Gap(4).Children(func() {
-					ui.Button(c, i18n.T("Refresh screen")).Children(func() {
+					ui.Button(c, "").Label(i18n.T("Refresh screen")).Children(func() {
 						ui.Icon(c, lucide.RefreshCw()).FontSize(15)
 						ui.Text(c, i18n.T("Refresh screen"))
 					}).OnClick(s.refreshDeviceShot)
 					ui.Spacer(c)
-					ui.Button(c, i18n.T("Shut down")).Children(func() {
+					ui.Button(c, "").Label(i18n.T("Shut down")).Children(func() {
 						ui.Icon(c, lucide.Power()).FontSize(15)
 						ui.Text(c, i18n.T("Shut down"))
 					}).OnClick(func() { s.shutdownDevice(selected.ID) })
@@ -589,7 +589,7 @@ func (s *Session) deviceSurface(c *ui.Context) {
 			ui.Column(c).Grow(1).Center().Padding(16).Gap(6).Children(func() {
 				ui.Text(c, selected.Name).FontSize(12.5).FontWeight(600).TextColor(t.Text).SingleLine()
 				faint(c, selected.OS+" · "+strings.ToLower(selected.State), 10.5)
-				ui.PrimaryButton(c, i18n.T("Boot")).Children(func() {
+				ui.PrimaryButton(c, "").Label(i18n.T("Boot")).Children(func() {
 					ui.Icon(c, lucide.Play()).FontSize(15)
 					ui.Text(c, i18n.T("Boot"))
 				}).OnClick(func() { s.bootDevice(selected.ID) })

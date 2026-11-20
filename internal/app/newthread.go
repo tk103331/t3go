@@ -180,7 +180,7 @@ func (s *Session) branchNames() []string {
 func (s *Session) newThreadControls(c *ui.Context) {
 	ui.Row(c).WidthPercent(100).MinWidth(0).AlignItems(ui.Center).Gap(2).Children(func() {
 		ui.Spacer(c)
-		ui.Button(c, "").Label(i18n.T("Agent") + " " + s.newThreadAgentLabel()).Children(func() {
+		ui.Button(c, "").Label("").Label(i18n.T("Agent") + " " + s.newThreadAgentLabel()).Children(func() {
 			ui.Icon(c, lucide.Bot()).FontSize(14)
 			ui.Text(c, s.newThreadAgentLabel()).SingleLine().MaxWidth(180)
 		}).PopoverMenuButton(func(m *ui.Menu) {
@@ -203,7 +203,7 @@ func (s *Session) newThreadControls(c *ui.Context) {
 				}
 			}
 		})
-		ui.Button(c, "").Label(i18n.T("Model")).Children(func() {
+		ui.Button(c, "").Label("").Label(i18n.T("Model")).Children(func() {
 			ui.Icon(c, lucide.Cpu()).FontSize(14)
 			ui.Text(c, shortModel(s.newThreadModelLabel())).SingleLine().MaxWidth(220)
 		}).PopoverMenuButton(func(m *ui.Menu) {
@@ -218,7 +218,7 @@ func (s *Session) newThreadControls(c *ui.Context) {
 				}
 			}
 		})
-		ui.Button(c, "").Label(i18n.T("Permission")).Children(func() {
+		ui.Button(c, "").Label("").Label(i18n.T("Permission")).Children(func() {
 			ui.Icon(c, lucide.KeyRound()).FontSize(14)
 			ui.Text(c, string(s.newThreadPerm)).SingleLine()
 		}).PopoverMenuButton(func(m *ui.Menu) {
@@ -230,7 +230,7 @@ func (s *Session) newThreadControls(c *ui.Context) {
 				}
 			}
 		})
-		ui.Button(c, "").Label(i18n.T("Worktree")).Children(func() {
+		ui.Button(c, "").Label("").Label(i18n.T("Worktree")).Children(func() {
 			ui.Icon(c, lucide.GitBranch()).FontSize(14)
 			ui.Text(c, s.newThreadWorktreeLabel()).SingleLine().MaxWidth(200)
 		}).PopoverMenuButton(func(m *ui.Menu) {

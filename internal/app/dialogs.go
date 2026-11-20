@@ -58,7 +58,7 @@ func newProjectDialog(c *ui.Context, s *Session) {
 				if ui.Button(c, i18n.T("Cancel")).Clicked() {
 					s.showNewProject = false
 				}
-				b := ui.PrimaryButton(c, i18n.T("Add project")).Children(func() {
+				b := ui.PrimaryButton(c, "").Label(i18n.T("Add project")).Children(func() {
 					ui.Icon(c, lucide.FolderPlus()).FontSize(15)
 					ui.Text(c, i18n.T("Add project"))
 				})
@@ -106,13 +106,13 @@ func approvalDialog(c *ui.Context, s *Session) {
 				faint(c, i18n.T("%d more waiting", len(s.approvals)-1), 11.5)
 			}
 			dialogFooter(c, func() {
-				if ui.Button(c, i18n.T("Deny")).Children(func() {
+				if ui.Button(c, "").Label(i18n.T("Deny")).Children(func() {
 					ui.Icon(c, lucide.X()).FontSize(15)
 					ui.Text(c, i18n.T("Deny"))
 				}).Clicked() {
 					s.resolveApproval(request.ID, false, i18n.T("Denied by the person running T3Go."))
 				}
-				if ui.PrimaryButton(c, i18n.T("Allow")).Children(func() {
+				if ui.PrimaryButton(c, "").Label(i18n.T("Allow")).Children(func() {
 					ui.Icon(c, lucide.Check()).FontSize(15)
 					ui.Text(c, i18n.T("Allow"))
 				}).Clicked() {
@@ -158,7 +158,7 @@ func renameDeleteDialogs(c *ui.Context, s *Session) {
 					if ui.Button(c, i18n.T("Cancel")).Clicked() {
 						s.cancelDelete()
 					}
-					if ui.Button(c, i18n.T("Delete")).Children(func() {
+					if ui.Button(c, "").Label(i18n.T("Delete")).Children(func() {
 						ui.Icon(c, lucide.Trash()).FontSize(15).TextColor(t.Danger)
 						ui.Text(c, i18n.T("Delete")).TextColor(t.Danger)
 					}).Clicked() {
@@ -378,7 +378,7 @@ func diffDialog(c *ui.Context, s *Session) {
 					path := s.diffDiscard
 					ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
 						faint(c, i18n.T("Discard changes to ")+path+"?", 11.5)
-						ui.Button(c, i18n.T("Discard")).Children(func() {
+						ui.Button(c, "").Label(i18n.T("Discard")).Children(func() {
 							ui.Icon(c, lucide.Undo()).FontSize(15)
 							ui.Text(c, i18n.T("Discard"))
 						}).OnClick(func() {
@@ -387,7 +387,7 @@ func diffDialog(c *ui.Context, s *Session) {
 						})
 					})
 				}
-				if ui.Button(c, "").Label(i18n.T("Close diff")).Children(func() {
+				if ui.Button(c, "").Label("").Label(i18n.T("Close diff")).Children(func() {
 					ui.Icon(c, lucide.X()).FontSize(15)
 				}).Tooltip(i18n.T("Close diff")).Clicked() {
 					s.showDiff = false
@@ -432,7 +432,7 @@ func (s *Session) gitControls(c *ui.Context) {
 		}
 		branchField := text(c, branch, 12, t.Text, 600)
 		if len(s.branches) > 1 {
-			branchField = ui.Button(c, "").Label(i18n.T("Branch") + " " + branch).Children(func() {
+			branchField = ui.Button(c, "").Label("").Label(i18n.T("Branch") + " " + branch).Children(func() {
 				ui.Icon(c, lucide.GitBranch()).FontSize(14)
 				ui.Text(c, branch).SingleLine().MaxWidth(160)
 			}).PopoverMenuButton(func(m *ui.Menu) {
@@ -455,7 +455,7 @@ func (s *Session) gitControls(c *ui.Context) {
 			ui.TextInput(c, &s.gitMessage).Placeholder(i18n.T("Commit message (defaults to an update)"))
 		})
 		ui.Row(c).Wrap().AlignItems(ui.Center).Gap(6).Children(func() {
-			commit := ui.Button(c, i18n.T("Commit")).Children(func() {
+			commit := ui.Button(c, "").Label(i18n.T("Commit")).Children(func() {
 				ui.Icon(c, lucide.Check()).FontSize(15)
 				ui.Text(c, i18n.T("Commit"))
 			})
@@ -463,7 +463,7 @@ func (s *Session) gitControls(c *ui.Context) {
 				commit.Disabled(true)
 			}
 			commit.OnClick(func() { s.runGitAction(proto.GitCommit) })
-			push := ui.Button(c, i18n.T("Push")).Children(func() {
+			push := ui.Button(c, "").Label(i18n.T("Push")).Children(func() {
 				ui.Icon(c, lucide.ArrowUp()).FontSize(15)
 				ui.Text(c, i18n.T("Push"))
 			})
@@ -479,7 +479,7 @@ func (s *Session) gitControls(c *ui.Context) {
 				cp.Disabled(true)
 			}
 			cp.OnClick(func() { s.runGitAction(proto.GitCommitPush) })
-			pr := ui.PrimaryButton(c, i18n.T("Create PR")).Children(func() {
+			pr := ui.PrimaryButton(c, "").Label(i18n.T("Create PR")).Children(func() {
 				ui.Icon(c, lucide.GitPullRequest()).FontSize(15)
 				ui.Text(c, i18n.T("Create PR"))
 			})

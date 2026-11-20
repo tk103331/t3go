@@ -38,7 +38,7 @@ func rightPanel(c *ui.Context, s *Session) {
 				selected := name == s.surface
 				tab := ui.Row(c).AlignItems(ui.Center).Gap(5).Padding(2, 1, 2, 7).
 					Radius(6).Border(1, t.Border).Shrink(0).Children(func() {
-					b := ui.Button(c, "").Label(surfaceTitle(name)).Children(func() {
+					b := ui.Button(c, "").Label("").Label(surfaceTitle(name)).Children(func() {
 						color := t.TextMuted
 						if selected {
 							color = t.Text
@@ -58,7 +58,7 @@ func rightPanel(c *ui.Context, s *Session) {
 				_ = tab
 			}
 			ui.Spacer(c)
-			ui.Button(c, "").Label(i18n.T("Add surface")).Children(func() {
+			ui.Button(c, "").Label("").Label(i18n.T("Add surface")).Children(func() {
 				ui.Icon(c, lucide.Plus()).FontSize(15)
 			}).Tooltip(i18n.T("Add surface")).PopoverMenuButton(func(m *ui.Menu) {
 				for _, name := range []string{"files", "terminal", "pr", "diff", "graph", "preview", "device", "sidechat", "browser"} {
@@ -190,7 +190,7 @@ func (s *Session) filesSurface(c *ui.Context) {
 				ui.Column(c).Grow(1).AlignItems(ui.Start).Gap(8).Children(func() {
 					ui.Icon(c, lucide.FileText()).FontSize(24).TextColor(t.TextMuted)
 					faint(c, i18n.T("No preview for this file."), 12)
-					ui.Button(c, i18n.T("Open outside T3Go")).Children(func() {
+					ui.Button(c, "").Label(i18n.T("Open outside T3Go")).Children(func() {
 						ui.Icon(c, lucide.ExternalLink()).FontSize(15)
 						ui.Text(c, i18n.T("Open outside T3Go"))
 					}).OnClick(func() { c.OpenURL(s.rawFileURL(s.fileSelected)) })
@@ -397,7 +397,7 @@ func (s *Session) terminalSurface(c *ui.Context) {
 		if len(s.terminals) == 0 && !s.terminalBusy {
 			ui.Column(c).Grow(1).Center().Gap(8).Children(func() {
 				faint(c, i18n.T("No terminal open"), 12.5)
-				ui.PrimaryButton(c, i18n.T("New terminal")).Children(func() {
+				ui.PrimaryButton(c, "").Label(i18n.T("New terminal")).Children(func() {
 					ui.Icon(c, lucide.Plus()).FontSize(15)
 					ui.Text(c, i18n.T("New terminal"))
 				}).OnClick(s.newTerminal)

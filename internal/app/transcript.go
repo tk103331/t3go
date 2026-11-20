@@ -260,7 +260,7 @@ func turnFoldRow(c *ui.Context, summary, key string, open bool, toggle func()) {
 	t := c.Theme()
 	ui.Row(c).AlignItems(ui.Center).Height(26).Gap(10).Children(func() {
 		ui.Box(c).Grow(1).Height(1).Background(t.Border)
-		ui.Button(c, "").Label(summary).Children(func() {
+		ui.Button(c, "").Label("").Label(summary).Children(func() {
 			ui.Text(c, summary).FontSize(12).FontWeight(500).TextColor(t.TextMuted)
 			icon := lucide.ChevronDown()
 			if !open {
@@ -702,7 +702,7 @@ func (s *Session) threadControlsMobile(c *ui.Context) {
 	if thread.ID == "" {
 		return
 	}
-	ui.Button(c, "").Label(i18n.T("Composer options")).Children(func() {
+	ui.Button(c, "").Label("").Label(i18n.T("Composer options")).Children(func() {
 		ui.Icon(c, lucide.SlidersHorizontal()).FontSize(20)
 	}).PopoverMenuButton(func(m *ui.Menu) {
 		for _, permission := range []proto.PermissionMode{proto.PermissionSupervised, proto.PermissionAcceptEdits,
