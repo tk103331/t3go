@@ -79,7 +79,7 @@ func (s *Session) mobileHomeScreen(c *ui.Context) {
 			case "settings":
 				s.mobileSettingsPage(c)
 			case "projects":
-				s.mobileThreadsPage(c)
+				s.mobileProjectsPage(c)
 			default:
 				s.mobileThreadsPage(c)
 			}
@@ -119,23 +119,26 @@ func (s *Session) mobileHomeHeader(c *ui.Context) {
 		title = ""
 	}
 	ui.Row(c).AlignItems(ui.Center).Gap(4).Padding(10, 14).Children(func() {
-		if title != "" {
-			ui.Text(c, title).FontSize(24).FontWeight(500).TextColor(t.Text)
-		} else {
-			brandWordmark(c, 26)
-		}
-		ui.Spacer(c)
-		if s.mobilePage == "threads" {
-			iconBtn(c, lucide.Search(), i18n.T("Search threads"), func() {
-				s.mobileThreadSearch = true
-			})
-		}
+		// The way back sits at the top left, where a phone's does.
 		if s.mobilePage == "settings" && s.mobileSettingsDetail != "" {
 			iconBtn(c, lucide.ChevronLeft(), i18n.T("Back to settings"), func() {
 				if s.mobileSettingsDetail == "environments" {
 					s.setSettingsSection("environments")
 				}
 				s.mobileSettingsDetail = ""
+			})
+		}
+		if title != "" {
+			ui.Text(c, title).FontSize(24).FontWeight(500).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
+		} else {
+			brandWordmark(c, 26)
+		}
+		if title == "" {
+			ui.Spacer(c)
+		}
+		if s.mobilePage == "threads" {
+			iconBtn(c, lucide.Search(), i18n.T("Search threads"), func() {
+				s.mobileThreadSearch = true
 			})
 		}
 		if s.mobilePage == "projects" {
@@ -148,9 +151,7 @@ func (s *Session) mobileHomeHeader(c *ui.Context) {
 			iconBtn(c, lucide.RefreshCw(), i18n.T("Refresh pull requests"), s.loadMobilePullRequests)
 		}
 		if s.mobilePage != "settings" && s.mobilePage != "usage" && s.mobilePage != "prs" {
-			ui.Button(c, "").Label("").Label(i18n.T("Filter threads")).Children(func() {
-				ui.Icon(c, lucide.ListFilter()).FontSize(22)
-			}).PopoverMenuButton(func(m *ui.Menu) {
+			iconBtn(c, lucide.ListFilter(), i18n.T("Filter threads"), nil).PopoverMenuButton(func(m *ui.Menu) {
 				if m.Item(s.archivedLabel()).Chosen() {
 					s.toggleShowArchived()
 				}
@@ -332,30 +333,34 @@ func (s *Session) mobileComposeButton(c *ui.Context) {
 	})
 }
 
-// mobileBottomNavigation is the phone's bar of tabs.
+// mobileBottomNavigation is the phone's bar of tabs: the icon above its
+// name, as the tabs of a phone are drawn.
 func (s *Session) mobileBottomNavigation(c *ui.Context) {
 	t := c.Theme()
 	tab := func(icon *ui.SVG, label, page string, pressed func()) {
-		selected := s.mobilePage == page
-		b := clickableRow(c, label, func() {
-			badge := ui.Column(c).Size(56, 34).Radius(20).Center().Children(func() {
-				ui.Icon(c, icon).FontSize(26).TextColor(t.Text)
+		selected := s.mobilePage == page || (page == "threads" && s.mobilePage == "projects")
+		b := ui.ButtonBase(c).Label(label).Grow(1).MinWidth(44).Height(72).
+			AlignItems(ui.Center).Justify(ui.Center).Children(func() {
+			ui.Column(c).AlignItems(ui.Center).Justify(ui.Center).Gap(3).Children(func() {
+				badge := ui.Column(c).Size(52, 30).Radius(15).Center().Children(func() {
+					ui.Icon(c, icon).FontSize(24).TextColor(t.Text)
+				})
+				if selected {
+					badge.Background(t.Text.Alpha(0.13))
+				}
+				ui.Text(c, label).FontSize(11.5).FontWeight(500).TextColor(t.Text).SingleLine()
 			})
-			if selected {
-				badge.Background(t.Text.Alpha(0.13))
-			}
-			ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(t.Text)
-		}).Grow(1).MinWidth(44).Height(72).Center().Gap(5)
+		})
 		if b.Clicked() {
 			pressed()
 		}
 	}
 	ui.Row(c).AlignItems(ui.Center).Padding(4, 0).Background(t.Surface).Children(func() {
-		tab(lucide.MessageSquare(), "Chats", "threads", func() {
+		tab(lucide.MessageSquare(), i18n.T("Chats"), "threads", func() {
 			s.closeMobileThreadSearch()
 			s.mobilePage = "threads"
 		})
-		tab(lucide.GitPullRequest(), "Pulls", "prs", func() {
+		tab(lucide.GitPullRequest(), i18n.T("Pulls"), "prs", func() {
 			s.closeMobileThreadSearch()
 			s.mobilePage = "prs"
 			s.loadMobilePullRequests()

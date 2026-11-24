@@ -118,6 +118,16 @@ func TestUIMobileSettings(t *testing.T) {
 	}
 
 	// A section's page opens and comes back.
+	if err := tester.tt.Click(i18n.T("Account")); err != nil {
+		t.Fatal(err)
+	}
+	tester.pump()
+	if session.mobileSettingsDetail != "account" || !tester.tt.HasText(i18n.T("Relay account")) {
+		t.Fatal("the phone's account settings did not open")
+	}
+	session.mobileSettingsDetail = ""
+	tester.pump()
+
 	session.openMobileSettingsSection("providers")
 	tester.pump()
 	if !tester.tt.HasText(i18n.T("Detected providers")) {
@@ -162,4 +172,104 @@ func TestUISettingsNavSwitches(t *testing.T) {
 		tester.tt.Frame()
 		return session.settingsSection == "providers" && tester.tt.HasText(i18n.T("Detected providers"))
 	}, "the providers page to open")
+}
+
+// TestUIMobileComposerFocusGrowth checks the phone's message field: one
+// line at rest with a tight frame, room for three lines while it has the
+// focus, and one line again once it loses it.
+func TestUIMobileComposerFocusGrowth(t *testing.T) {
+	srv, ts, cfg := startEnv(t)
+	srv.Service.Providers.Register(sideRunner{})
+
+	ctx := context.Background()
+	project, err := srv.Service.CreateProject(ctx, "Mobile", gitRepo(t))
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	thread, err := srv.Service.CreateThread(ctx, orchestrator.CreateThreadInput{
+		ProjectID: project.ID, Title: "Focused composer", Provider: "side-fake", Model: "side-fake-1",
+		Permission: proto.PermissionFullAccess,
+	})
+	if err != nil {
+		t.Fatalf("thread: %v", err)
+	}
+	tester, session := startAppAt(t, ts, cfg, 390, 844, nil)
+	tester.wait(t, 15*time.Second, func() bool {
+		return session != nil && session.connected
+	}, "the environment to connect")
+	session.selectThread(thread.ID)
+	tester.wait(t, 15*time.Second, func() bool {
+		return session.detail.Thread.ID == thread.ID
+	}, "the thread to load")
+	tester.pump()
+
+	label := i18n.T("Message")
+	rest, ok := tester.tt.Find(label)
+	if !ok {
+		t.Fatalf("the phone composer has no message field: %v", tester.tt.Texts())
+	}
+	if tester.tt.Focused(label) {
+		t.Fatal("the message field starts focused")
+	}
+	if rest.H > 40 {
+		t.Fatalf("the field at rest is %v high, want one tight line", rest.H)
+	}
+	if err := tester.tt.Click(label); err != nil {
+		t.Fatalf("focus the message field: %v", err)
+	}
+	tester.pump()
+	if !tester.tt.Focused(label) {
+		t.Fatal("clicking the message field did not focus it")
+	}
+	focused, ok := tester.tt.Find(label)
+	if !ok {
+		t.Fatal("the focused message field is gone")
+	}
+	// Three lines against one: the field's own padding is in both.
+	if focused.H < rest.H*2.2 || focused.H > rest.H*2.6 {
+		t.Fatalf("the focused field is %v high, want about three lines of %v", focused.H, rest.H)
+	}
+	// A press outside the field takes the focus and the field shrinks
+	// back to a single line.
+	if err := tester.tt.Click("Focused composer"); err != nil {
+		t.Fatalf("click outside the message field: %v", err)
+	}
+	tester.pump()
+	if tester.tt.Focused(label) {
+		t.Fatal("the message field kept the focus after a press outside it")
+	}
+	blurred, ok := tester.tt.Find(label)
+	if !ok {
+		t.Fatal("the blurred message field is gone")
+	}
+	if blurred.H != rest.H {
+		t.Fatalf("the field is %v high after losing the focus, want %v", blurred.H, rest.H)
+	}
+
+	// The phone's new thread has the same field: one line at rest, three
+	// while it is written in.
+	session.showNewThread = true
+	tester.pump()
+	newLabel := i18n.T("New thread message")
+	newRest, ok := tester.tt.Find(newLabel)
+	if !ok {
+		t.Fatalf("the phone's new thread has no message field: %v", tester.tt.Texts())
+	}
+	if newRest.H > 40 {
+		t.Fatalf("the new thread field at rest is %v high, want one tight line", newRest.H)
+	}
+	if err := tester.tt.Click(newLabel); err != nil {
+		t.Fatalf("focus the new thread field: %v", err)
+	}
+	tester.pump()
+	if !tester.tt.Focused(newLabel) {
+		t.Fatal("clicking the new thread field did not focus it")
+	}
+	newFocused, ok := tester.tt.Find(newLabel)
+	if !ok {
+		t.Fatal("the focused new thread field is gone")
+	}
+	if newFocused.H < newRest.H*2.2 || newFocused.H > newRest.H*2.6 {
+		t.Fatalf("the focused new thread field is %v high, want about three lines of %v", newFocused.H, newRest.H)
+	}
 }

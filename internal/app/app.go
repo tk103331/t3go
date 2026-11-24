@@ -22,9 +22,10 @@ const appID = "dev.nsgo.t3go"
 // manager, the root of the window's view. Tests build one of their own
 // with a memory store.
 type clientApp struct {
-	store   *fileStore
-	manager *Manager
-	win     *mygo.Window
+	store              appStorage
+	manager            *Manager
+	win                *mygo.Window
+	windowButtonsTheme mygo.ThemeSource
 }
 
 // Main runs the client: it opens the storage, the language and the
@@ -34,12 +35,15 @@ func Main() {
 	initClientLanguage(a.store)
 	mygo.App.WhenReady(func() {
 		a.win = mygo.NewWindow(mygo.WindowOptions{
-			Title:     "T3Go",
-			Width:     1100,
-			Height:    760,
-			MinWidth:  480,
-			MinHeight: 480,
-			Content:   ui.View(a.root),
+			Title:                "T3Go",
+			Width:                1280,
+			Height:               820,
+			MinWidth:             480,
+			MinHeight:            480,
+			TitleBarStyle:        mygo.TitleBarHidden,
+			TitleBarHeight:       44,
+			TrafficLightPosition: &mygo.Point{X: 14, Y: 15},
+			Content:              ui.View(a.root),
 		})
 		a.win.OnClosed(func() {
 			if a.manager != nil {
@@ -75,18 +79,25 @@ func (a *clientApp) root(c *ui.Context) {
 	}
 	t := themeFor(a.manager.appearance, c.Theme())
 	c.SetTheme(t)
+	if a.win != nil {
+		source := mygo.ThemeLight
+		if t.Dark {
+			source = mygo.ThemeDark
+		}
+		if a.windowButtonsTheme != source {
+			a.win.SetWindowButtonsTheme(source)
+			a.windowButtonsTheme = source
+		}
+	}
 	if active := a.manager.active; active != nil {
 		active.md.Theme = markdownTheme(*t)
 	}
-	if !c.FocusTakesText() {
-		a.shortcuts(c)
-	}
+	a.shortcuts(c)
 	a.manager.view(c)
 }
 
-// shortcuts binds the client's own keys. A focused text field keeps what
-// it types: MyGo runs window shortcuts only when the focus takes no
-// text.
+// shortcuts keeps navigation available while writing a draft. Editing
+// shortcuts such as Cmd+B stay with a focused text field.
 func (a *clientApp) shortcuts(c *ui.Context) {
 	active := a.manager.active
 	if active == nil {
@@ -95,14 +106,17 @@ func (a *clientApp) shortcuts(c *ui.Context) {
 	if c.Shortcut(ui.Cmd, ui.KeyK) {
 		active.openPalette()
 	}
+	if c.Shortcut(ui.Cmd, ui.KeyComma) {
+		active.openSettings()
+	}
+	if c.FocusTakesText() {
+		return
+	}
 	if c.Shortcut(ui.Cmd, ui.KeyN) {
 		active.openNewThread()
 	}
 	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyN) {
 		active.openNewProject()
-	}
-	if c.Shortcut(ui.Cmd, ui.KeyComma) {
-		active.openSettings()
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyB) {
 		active.setSidebarOpen(!active.sidebarOpen)
@@ -114,20 +128,20 @@ func (a *clientApp) shortcuts(c *ui.Context) {
 func (m *Manager) view(c *ui.Context) {
 	a := m.active
 	if a == nil {
-		connectScreen(c, nil, m)
+		windowScreen(c, func() { connectScreen(c, nil, m) })
 		return
 	}
 	if !a.connected {
 		if a.profile.ID == "" && m.pending != nil {
-			connectScreen(c, m.pending, m)
+			windowScreen(c, func() { connectScreen(c, m.pending, m) })
 			return
 		}
 		if a.profile.ID == "" {
-			connectScreen(c, a, m)
+			windowScreen(c, func() { connectScreen(c, a, m) })
 			return
 		}
 		if a.connecting && !anySessionReady(m) {
-			connectingScreen(c, m)
+			windowScreen(c, func() { connectingScreen(c, m) })
 			return
 		}
 	}
@@ -165,13 +179,20 @@ func (m *Manager) workspace(c *ui.Context) {
 		narrowLayout(c, a)
 		return
 	}
-	split := ui.Split(c, &a.sidebarWidth, func() {
-		sidebar(c, a)
-	}, func() {
+	if a.sidebarOpen {
+		width, _ := c.Size()
+		shown, _, _ := a.desktopPaneWidths(width)
+		split := ui.Split(c, &shown, func() {
+			sidebar(c, a)
+		}, func() {
+			a.mainPane(c)
+		}).Fill().SplitReset(260)
+		if split.Changed() {
+			a.sidebarWidth = min(max(shown, 220), min(360, width-480))
+			a.persistSplitWidths()
+		}
+	} else {
 		a.mainPane(c)
-	}).Fill()
-	if split.Changed() {
-		a.persistSplitWidths()
 	}
 
 	// The dialogs and overlays of every session sit above the workspace.
@@ -182,17 +203,48 @@ func (m *Manager) workspace(c *ui.Context) {
 // surfaces panel when it is open.
 func (s *Session) mainPane(c *ui.Context) {
 	if s.rightOpen {
-		split := ui.Split(c, &s.rightWidth, func() {
+		width, _ := c.Size()
+		sidebarWidth, conversationWidth, _ := s.desktopPaneWidths(width)
+		if sidebarWidth > 0 {
+			width -= sidebarWidth + 1
+		}
+		// Split sizes its first pane. Store the right pane's width so
+		// resizing the window gives the extra room to the conversation.
+		split := ui.Split(c, &conversationWidth, func() {
 			conversation(c, s)
 		}, func() {
 			rightPanel(c, s)
-		}).Fill()
+		}).Fill().SplitReset(max(200, width-361))
 		if split.Changed() {
+			s.rightWidth = min(max(width-conversationWidth-1, 280), max(280, width-420))
 			s.persistSplitWidths()
 		}
 		return
 	}
 	conversation(c, s)
+}
+
+// middleRoom is the conversation pane's width, the space the composer's
+// controls have inside the window.
+func (s *Session) middleRoom(c *ui.Context) float32 {
+	width, _ := c.Size()
+	_, room, _ := s.desktopPaneWidths(width)
+	return room
+}
+
+// desktopPaneWidths keeps responsive controls in step with the split panes.
+// Preferred widths stay saved when a smaller window temporarily limits them.
+func (s *Session) desktopPaneWidths(width float32) (sidebar, conversation, panel float32) {
+	if s.sidebarOpen {
+		sidebar = min(max(s.sidebarWidth, 220), min(360, width-480))
+		width -= sidebar + 1
+	}
+	conversation = width
+	if s.rightOpen {
+		panel = min(max(s.rightWidth, 280), max(280, width-420))
+		conversation = max(200, width-panel-1)
+	}
+	return
 }
 
 // conversation is the right of the sidebar: the thread, or the welcome
@@ -210,7 +262,8 @@ func conversation(c *ui.Context, a *Session) {
 // narrowLayout is the phone layout: one column.
 func narrowLayout(c *ui.Context, a *Session) {
 	ui.Column(c).Fill().Background(c.Theme().Background).Children(func() {
-		a.narrowView(c)
+		windowTitleBar(c)
+		ui.Box(c).Grow(1).FillWidth().Clip().Children(func() { a.narrowView(c) })
 	})
 	overlays(c, a, nil)
 }
@@ -280,7 +333,7 @@ func welcome(c *ui.Context, s *Session) {
 			Padding(24).Radius(14).Border(1, t.Border).Background(t.Surface).Children(func() {
 			brandWordmark(c, 24)
 			ui.Text(c, i18n.T("Welcome to ")+s.envName()).FontSize(19).Bold().TextColor(t.Text)
-			ui.Text(c, message).FontSize(12.5).LineHeight(19).TextAlign(ui.Center).TextColor(t.TextMuted)
+			ui.Text(c, message).FontSize(12.5).FixedLineHeight(19).TextAlign(ui.Center).TextColor(t.TextMuted)
 			ui.Row(c).Gap(8).WidthPercent(100).Children(func() {
 				ui.PrimaryButton(c, i18n.T("New thread")).Grow(1).OnClick(s.openNewThread)
 				ui.Button(c, i18n.T("New project")).Grow(1).OnClick(s.openNewProject)
@@ -297,10 +350,19 @@ func (s *Session) header(c *ui.Context) {
 		s.mobileHeader(c)
 		return
 	}
-	ui.Row(c).AlignItems(ui.Center).Gap(10).Padding(8, 12).
+	bar := c.TitleBar()
+	left, right := float32(16), float32(16)
+	if !s.sidebarOpen {
+		left += bar.Left
+	}
+	if !s.rightOpen {
+		right += bar.Right
+	}
+	ui.Row(c).AlignItems(ui.Center).Gap(8).Height(windowTitleBarHeight(c)).Shrink(0).
+		Padding(6, right, 6, left).DragWindow().
 		BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
-		toggle := ui.Button(c, "").Label(i18n.T("Toggle sidebar")).
-			Tooltip(i18n.T("Toggle sidebar")).Children(func() {
+		toggle := toolbarButton(c, "").Label(i18n.T("Toggle sidebar")).
+			Size(30, 30).Padding(0).Shrink(0).Tooltip(i18n.T("Toggle sidebar")).Children(func() {
 			ui.Icon(c, lucide.PanelLeft()).FontSize(16)
 		})
 		if toggle.Clicked() {
@@ -310,11 +372,10 @@ func (s *Session) header(c *ui.Context) {
 			toggle.Background(t.SurfaceHover)
 		}
 		s.headerTitle(c)
-		ui.Spacer(c)
-		if s.detail.Thread.ID != "" {
+		if s.detail.Thread.ID != "" && !s.showNewThread {
 			s.branchMenuButton(c)
-			ui.Button(c, "").Label(i18n.T("Thread actions")).
-				Tooltip(i18n.T("Thread actions")).Children(func() {
+			toolbarButton(c, "").Label(i18n.T("Thread actions")).
+				Size(30, 30).Padding(0).Shrink(0).Tooltip(i18n.T("Thread actions")).Children(func() {
 				ui.Icon(c, lucide.Ellipsis()).FontSize(16)
 			}).PopoverMenuButton(func(m *ui.Menu) {
 				if m.Item(i18n.T("Run history")).Chosen() {
@@ -326,10 +387,12 @@ func (s *Session) header(c *ui.Context) {
 				if m.Item(i18n.T("Changes in this thread")).Chosen() {
 					s.openDiff()
 				}
+				m.Separator()
+				s.threadMenu(m, s.detail.Thread)
 			})
 		}
-		right := ui.Button(c, "").Label(i18n.T("Toggle right panel")).
-			Tooltip(i18n.T("Toggle right panel")).Children(func() {
+		right := toolbarButton(c, "").Label(i18n.T("Toggle right panel")).
+			Size(30, 30).Padding(0).Shrink(0).Tooltip(i18n.T("Toggle right panel")).Children(func() {
 			ui.Icon(c, lucide.PanelRight()).FontSize(16)
 		})
 		if right.Clicked() {
@@ -345,12 +408,12 @@ func (s *Session) header(c *ui.Context) {
 func (s *Session) headerTitle(c *ui.Context) {
 	t := c.Theme()
 	if s.showNewThread && !compact(c) {
-		ui.Row(c).AlignItems(ui.Center).Gap(7).Grow(1).Children(func() {
+		ui.Row(c).AlignItems(ui.Center).Gap(7).Grow(1).MinWidth(0).Children(func() {
 			brandWordmark(c, 17)
 			faint(c, "/", 12)
 			text(c, i18n.T("New thread"), 12.5, t.Text, 500)
 			ui.Spacer(c)
-			if ui.Button(c, i18n.T("Cancel")).Clicked() {
+			if toolbarButton(c, i18n.T("Cancel")).Clicked() {
 				s.showNewThread = false
 			}
 		})
@@ -358,14 +421,15 @@ func (s *Session) headerTitle(c *ui.Context) {
 	}
 	d := s.detail
 	if d.Thread.ID == "" {
-		ui.Row(c).Gap(6).Grow(1).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(6).Grow(1).MinWidth(0).AlignItems(ui.Center).Children(func() {
 			s.environmentStatus(c)
 		})
 		return
 	}
 	ui.Row(c).AlignItems(ui.Center).Gap(7).Grow(1).MinWidth(0).Children(func() {
-		ui.Column(c).Gap(1).Children(func() {
-			ui.Text(c, d.Thread.Title).FontSize(13.5).FontWeight(600).TextColor(t.Text).SingleLine().MaxWidth(360)
+		ui.Column(c).Grow(1).MinWidth(0).Gap(1).Children(func() {
+			ui.Text(c, d.Thread.Title).FontSize(13.5).FontWeight(600).TextColor(t.Text).
+				SingleLine().FillWidth().MinWidth(0).Tooltip(d.Thread.Title)
 			s.environmentStatus(c)
 		})
 	})
@@ -375,15 +439,25 @@ func (s *Session) headerTitle(c *ui.Context) {
 // and how it is reached.
 func (s *Session) environmentStatus(c *ui.Context) {
 	t := c.Theme()
-	_, label := s.connectionStatus()
+	kind, label := s.connectionStatus()
 	if label == "" {
 		return
 	}
-	ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
-		if s.offline {
-			ui.Icon(c, lucide.CloudOff()).FontSize(11).TextColor(t.TextMuted)
+	ui.Row(c).Gap(4).AlignItems(ui.Center).Tooltip(label).Children(func() {
+		// How the environment is reached is a route type: its glyph says
+		// whether the client talks to it directly or through Relay, and
+		// the tooltip keeps the words.
+		switch kind {
+		case "direct", "connected":
+			ui.Icon(c, lucide.Link()).FontSize(12).TextColor(t.TextMuted)
+		case "relay":
+			ui.Icon(c, lucide.Network()).FontSize(12).TextColor(t.TextMuted)
+		default:
+			if s.offline {
+				ui.Icon(c, lucide.CloudOff()).FontSize(11).TextColor(t.TextMuted)
+			}
+			text(c, label, 10, t.TextMuted).SingleLine().MinWidth(0)
 		}
-		text(c, label, 10, t.TextMuted)
 	})
 }
 
@@ -396,9 +470,13 @@ func (s *Session) branchMenuButton(c *ui.Context) {
 	if branch == "" {
 		branch = "detached"
 	}
-	ui.Button(c, "").Label("").Label(i18n.T("Branch") + " " + branch).Children(func() {
+	width, _ := c.Size()
+	_, room, _ := s.desktopPaneWidths(width)
+	toolbarButton(c, "").Label(i18n.T("Branch") + " " + branch).Shrink(0).Tooltip(branch).Children(func() {
 		ui.Icon(c, lucide.GitBranch()).FontSize(14)
-		ui.Text(c, branch).SingleLine().MaxWidth(160)
+		if room >= 600 {
+			ui.Text(c, branch).SingleLine().MaxWidth(140)
+		}
 	}).OnClick(func() {
 		s.showBranches = true
 		s.loadBranches(s.selected)

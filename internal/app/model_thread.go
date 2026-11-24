@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -105,6 +106,8 @@ func (s *Session) loadDetail(id string) {
 	if c == nil || id == "" {
 		return
 	}
+	s.detailLoadSeq++
+	loadSeq, eventSeq := s.detailLoadSeq, s.detailEventSeq
 	go func() {
 		ctx, cancel := context.WithTimeout(s.lifetime, 20*time.Second)
 		defer cancel()
@@ -113,12 +116,41 @@ func (s *Session) loadDetail(id string) {
 			return
 		}
 		s.post(func() {
-			if s.selected != id || s.client() != c {
+			if s.selected != id || s.client() != c || loadSeq != s.detailLoadSeq {
 				return
+			}
+			// Events can overtake this HTTP response, especially through a
+			// Relay tunnel. Keep their newer values while adding history
+			// that was not present in the live transcript yet.
+			live := eventSeq != s.detailEventSeq
+			if live {
+				for _, message := range s.messages {
+					d.Messages = upsertProto(d.Messages, message)
+				}
+				sort.SliceStable(d.Messages, func(i, j int) bool {
+					return d.Messages[i].CreatedAt.Before(d.Messages[j].CreatedAt)
+				})
+				if s.detail.Thread.ID == id {
+					d.Thread = s.detail.Thread
+				}
+				for _, run := range s.detail.Runs {
+					found := false
+					for i := range d.Runs {
+						if d.Runs[i].ID == run.ID {
+							d.Runs[i], found = run, true
+							break
+						}
+					}
+					if !found {
+						d.Runs = append(d.Runs, run)
+					}
+				}
 			}
 			s.detail = d
 			s.messages = d.Messages
-			s.running = d.Thread.Status == proto.ThreadRunning
+			if !live {
+				s.running = d.Thread.Status == proto.ThreadRunning
+			}
 			s.maybeFlush(id)
 			s.newThreadProv = d.Thread.Provider
 			s.newThreadModel = d.Thread.Model
@@ -623,15 +655,25 @@ func (s *Session) closeRuns() {
 	s.showRuns = false
 }
 
-// openRunDiff shows what one run changed, from its checkpoint.
+// openRunDiff shows what one run changed, from its checkpoint, in the
+// panel's Diff tab beside the conversation.
 func (s *Session) openRunDiff(runID string) {
 	id := s.selected
 	if id == "" || runID == "" {
 		return
 	}
 	s.closeRuns()
-	s.showDiff = true
-	s.loadDiff(id, runID)
+	subject := i18n.T("Run")
+	short := ""
+	for _, run := range s.detail.Runs {
+		if run.ID != runID {
+			continue
+		}
+		subject = i18n.T("Run") + " · " + runModelLabel(run)
+		short = run.StartedAt.Local().Format("15:04")
+		break
+	}
+	s.openRunDiffTab(runID, subject, short)
 }
 
 // askRestoreRun confirms reverting the checkout to a run's checkpoint.
@@ -761,13 +803,22 @@ func (s *Session) setAllMobileCommitFiles(selectAll bool) {
 	s.mobileCommitFiles = selected
 }
 
+// confirmMobileCommit sends the phone's commit: the files it picked, on
+// the branch it names.
 func (s *Session) confirmMobileCommit() {
+	s.commitMobileFiles(proto.GitCommitPush)
+}
+
+// commitMobileFiles commits the files the phone picked, and pushes them
+// when the action says so.
+func (s *Session) commitMobileFiles(action proto.GitAction) {
 	id := s.selected
 	if id == "" || s.gitBusy {
 		return
 	}
 	branch := strings.TrimSpace(s.branchName)
 	if s.mobileCommitNewBranch && branch == "" {
+		s.gitNote = i18n.T("Name the branch first.")
 		return
 	}
 	s.gitBusy = true
@@ -790,7 +841,7 @@ func (s *Session) confirmMobileCommit() {
 			}
 		}
 		res, err := c.GitAction(ctx, id, proto.GitActionInput{
-			Action:  proto.GitCommitPush,
+			Action:  action,
 			Message: message,
 			Files:   files,
 		})
@@ -1376,10 +1427,8 @@ func (s *Session) openSurface(name string) {
 
 // closeSurface closes a tab and moves to the one beside it.
 func (s *Session) closeSurface(name string) {
-	if s.surface != name {
-		return
-	}
-	if name == "terminal" {
+	active := s.surface == name
+	if active && name == "terminal" {
 		s.terminalHub.close()
 	}
 	next := make([]string, 0, len(s.tabs))
@@ -1389,6 +1438,9 @@ func (s *Session) closeSurface(name string) {
 		}
 	}
 	s.tabs = next
+	if !active {
+		return
+	}
 	s.surface = ""
 	for _, tab := range s.tabs {
 		s.surface = tab
@@ -1408,7 +1460,8 @@ func (s *Session) closeMobileSurface() {
 // setRightWidth resizes and remembers the surfaces panel.
 func (s *Session) setRightWidth(width float32) {
 	minWidth, maxWidth := float32(300), float32(680)
-	// TODO(view): the view clamps maxWidth to the window's width.
+	// The view clamps the panel to the window's width when it lays the
+	// workspace out.
 	if width < minWidth {
 		width = minWidth
 	}
@@ -1471,6 +1524,43 @@ func (s *Session) openFile(path string) {
 		s.rightBusy = false
 		if err != nil {
 			s.rightErr = friendlyError(err)
+		}
+	})
+}
+
+// openFileTab opens one file from the Files tree in its own tab.
+func (s *Session) openFileTab(path string) {
+	id := s.selected
+	if id == "" || path == "" {
+		return
+	}
+	s.fileTabPath = path
+	s.fileTab, s.fileTabErr, s.fileTabBusy = proto.WorkspaceFile{}, "", false
+	s.showSurface("file")
+	s.loadFileTab()
+}
+
+// loadFileTab reads the open file tab's contents.
+func (s *Session) loadFileTab() {
+	id, path := s.selected, s.fileTabPath
+	if id == "" || path == "" || s.fileTabBusy {
+		return
+	}
+	s.fileTabBusy, s.fileTabErr = true, ""
+	s.call(func(ctx context.Context, c *client.Client) error {
+		file, err := c.File(ctx, id, path)
+		if err != nil {
+			return err
+		}
+		s.post(func() {
+			s.fileTabBusy = false
+			s.fileTab = file
+		})
+		return nil
+	}, func(err error) {
+		s.fileTabBusy = false
+		if err != nil {
+			s.fileTabErr = friendlyError(err)
 		}
 	})
 }

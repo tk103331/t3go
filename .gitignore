@@ -32,3 +32,10 @@ dist/
 # the environment server the client ships
 cmd/t3go-app/resources/t3go
 cmd/t3go-app/resources/t3go.exe
+cmd/t3go-app/resources/t3go-server
+cmd/t3go-app/resources/t3go-server.exe
+
+# the MyGo client's build output
+/dist-mygo/
+/release/
+/.mygo/

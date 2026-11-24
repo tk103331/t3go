@@ -61,7 +61,13 @@ func TestUICreateThreadInWorktree(t *testing.T) {
 			return false
 		}
 		created = threads[0].ID
-		return true
+		// The store commits before the websocket update reaches the UI.
+		for _, thread := range session.threads {
+			if thread.ID == created {
+				return true
+			}
+		}
+		return false
 	}, "the thread to land")
 	var made proto.Thread
 	for _, th := range session.threads {

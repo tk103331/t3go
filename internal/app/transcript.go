@@ -122,16 +122,19 @@ func (s *Session) turnRunning(group turnGroup) bool {
 // threadPane is the open thread: the transcript above the composer, with
 // what waits to send between them.
 func (s *Session) threadPane(c *ui.Context) {
+	padding := float32(24)
+	if compact(c) {
+		padding = 16
+	}
 	ui.Column(c).Fill().Children(func() {
 		ui.Box(c).Grow(1).FillWidth().ClipY().Children(func() {
 			s.transcript(c)
 		})
-		ui.Column(c).Padding(8, 16, 16, 16).AlignItems(ui.Center).Children(func() {
+		ui.Column(c).Padding(8, padding, 16, padding).AlignItems(ui.Center).Children(func() {
 			ui.Column(c).WidthPercent(100).MaxWidth(760).Gap(6).Children(func() {
 				s.queuedBlock(c)
 				s.planBanner(c)
 				s.composerMentions(c)
-				s.composerSuggestions(c)
 				spec := composerSpec{
 					Draft:          &s.draft,
 					Label:          i18n.T("Message"),
@@ -150,10 +153,12 @@ func (s *Session) threadPane(c *ui.Context) {
 				}
 				if compact(c) {
 					spec.Controls = s.threadControlsMobile
+					spec.FocusLines = 3
 				} else {
 					spec.Controls = s.threadControls
 				}
-				s.composerCard(c, spec)
+				card := s.composerCard(c, spec)
+				s.composerSuggestPopover(c, card)
 			})
 		})
 	})
@@ -191,7 +196,7 @@ func (s *Session) transcript(c *ui.Context) {
 func (s *Session) turn(c *ui.Context, group turnGroup) {
 	running := s.turnRunning(group)
 	content := splitTurn(group.Messages, running)
-	ui.Column(c).Gap(10).MinWidth(0).Children(func() {
+	ui.Column(c).FillWidth().MaxWidth(760).AlignSelf(ui.Center).Gap(10).MinWidth(0).Children(func() {
 		if group.Day != "" {
 			s.daySeparator(c, group.Day)
 		}
@@ -278,12 +283,12 @@ func (s *Session) renderMessage(c *ui.Context, m proto.Message) {
 	t := c.Theme()
 	if m.Role == proto.RoleUser {
 		ui.Column(c).AlignItems(ui.End).Gap(3).MinWidth(0).Children(func() {
-			ui.Column(c).MaxWidth(560).Padding(10, 14).Radius(14).
-				Border(1, t.TextMuted.Alpha(0.12)).Background(t.Surface).
-				Gap(5).Children(func() {
+			ui.Column(c).MaxWidth(560).Padding(8, 12).Radius(12).
+				Background(t.Accent.Alpha(0.07)).
+				Gap(3).Children(func() {
 				ui.Text(c, i18n.T("You")).FontSize(10.5).FontWeight(600).TextColor(t.TextMuted)
 				if m.Content != "" {
-					ui.Text(c, m.Content).FontSize(13).LineHeight(19).TextColor(t.Text).Selectable()
+					ui.Text(c, m.Content).FontSize(13).FixedLineHeight(19).TextColor(t.Text).Selectable()
 				}
 				if len(m.Attachments) > 0 {
 					ui.Row(c).Wrap().Gap(8).Children(func() {
@@ -310,11 +315,11 @@ func (s *Session) renderMessage(c *ui.Context, m proto.Message) {
 		s.toolCard(c, m)
 		return
 	case proto.KindNotice:
-		ui.Text(c, m.Content).FontSize(12).LineHeight(17).TextColor(t.TextMuted).Selectable()
+		ui.Text(c, m.Content).FontSize(12).FixedLineHeight(17).TextColor(t.TextMuted).Selectable()
 		return
 	case proto.KindError:
 		ui.Column(c).Padding(8, 10).Radius(8).Background(t.Danger.Alpha(0.09)).Children(func() {
-			ui.Text(c, m.Content).FontSize(12).LineHeight(17).TextColor(t.Danger).Selectable()
+			ui.Text(c, m.Content).FontSize(12).FixedLineHeight(17).TextColor(t.Danger).Selectable()
 		})
 		return
 	}
@@ -379,7 +384,7 @@ func (s *Session) reasoningCard(c *ui.Context, m proto.Message) {
 			s.setExpanded(key, !open)
 		}
 		if open {
-			ui.Text(c, m.Content).FontSize(12).LineHeight(18).TextColor(t.TextMuted).Selectable()
+			ui.Text(c, m.Content).FontSize(12).FixedLineHeight(18).TextColor(t.TextMuted).Selectable()
 		}
 	})
 }
@@ -489,7 +494,7 @@ func detailBlock(c *ui.Context, label, body string) {
 	ui.Column(c).Gap(3).MinWidth(0).Children(func() {
 		faint(c, label, 10.5)
 		ui.Column(c).MinWidth(0).Padding(8).Radius(6).Background(t.Surface).Children(func() {
-			ui.Text(c, body).FontSize(11).LineHeight(15).Font("monospace").
+			ui.Text(c, body).FontSize(11).FixedLineHeight(15).Font("monospace").
 				TextColor(t.TextMuted).Selectable()
 		})
 	})
@@ -597,21 +602,28 @@ func dayLabel(at time.Time) string {
 
 // messageFooter is a message's time and its actions.
 func (s *Session) messageFooter(c *ui.Context, m proto.Message) {
-	ui.Row(c).AlignItems(ui.Center).Gap(3).Padding(0, 0, 0, 2).Children(func() {
-		faint(c, m.CreatedAt.Local().Format("3:04 PM"), 10.5)
+	action := func(svg *ui.SVG, label string, run func()) ui.Element {
+		b := iconBtn(c, svg, label, run)
+		if !touch(c) {
+			b.Size(26, 26).MinHeight(0)
+		}
+		return b
+	}
+	ui.Row(c).AlignItems(ui.Center).Gap(2).Padding(2, 0, 0, 2).Children(func() {
+		faint(c, m.CreatedAt.Local().Format("3:04 PM"), 10).MarginEnd(5)
 		if strings.TrimSpace(m.Content) != "" {
-			iconBtn(c, lucide.Copy(), i18n.T("Copy message"), func() { s.setClipboard(m.Content) })
+			action(lucide.Copy(), i18n.T("Copy message"), func() { s.setClipboard(m.Content) })
 		}
 		if m.Role == proto.RoleUser {
-			iconBtn(c, lucide.Pencil(), i18n.T("Edit message"), func() { s.openEditMessage(m) })
+			action(lucide.Pencil(), i18n.T("Edit message"), func() { s.openEditMessage(m) })
 		}
 		if m.Role == proto.RoleAssistant && m.RunID != "" {
-			b := iconBtn(c, lucide.RotateCcw(), i18n.T("Retry turn"), func() { s.retryRun(m.RunID) })
+			b := action(lucide.RotateCcw(), i18n.T("Retry turn"), func() { s.retryRun(m.RunID) })
 			if s.running {
 				b.Disabled(true)
 			}
 		}
-		iconBtn(c, lucide.GitBranch(), i18n.T("Branch from here"), func() { s.branchFromMessage(m) })
+		action(lucide.GitBranch(), i18n.T("Branch from here"), func() { s.branchFromMessage(m) })
 	})
 }
 
@@ -702,18 +714,15 @@ func (s *Session) threadControlsMobile(c *ui.Context) {
 	if thread.ID == "" {
 		return
 	}
-	ui.Button(c, "").Label("").Label(i18n.T("Composer options")).Children(func() {
-		ui.Icon(c, lucide.SlidersHorizontal()).FontSize(20)
-	}).PopoverMenuButton(func(m *ui.Menu) {
-		for _, permission := range []proto.PermissionMode{proto.PermissionSupervised, proto.PermissionAcceptEdits,
-			proto.PermissionAuto, proto.PermissionFullAccess} {
-			permission := permission
-			if m.Item(string(permission)).Checked(thread.Permission == permission).Chosen() {
-				s.setThreadPermission(permission)
-			}
-		}
-		if m.Item(i18n.T("Plan mode")).Checked(thread.Plan).Chosen() {
-			s.setThreadPlan(!thread.Plan)
-		}
+	ui.Row(c).FillWidth().MinWidth(0).Gap(2).AlignItems(ui.Center).Children(func() {
+		label := s.modelDisplayName(thread.Provider, thread.Model)
+		modelButton := toolbarButton(c, "").Label(i18n.T("Choose model: ") + label).
+			Grow(1).MinWidth(0).MaxWidth(180).Tooltip(label).Children(func() {
+			ui.Icon(c, lucide.Cpu()).FontSize(13)
+			ui.Text(c, shortModel(label)).FontSize(11.5).SingleLine().MinWidth(0).Grow(1)
+			ui.Icon(c, lucide.ChevronDown()).FontSize(10)
+		})
+		s.modelPicker(c, modelButton, thread.Provider, thread.Model, s.setThreadModel)
+		s.configOptions(c, s.threadConfigOptions(thread))
 	})
 }

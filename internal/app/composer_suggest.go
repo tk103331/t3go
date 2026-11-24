@@ -33,101 +33,165 @@ func (s *Session) slashCommands() []slashCommand {
 	}
 }
 
-// suggestionRow is one row of a suggestion card.
-func suggestionRow(c *ui.Context, icon *ui.SVG, label, detail string, run func()) bool {
-	row := clickableRow(c, label, func() {
+// suggestion is one row of the composer's floating list.
+type suggestion struct {
+	icon   *ui.SVG
+	label  string
+	detail string
+	run    func()
+}
+
+// suggestionRow draws one row and reports whether it was chosen. The row
+// keeps the composer's focus so a press and release land on it as it
+// appears.
+func suggestionRow(c *ui.Context, item suggestion) bool {
+	row := clickableRow(c, item.label, func() {
 		t := c.Theme()
-		ui.Icon(c, icon).FontSize(14).TextColor(t.TextMuted)
-		ui.Text(c, label).FontSize(12).Font("monospace").TextColor(t.Text).SingleLine()
-		if detail != "" {
-			ui.Text(c, detail).FontSize(11).TextColor(t.TextMuted).SingleLine().Grow(1).MinWidth(0)
+		ui.Icon(c, item.icon).FontSize(14).TextColor(t.TextMuted).Shrink(0)
+		ui.Text(c, item.label).FontSize(12).Font("monospace").TextColor(t.Text).SingleLine()
+		if item.detail != "" {
+			ui.Text(c, item.detail).FontSize(11).TextColor(t.TextMuted).SingleLine().Grow(1).MinWidth(0)
 		}
-	}).Padding(6, 8).Radius(6)
+	}).Padding(6, 8).Radius(6).KeepFocus()
+	if row.Hovered() {
+		row.Background(c.Theme().SurfaceHover)
+	}
 	if row.Clicked() {
-		run()
+		item.run()
 		return true
 	}
 	return false
 }
 
-// suggestionCard wraps suggestion rows.
-func suggestionCard(c *ui.Context, title string, build func()) {
-	t := c.Theme()
-	ui.Column(c).Padding(6).Radius(8).Border(1, t.Border).Background(t.Surface).Gap(1).Children(func() {
-		faint(c, title, 10)
-		build()
+// composerSuggestionKind is the query the floating list is built from:
+// a slash command, or an @ file mention.
+type composerSuggestionKind struct {
+	kind  string
+	query string
+	title string
+}
+
+// composerSuggestionSet returns what the draft asks the floating list to
+// show, or false when no @ or / query is active.
+func (s *Session) composerSuggestionSet() (composerSuggestionKind, []suggestion, bool) {
+	draft := s.draft
+	if query, ok := slashQuery(draft); ok {
+		kind := composerSuggestionKind{kind: "slash", query: query, title: i18n.T("Skills & commands")}
+		var items []suggestion
+		used := map[string]bool{}
+		for _, command := range s.slashCommands() {
+			if !strings.Contains(strings.ToLower(command.Name), strings.ToLower(query)) {
+				continue
+			}
+			used[command.Name] = true
+			command := command
+			items = append(items, suggestion{icon: lucide.Sparkles(), label: "/" + command.Name, detail: command.Desc,
+				run: func() {
+					s.setDraft("")
+					command.Run()
+				}})
+		}
+		for _, command := range s.agentCommands {
+			if used[command.Name] || !strings.Contains(strings.ToLower(command.Name), strings.ToLower(query)) {
+				continue
+			}
+			command := command
+			detail := command.Source
+			if command.Kind != "" {
+				detail = command.Kind + " · " + command.Source
+			}
+			items = append(items, suggestion{icon: lucide.Sparkles(), label: "/" + command.Name, detail: detail,
+				run: func() { s.pickAgentCommand(command) }})
+		}
+		return kind, items, true
+	}
+	if _, query, ok := activeMention(draft); ok {
+		kind := composerSuggestionKind{kind: "file", query: query, title: i18n.T("Files")}
+		if s.fileIndexBusy && len(s.fileIndex) == 0 {
+			return kind, nil, true
+		}
+		var items []suggestion
+		for _, entry := range s.fileIndex {
+			if entry.Directory {
+				continue
+			}
+			if query != "" && !strings.Contains(strings.ToLower(entry.Path), strings.ToLower(query)) {
+				continue
+			}
+			entry := entry
+			items = append(items, suggestion{icon: lucide.FileText(), label: entry.Path, detail: humanSize(entry.Size),
+				run: func() { s.insertMention(entry.Path) }})
+		}
+		return kind, items, true
+	}
+	return composerSuggestionKind{}, nil, false
+}
+
+// composerSuggestPopover floats the @ file or / command list above the
+// composer: a fixed height keeps the transcript and composer steady, and
+// a long list scrolls inside the panel.
+func (s *Session) composerSuggestPopover(c *ui.Context, anchor ui.Element) {
+	kind, items, ok := s.composerSuggestionSet()
+	if !ok {
+		return
+	}
+	state := ui.Local(anchor, "composer-suggest", func() composerSuggestState {
+		return composerSuggestState{open: true, kind: kind.kind, query: kind.query}
+	})
+	// A changed query reopens a list the pointer dismissed; a press
+	// outside closes it until the next character is typed.
+	if state.kind != kind.kind || state.query != kind.query {
+		state.kind, state.query, state.open = kind.kind, kind.query, true
+	}
+	if !state.open {
+		return
+	}
+	ui.PopoverBase(c, anchor, &state.open, func(panel ui.Element) {
+		t := c.Theme()
+		width, height := c.Size()
+		top, right, bottom, left := c.SafeArea()
+		bounds := anchor.Bounds()
+		above := max(float32(0), bounds.Y-top-8)
+		below := max(float32(0), height-bottom-bounds.Y-bounds.H-8)
+		room := above
+		// The list prefers the room above the composer; a keyboard on a
+		// phone leaves more there than below.
+		if above >= 140 || above >= below {
+			panel.AttachTo(anchor, ui.AnchorTopStart, ui.AnchorBottomStart)
+		} else {
+			room = below
+			panel.AttachTo(anchor, ui.AnchorBottomStart, ui.AnchorTopStart)
+		}
+		panel.Width(min(560, width-left-right-24)).MaxWidth(width-left-right-24).
+			Padding(6).Gap(4).Radius(10).Border(1, t.Border).Background(t.Surface).
+			Shadow(0, 4, 16, 0, t.Text.Alpha(0.12))
+		faint(c, kind.title, 10).Padding(2, 6)
+		if len(items) == 0 {
+			if s.fileIndexBusy && kind.kind == "file" {
+				faint(c, i18n.T("Searching files…"), 11.5).Padding(6, 8)
+			} else {
+				faint(c, i18n.T("No matches"), 11.5).Padding(6, 8)
+			}
+			return
+		}
+		listHeight := max(float32(120), min(float32(280), room-40))
+		ui.Scroll(c).FillWidth().MaxHeight(listHeight).Gap(1).Children(func() {
+			for _, item := range items {
+				item := item
+				if suggestionRow(c, item) {
+					state.open = false
+				}
+			}
+		})
 	})
 }
 
-// composerSuggestions shows @ file mentions or slash commands above the
-// composer as they are typed.
-func (s *Session) composerSuggestions(c *ui.Context) {
-	draft := s.draft
-	if query, ok := slashQuery(draft); ok {
-		var matched bool
-		suggestionCard(c, i18n.T("Skills & commands"), func() {
-			var used = map[string]bool{}
-			for _, command := range s.slashCommands() {
-				if !strings.Contains(strings.ToLower(command.Name), strings.ToLower(query)) {
-					continue
-				}
-				used[command.Name] = true
-				command := command
-				matched = suggestionRow(c, lucide.Sparkles(), "/"+command.Name, command.Desc, func() {
-					s.setDraft("")
-					command.Run()
-				})
-			}
-			for _, command := range s.agentCommands {
-				command := command
-				if used[command.Name] || !strings.Contains(strings.ToLower(command.Name), strings.ToLower(query)) {
-					continue
-				}
-				detail := command.Source
-				if command.Kind != "" {
-					detail = command.Kind + " · " + command.Source
-				}
-				matched = suggestionRow(c, lucide.Sparkles(), "/"+command.Name, detail, func() {
-					s.pickAgentCommand(command)
-				})
-			}
-		})
-		if matched {
-			return
-		}
-		return
-	}
-	if _, query, ok := activeMention(draft); ok {
-		if s.fileIndexBusy && len(s.fileIndex) == 0 {
-			suggestionCard(c, i18n.T("Files"), func() {
-				faint(c, i18n.T("Searching files…"), 11.5)
-			})
-			return
-		}
-		var matched bool
-		suggestionCard(c, i18n.T("Files"), func() {
-			shown := 0
-			for _, entry := range s.fileIndex {
-				if shown >= 8 {
-					break
-				}
-				if entry.Directory {
-					continue
-				}
-				if query != "" && !strings.Contains(strings.ToLower(entry.Path), strings.ToLower(query)) {
-					continue
-				}
-				entry := entry
-				shown++
-				matched = suggestionRow(c, lucide.FileText(), entry.Path, humanSize(entry.Size), func() {
-					s.insertMention(entry.Path)
-				})
-			}
-		})
-		if matched {
-			return
-		}
-	}
+// composerSuggestState remembers the floating list's dismissal so a
+// press outside it does not re-open on the next frame.
+type composerSuggestState struct {
+	open  bool
+	kind  string
+	query string
 }
 
 // composerMentions shows the files named with @ in the draft.

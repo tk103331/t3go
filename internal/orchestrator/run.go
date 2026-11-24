@@ -723,3 +723,12 @@ func (s *Service) Diff(ctx context.Context, threadID, runID string) (string, err
 	}
 	return git.Diff(ctx, s.ThreadDir(ctx, t), ref)
 }
+
+// CommitDiff returns the patch of one commit in a thread's checkout.
+func (s *Service) CommitDiff(ctx context.Context, threadID, rev string) (string, error) {
+	t, err := s.Store.Thread(ctx, threadID)
+	if err != nil {
+		return "", err
+	}
+	return git.CommitDiff(ctx, s.ThreadDir(ctx, t), rev)
+}

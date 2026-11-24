@@ -44,6 +44,9 @@ func providerSettingsHeader(c *ui.Context, name, detail string, enabled *bool, o
 func (s *Session) providerSettingsSection(c *ui.Context) {
 	t := c.Theme()
 	target := s.settingsTarget()
+	if target == nil {
+		target = s
+	}
 	draft := target.settingsDraft
 	ui.Column(c).Gap(7).Children(func() {
 		faint(c, i18n.T("Configured providers"), 11)
@@ -130,20 +133,22 @@ func (s *Session) providerAddPanel(c *ui.Context) {
 	providerSettingsCard(c, func() {
 		ui.Row(c).AlignItems(ui.Center).Gap(5).Children(func() {
 			text(c, i18n.T("Add provider"), 13, t.Text, 600).Grow(1)
-			ui.Button(c, i18n.T("Close")).OnClick(func() { s.providerAddOpen = false })
+			ui.Button(c, i18n.T("Close")).MinHeight(controlMinHeight(c)).OnClick(func() { s.providerAddOpen = false })
 		})
-		ui.Row(c).Gap(5).Children(func() {
+		ui.Row(c).Gap(5).Wrap().Children(func() {
 			var registry, local ui.Element
-			registry = ui.Button(c, i18n.T("ACP Registry"))
 			if s.providerAddMode == "registry" {
 				registry = ui.PrimaryButton(c, i18n.T("ACP Registry"))
+			} else {
+				registry = ui.Button(c, i18n.T("ACP Registry"))
 			}
-			registry.OnClick(func() { s.providerAddMode = "registry" })
-			local = ui.Button(c, i18n.T("Local command"))
+			registry.MinHeight(controlMinHeight(c)).OnClick(func() { s.providerAddMode = "registry" })
 			if s.providerAddMode == "local" {
 				local = ui.PrimaryButton(c, i18n.T("Local command"))
+			} else {
+				local = ui.Button(c, i18n.T("Local command"))
 			}
-			local.OnClick(func() { s.providerAddMode = "local" })
+			local.MinHeight(controlMinHeight(c)).OnClick(func() { s.providerAddMode = "local" })
 		})
 		if s.providerAddMode == "local" {
 			s.providerLocalPanel(c)
@@ -194,7 +199,7 @@ func (s *Session) providerRegistryPanel(c *ui.Context) {
 							ui.Text(c, agent.Version+" · "+strings.Join(agent.Distributions, ", ")).
 								FontSize(10).Font("monospace").TextColor(t.TextMuted).SingleLine()
 						})
-						ui.Text(c, detail).FontSize(10.5).LineHeight(15).TextColor(t.TextMuted).MaxLines(3)
+						ui.Text(c, detail).FontSize(10.5).FixedLineHeight(15).TextColor(t.TextMuted).MaxLines(3)
 						ui.Row(c).Wrap().Gap(4).Children(func() {
 							for _, distribution := range agent.Distributions {
 								if distribution != "binary" && distribution != "npx" && distribution != "uvx" {

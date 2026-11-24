@@ -24,6 +24,11 @@ type composerSpec struct {
 	Placeholder string
 	// EditorMinLines is how tall the field is at rest.
 	EditorMinLines int
+	// FocusLines is how many lines the field shows while it has the
+	// keyboard focus, one line at rest: a phone's message field makes
+	// room for what is typed and gives it back after. Zero keeps
+	// EditorMinLines at rest and as focused.
+	FocusLines int
 	// Running replaces the send button with a stop button.
 	Running bool
 	// AllowEmpty lets an empty draft be sent, as a new thread's first
@@ -46,13 +51,20 @@ type composerSpec struct {
 	// SendLabel, StopLabel name the buttons; defaults below.
 	SendLabel string
 	StopLabel string
+	// ContentInset and ContentMaxWidth describe the page's room around
+	// the card, and ControlsMinWidth how much the choices and the send
+	// action need on one line. A page narrower than that puts its choices
+	// on their own row above the actions.
+	ContentInset     float32
+	ContentMaxWidth  float32
+	ControlsMinWidth float32
 	// OnChange runs when the draft's text changed in this pass.
 	OnChange func()
 }
 
 // composerCard is the message field and everything around it, shared by
 // the conversation and the new-thread page.
-func (s *Session) composerCard(c *ui.Context, spec composerSpec) {
+func (s *Session) composerCard(c *ui.Context, spec composerSpec) ui.Element {
 	t := c.Theme()
 	if spec.SendLabel == "" {
 		spec.SendLabel = i18n.T("Send")
@@ -63,15 +75,60 @@ func (s *Session) composerCard(c *ui.Context, spec composerSpec) {
 	if spec.EditorMinLines == 0 {
 		spec.EditorMinLines = 1
 	}
-	card := ui.Column(c).WidthPercent(100).Gap(8).Padding(10, 12).
+	compactLayout := compact(c)
+	separateControls := compactLayout && spec.AllowEmpty
+	if !compactLayout {
+		// Keep the options on the send row for as long as the page's
+		// content room allows; a page that names how much its choices need
+		// moves them above the actions instead of wrapping them beside the
+		// send button. The token reading hides before that.
+		contentWidth := s.middleRoom(c) - spec.ContentInset
+		if spec.ContentMaxWidth > 0 {
+			contentWidth = min(contentWidth, spec.ContentMaxWidth)
+		}
+		if spec.ControlsMinWidth > 0 {
+			separateControls = contentWidth < spec.ControlsMinWidth
+		} else {
+			separateControls = s.middleRoom(c) < 440
+		}
+	}
+	padV, padH, gap := float32(10), float32(12), float32(8)
+	actionSize := float32(28)
+	if touch(c) {
+		actionSize = 44
+	}
+	if compactLayout {
+		// A phone shows the field with a tighter frame, so more of a
+		// short message's line is left for what it says.
+		padV, padH, gap = 8, 10, 8
+	}
+	card := ui.Column(c).WidthPercent(100).Gap(gap).Padding(padV, padH).
 		Radius(14).Border(1, t.Border).Background(t.Surface)
 	card.Children(func() {
 		if spec.Attachments != nil && spec.hasAttachments() {
 			spec.Attachments(c)
 		}
 		field := ui.TextArea(c, spec.Draft).Label(spec.Label).
-			Placeholder(spec.Placeholder).
-			Lines(spec.EditorMinLines, 8)
+			Placeholder(spec.Placeholder).MinHeight(0).FontSize(13).FixedLineHeight(20).Autocorrect(false).
+			BorderWidth(0).Background(ui.Color{}).FocusRing(false).Padding(5, 2)
+		if field.Focused() {
+			card.BorderColor(t.Accent.Alpha(0.65))
+		}
+		switch {
+		case spec.FocusLines > 0:
+			// One line at rest, room for FocusLines while typing, which
+			// the field gives back when it loses the focus.
+			if field.Focused() {
+				field.Lines(spec.FocusLines, 8)
+			} else {
+				field.Lines(1, 1)
+			}
+		default:
+			field.Lines(spec.EditorMinLines, 8)
+		}
+		if compactLayout {
+			field.Padding(t.Space(0.75), t.Space(1.5))
+		}
 		if spec.OnPaste != nil {
 			field.OnPaste(spec.OnPaste)
 		}
@@ -88,35 +145,53 @@ func (s *Session) composerCard(c *ui.Context, spec composerSpec) {
 		if spec.OnChange != nil && field.Changed() {
 			spec.OnChange()
 		}
-		// The bottom row: the paperclip and the choices left, the
-		// send or stop button right.
-		ui.Row(c).AlignItems(ui.Center).Gap(4).Children(func() {
+		if separateControls && spec.Controls != nil {
+			spec.Controls(c)
+		}
+		// Keep send outside the wrapping choices so it stays visible at
+		// every pane width. Only the choices consume extra lines.
+		ui.Row(c).FillWidth().AlignItems(ui.End).Gap(6).KeepFocus().Children(func() {
 			if spec.Accessory != nil {
-				ui.Button(c, "").Label(i18n.T("Attach files")).
-					Tooltip(i18n.T("Attach files")).Children(func() {
-					ui.Icon(c, lucide.Paperclip()).FontSize(16)
-				}).OnClick(spec.Accessory)
+				iconBtn(c, lucide.Paperclip(), i18n.T("Attach files"), spec.Accessory).Shrink(0)
 			}
-			if spec.Controls != nil {
-				spec.Controls(c)
+			choices := ui.Box(c).Grow(1).MinWidth(0)
+			if separateControls {
+				choices.AlignSelf(ui.Center)
 			}
-			ui.Spacer(c)
+			choices.Children(func() {
+				if separateControls {
+					hint := i18n.T("Enter to send")
+					if spec.Running {
+						hint = i18n.T("Enter to queue")
+					}
+					faint(c, hint, 10).SingleLine().Tooltip(i18n.T("Shift+Enter for a new line"))
+				} else if spec.Controls != nil {
+					spec.Controls(c)
+				}
+			})
 			if spec.Running {
-				ui.Button(c, "").Label(spec.StopLabel).Children(func() {
+				ui.Button(c, "").Label(spec.StopLabel).Size(actionSize, actionSize).Padding(0).Radius(10).
+					Shrink(0).Tooltip(spec.StopLabel).Children(func() {
 					ui.Icon(c, lucide.CircleStop()).FontSize(15)
-					ui.Text(c, spec.StopLabel)
 				}).OnClick(spec.OnStop)
 				return
 			}
-			send := ui.PrimaryButton(c, "").Label(spec.SendLabel).Children(func() {
+			// The action is the arrow alone, as in the conversation, with its name
+			// kept for assistive technology and its tooltip.
+			send := ui.PrimaryButton(c, "").Label(spec.SendLabel).Size(actionSize, actionSize).
+				Padding(0).Radius(10).Children(func() {
 				ui.Icon(c, lucide.ArrowUp()).FontSize(15)
-				ui.Text(c, spec.SendLabel)
-			}).Label(spec.SendLabel)
-			if !spec.canSend() {
+			}).Shrink(0)
+			send.Tooltip(spec.SendLabel + " · " + i18n.T("Enter to send") + " · " + i18n.T("Shift+Enter for a new line"))
+			// A candidate being composed is not part of Draft yet. Keep
+			// it in the editor until the input method confirms it, rather
+			// than sending a message with its last word missing.
+			composing := field.Composing()
+			if !spec.canSend() || composing {
 				send.Disabled(true)
 			}
 			send.OnClick(func() {
-				if spec.canSend() {
+				if spec.canSend() && !composing {
 					spec.OnSend()
 				}
 			})
@@ -127,6 +202,7 @@ func (s *Session) composerCard(c *ui.Context, spec composerSpec) {
 			spec.OnDropFiles(files)
 		}
 	}
+	return card
 }
 
 // hasAttachments says whether the spec draws a files row: the caller
@@ -209,7 +285,7 @@ func (s *Session) queuedBlock(c *ui.Context) {
 					label = i18n.T("Check delivery")
 				}
 				faint(c, label, 11)
-				ui.Text(c, prompt.Text).FontSize(12).LineHeight(17).TextColor(t.TextMuted).MaxLines(2)
+				ui.Text(c, prompt.Text).FontSize(12).FixedLineHeight(17).TextColor(t.TextMuted).MaxLines(2)
 				if len(prompt.Attachments) > 0 {
 					faint(c, attachmentSummary(prompt.Attachments), 11)
 				}
@@ -272,53 +348,30 @@ func (s *Session) threadControls(c *ui.Context) {
 		return
 	}
 	t := c.Theme()
-	modelLabel := shortModel(thread.Model)
-	for _, model := range s.allModels() {
-		if model.ID == thread.Model && model.Provider == thread.Provider {
-			modelLabel = shortModel(model.Name)
-		}
-	}
-	ui.Row(c).AlignItems(ui.Center).Gap(2).Children(func() {
-		ui.Button(c, "").Label(i18n.T("Choose model: ") + modelLabel).Children(func() {
-			ui.Icon(c, lucide.Cpu()).FontSize(15)
-			ui.Text(c, modelLabel).FontSize(13).TextColor(t.Text).SingleLine().MinWidth(0)
-			ui.Icon(c, lucide.ChevronDown()).FontSize(13)
-		}).PopoverMenuButton(func(m *ui.Menu) {
-			for _, model := range s.allModels() {
-				model := model
-				label := model.Name
-				if model.Provider != thread.Provider {
-					label += " · " + model.Provider
+	modelLabel := s.modelDisplayName(thread.Provider, thread.Model)
+	ui.Row(c).FillWidth().MinWidth(0).Wrap().AlignItems(ui.Center).Gap(2).Children(func() {
+		modelButton := toolbarButton(c, "").Label(i18n.T("Choose model: ") + modelLabel).MaxWidthPercent(100).MinWidth(0).Children(func() {
+			ui.Icon(c, lucide.Cpu()).FontSize(13)
+			ui.Text(c, shortModel(modelLabel)).FontSize(11.5).SingleLine().MinWidth(0).MaxWidth(150)
+			ui.Icon(c, lucide.ChevronDown()).FontSize(10)
+		}).Tooltip(modelLabel)
+		s.modelPicker(c, modelButton, thread.Provider, thread.Model, s.setThreadModel)
+		s.configOptions(c, s.threadConfigOptions(thread))
+		// The token reading is the first thing to give up when the row is
+		// tight, so the model and config pills keep their place on one
+		// line instead of wrapping.
+		if s.middleRoom(c) >= 760 {
+			if used, limit := contextUsage(thread.Model, s.detail.Runs, s.allModels()); used > 0 {
+				remaining := limit - used
+				if remaining < 0 {
+					remaining = 0
 				}
-				if m.Item(label).Checked(thread.Model == model.ID && thread.Provider == model.Provider).Chosen() {
-					s.setThreadModel(model)
+				color := t.TextMuted
+				if used*10 >= limit*9 {
+					color = t.Danger
 				}
+				ui.Text(c, humanTokens(remaining)+i18n.T(" left")).FontSize(10).TextColor(color).SingleLine()
 			}
-		})
-		ui.Button(c, string(thread.Permission)).Label(i18n.T("Permission")).PopoverMenuButton(func(m *ui.Menu) {
-			for _, permission := range []proto.PermissionMode{proto.PermissionSupervised, proto.PermissionAcceptEdits,
-				proto.PermissionAuto, proto.PermissionFullAccess} {
-				permission := permission
-				if m.Item(string(permission)).Checked(thread.Permission == permission).Chosen() {
-					s.setThreadPermission(permission)
-				}
-			}
-		})
-		plan := ui.Button(c, i18n.T("Plan"))
-		if thread.Plan {
-			plan = ui.PrimaryButton(c, i18n.T("Plan"))
-		}
-		plan.OnClick(func() { s.setThreadPlan(!thread.Plan) })
-		if used, limit := contextUsage(thread.Model, s.detail.Runs, s.allModels()); used > 0 {
-			remaining := limit - used
-			if remaining < 0 {
-				remaining = 0
-			}
-			color := t.TextMuted
-			if used*10 >= limit*9 {
-				color = t.Danger
-			}
-			ui.Text(c, humanTokens(remaining)+i18n.T(" left")).FontSize(10).TextColor(color).SingleLine()
 		}
 	})
 }

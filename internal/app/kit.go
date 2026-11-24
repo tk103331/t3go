@@ -1,6 +1,8 @@
 package app
 
 import (
+	"runtime"
+
 	"github.com/egoist/mygo/ui"
 
 	"github.com/tk/t3go/internal/app/icons/lucide"
@@ -10,13 +12,15 @@ import (
 // touch reports whether the pointing device is a finger, so the layout
 // gives targets the room a fingertip needs.
 func touch(c *ui.Context) bool {
-	return c.Preferences().Pointer == ui.PointerCoarse
+	// Native mobile backends can leave Pointer at its default (fine),
+	// even when the window is operated entirely by touch.
+	return runtime.GOOS == "ios" || runtime.GOOS == "android" || c.Preferences().Pointer == ui.PointerCoarse
 }
 
 // controlMinHeight is the smallest height of a tappable control.
 func controlMinHeight(c *ui.Context) float32 {
 	if touch(c) {
-		return 40
+		return 44
 	}
 	return 30
 }
@@ -62,15 +66,33 @@ func faint(c *ui.Context, s string, size float32) ui.Element {
 	return text(c, s, size, c.Theme().TextMuted)
 }
 
+// toolbarButton gives secondary actions a quiet face, with feedback on
+// hover, press and keyboard focus instead of a permanent border.
+func toolbarButton(c *ui.Context, label string) ui.Element {
+	t := c.Theme()
+	b := ui.ButtonBase(c).Label(label).Padding(5, 8).Gap(6).Radius(7).
+		MinHeight(controlMinHeight(c)).FontSize(12).TextColor(t.TextMuted)
+	if b.Pressed() {
+		b.Background(t.SurfacePressed)
+	} else if b.Hovered() {
+		b.Background(t.SurfaceHover).TextColor(t.Text)
+	}
+	if label != "" {
+		b.Children(func() { ui.Text(c, label).SingleLine() })
+	}
+	return b
+}
+
 // iconBtn is a small button showing one icon, named for assistive
 // technology and showing its action on hover.
 func iconBtn(c *ui.Context, svg *ui.SVG, label string, clicked func()) ui.Element {
 	size := touch(c) && compact(c)
-	b := ui.Button(c, "").Label("").Label(label).Children(func() {
+	b := toolbarButton(c, "").Label(label).Children(func() {
 		ui.Icon(c, svg).FontSize(iconSize(c))
 	})
+	b.Size(30, 30).Padding(0).Radius(7)
 	if size {
-		b.Size(38, 38)
+		b.Size(44, 44)
 	}
 	b.Tooltip(label)
 	if clicked != nil {
@@ -137,7 +159,7 @@ func segmentChoice(c *ui.Context, choices []string, current string, choose func(
 			} else {
 				b = ui.Button(c, name)
 			}
-			b.OnClick(func() { choose(name) })
+			b.MinHeight(controlMinHeight(c)).OnClick(func() { choose(name) })
 		}
 	})
 }
@@ -150,5 +172,6 @@ var _ = i18n.T
 // rows, keeps a label for assistive technology and the tests, and
 // reports Clicked where a List row's RowClicked would.
 func clickableRow(c *ui.Context, label string, build func()) ui.Element {
-	return ui.ButtonBase(c).Label(label).FillWidth().Children(build)
+	return ui.ButtonBase(c).Label(label).FillWidth().AlignItems(ui.Center).
+		Justify(ui.Start).Gap(8).Children(build)
 }

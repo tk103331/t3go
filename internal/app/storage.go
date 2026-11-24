@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 )
@@ -17,6 +16,8 @@ type appStorage interface {
 	GetItem(string) (string, bool)
 	SetItem(string, string) error
 	RemoveItem(string)
+	// Close ends the storage, flushing what it holds.
+	Close()
 }
 
 // fileStore keeps every entry in one JSON file, written through a single
@@ -58,13 +59,6 @@ func storageDirs(goos, id string) (data string) {
 		id = "default"
 	}
 	return filepath.Join(data, id)
-}
-
-// openStorage opens the storage file the NSGo client used for the app id,
-// so its entries carry over to this client.
-func openStorage(id string) *fileStore {
-	dir := storageDirs(runtime.GOOS, id)
-	return openFileStorage(filepath.Join(dir, "storage.json"))
 }
 
 func openFileStorage(path string) *fileStore {
@@ -238,6 +232,10 @@ func (s environmentStorage) RemoveItem(key string) {
 		s.base.RemoveItem(key)
 	}
 }
+
+// Close ends the storage. The shared store behind it is closed by the
+// client, not by one environment's view of it.
+func (s environmentStorage) Close() {}
 
 // sharedStore returns the storage every environment shares: the client's
 // appearance preference and language live there, not in a session's own

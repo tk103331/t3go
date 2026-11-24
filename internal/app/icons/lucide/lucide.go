@@ -1,6 +1,5 @@
 // Package lucide carries the Lucide icons the client draws, as MyGo
-// SVGs. Generated from the NSGo lucide package (Apache-2.0); the
-// icons are Lucide (ISC), https://lucide.dev.
+// SVGs. The icons are Lucide (ISC), https://lucide.dev.
 package lucide
 
 import (
@@ -91,18 +90,6 @@ func Brain() *ui.SVG {
 		svgBrain = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <path d=\"M12 18V5\" />\n  <path d=\"M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4\" />\n  <path d=\"M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5\" />\n  <path d=\"M17.997 5.125a4 4 0 0 1 2.526 5.77\" />\n  <path d=\"M18 18a4 4 0 0 0 2-7.464\" />\n  <path d=\"M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517\" />\n  <path d=\"M6 18a4 4 0 0 1-2-7.464\" />\n  <path d=\"M6.003 5.125a4 4 0 0 0-2.526 5.77\" />\n</svg>\n"))
 	})
 	return svgBrain
-}
-
-var onceCable sync.Once
-
-var svgCable *ui.SVG
-
-// Cable returns the Lucide cable icon.
-func Cable() *ui.SVG {
-	onceCable.Do(func() {
-		svgCable = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <path d=\"M17 19a1 1 0 0 1-1-1v-2a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1z\" />\n  <path d=\"M17 21v-2\" />\n  <path d=\"M19 14V6.5a1 1 0 0 0-7 0v11a1 1 0 0 1-7 0V10\" />\n  <path d=\"M21 21v-2\" />\n  <path d=\"M3 5V3\" />\n  <path d=\"M4 10a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2a2 2 0 0 1-2 2z\" />\n  <path d=\"M7 5V3\" />\n</svg>\n"))
-	})
-	return svgCable
 }
 
 var onceChartColumn sync.Once
@@ -249,18 +236,6 @@ func Clock() *ui.SVG {
 	return svgClock
 }
 
-var onceCloud sync.Once
-
-var svgCloud *ui.SVG
-
-// Cloud returns the Lucide cloud icon.
-func Cloud() *ui.SVG {
-	onceCloud.Do(func() {
-		svgCloud = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <path d=\"M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z\" />\n</svg>\n"))
-	})
-	return svgCloud
-}
-
 var onceCloudOff sync.Once
 
 var svgCloudOff *ui.SVG
@@ -271,18 +246,6 @@ func CloudOff() *ui.SVG {
 		svgCloudOff = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <path d=\"M10.94 5.274A7 7 0 0 1 15.71 10h1.79a4.5 4.5 0 0 1 4.222 6.057\" />\n  <path d=\"M18.796 18.81A4.5 4.5 0 0 1 17.5 19H9A7 7 0 0 1 5.79 5.78\" />\n  <path d=\"m2 2 20 20\" />\n</svg>\n"))
 	})
 	return svgCloudOff
-}
-
-var onceColumns sync.Once
-
-var svgColumns *ui.SVG
-
-// Columns returns the Lucide columns icon.
-func Columns() *ui.SVG {
-	onceColumns.Do(func() {
-		svgColumns = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" />\n  <path d=\"M12 3v18\" />\n</svg>\n"))
-	})
-	return svgColumns
 }
 
 var onceCopy sync.Once
@@ -393,18 +356,6 @@ func FolderPlus() *ui.SVG {
 	return svgFolderPlus
 }
 
-var onceGauge sync.Once
-
-var svgGauge *ui.SVG
-
-// Gauge returns the Lucide gauge icon.
-func Gauge() *ui.SVG {
-	onceGauge.Do(func() {
-		svgGauge = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <path d=\"m12 14 4-4\" />\n  <path d=\"M3.34 19a10 10 0 1 1 17.32 0\" />\n</svg>\n"))
-	})
-	return svgGauge
-}
-
 var onceGitBranch sync.Once
 
 var svgGitBranch *ui.SVG
@@ -463,18 +414,6 @@ func Globe() *ui.SVG {
 		svgGlobe = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <circle cx=\"12\" cy=\"12\" r=\"10\" />\n  <path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\" />\n  <path d=\"M2 12h20\" />\n</svg>\n"))
 	})
 	return svgGlobe
-}
-
-var onceHouse sync.Once
-
-var svgHouse *ui.SVG
-
-// House returns the Lucide house icon.
-func House() *ui.SVG {
-	onceHouse.Do(func() {
-		svgHouse = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <path d=\"M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8\" />\n  <path d=\"M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\" />\n</svg>\n"))
-	})
-	return svgHouse
 }
 
 var onceInfo sync.Once
@@ -561,18 +500,6 @@ func ListFilter() *ui.SVG {
 	return svgListFilter
 }
 
-var onceLockKeyhole sync.Once
-
-var svgLockKeyhole *ui.SVG
-
-// LockKeyhole returns the Lucide lock keyhole icon.
-func LockKeyhole() *ui.SVG {
-	onceLockKeyhole.Do(func() {
-		svgLockKeyhole = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <circle cx=\"12\" cy=\"16\" r=\"1\" />\n  <rect x=\"3\" y=\"10\" width=\"18\" height=\"12\" rx=\"2\" />\n  <path d=\"M7 10V7a5 5 0 0 1 10 0v3\" />\n</svg>\n"))
-	})
-	return svgLockKeyhole
-}
-
 var onceLogIn sync.Once
 
 var svgLogIn *ui.SVG
@@ -583,18 +510,6 @@ func LogIn() *ui.SVG {
 		svgLogIn = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <path d=\"m10 17 5-5-5-5\" />\n  <path d=\"M15 12H3\" />\n  <path d=\"M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4\" />\n</svg>\n"))
 	})
 	return svgLogIn
-}
-
-var onceLogOut sync.Once
-
-var svgLogOut *ui.SVG
-
-// LogOut returns the Lucide log out icon.
-func LogOut() *ui.SVG {
-	onceLogOut.Do(func() {
-		svgLogOut = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <path d=\"m16 17 5-5-5-5\" />\n  <path d=\"M21 12H9\" />\n  <path d=\"M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4\" />\n</svg>\n"))
-	})
-	return svgLogOut
 }
 
 var onceMessageCircle sync.Once
@@ -643,30 +558,6 @@ func MessageSquarePlus() *ui.SVG {
 		svgMessageSquarePlus = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <path d=\"M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z\" />\n  <path d=\"M12 8v6\" />\n  <path d=\"M9 11h6\" />\n</svg>\n"))
 	})
 	return svgMessageSquarePlus
-}
-
-var onceMic sync.Once
-
-var svgMic *ui.SVG
-
-// Mic returns the Lucide mic icon.
-func Mic() *ui.SVG {
-	onceMic.Do(func() {
-		svgMic = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <path d=\"M12 19v3\" />\n  <path d=\"M19 10v2a7 7 0 0 1-14 0v-2\" />\n  <rect x=\"9\" y=\"2\" width=\"6\" height=\"13\" rx=\"3\" />\n</svg>\n"))
-	})
-	return svgMic
-}
-
-var onceMicOff sync.Once
-
-var svgMicOff *ui.SVG
-
-// MicOff returns the Lucide mic off icon.
-func MicOff() *ui.SVG {
-	onceMicOff.Do(func() {
-		svgMicOff = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <path d=\"M12 19v3\" />\n  <path d=\"M15 9.34V5a3 3 0 0 0-5.68-1.33\" />\n  <path d=\"M16.95 16.95A7 7 0 0 1 5 12v-2\" />\n  <path d=\"M18.89 13.23A7 7 0 0 0 19 12v-2\" />\n  <path d=\"m2 2 20 20\" />\n  <path d=\"M9 9v3a3 3 0 0 0 5.12 2.12\" />\n</svg>\n"))
-	})
-	return svgMicOff
 }
 
 var onceMonitor sync.Once
@@ -825,6 +716,18 @@ func Power() *ui.SVG {
 	return svgPower
 }
 
+var onceQrCode sync.Once
+
+var svgQrCode *ui.SVG
+
+// QrCode returns the Lucide qr code icon.
+func QrCode() *ui.SVG {
+	onceQrCode.Do(func() {
+		svgQrCode = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <rect width=\"5\" height=\"5\" x=\"3\" y=\"3\" rx=\"1\" />\n  <rect width=\"5\" height=\"5\" x=\"16\" y=\"3\" rx=\"1\" />\n  <rect width=\"5\" height=\"5\" x=\"3\" y=\"16\" rx=\"1\" />\n  <path d=\"M21 16h-3a2 2 0 0 0-2 2v3\" />\n  <path d=\"M21 21v.01\" />\n  <path d=\"M12 7v3a2 2 0 0 1-2 2H7\" />\n  <path d=\"M3 12h.01\" />\n  <path d=\"M12 3h.01\" />\n  <path d=\"M12 16v.01\" />\n  <path d=\"M16 12h1\" />\n  <path d=\"M21 12v.01\" />\n  <path d=\"M12 21v-1\" />\n</svg>\n"))
+	})
+	return svgQrCode
+}
+
 var onceRefreshCw sync.Once
 
 var svgRefreshCw *ui.SVG
@@ -847,18 +750,6 @@ func RotateCcw() *ui.SVG {
 		svgRotateCcw = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <path d=\"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\" />\n  <path d=\"M3 3v5h5\" />\n</svg>\n"))
 	})
 	return svgRotateCcw
-}
-
-var onceScanQrCode sync.Once
-
-var svgScanQrCode *ui.SVG
-
-// ScanQrCode returns the Lucide scan qr code icon.
-func ScanQrCode() *ui.SVG {
-	onceScanQrCode.Do(func() {
-		svgScanQrCode = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <path d=\"M17 12v4a1 1 0 0 1-1 1h-4\" />\n  <path d=\"M17 3h2a2 2 0 0 1 2 2v2\" />\n  <path d=\"M17 8V7\" />\n  <path d=\"M21 17v2a2 2 0 0 1-2 2h-2\" />\n  <path d=\"M3 7V5a2 2 0 0 1 2-2h2\" />\n  <path d=\"M7 17h.01\" />\n  <path d=\"M7 21H5a2 2 0 0 1-2-2v-2\" />\n  <rect x=\"7\" y=\"7\" width=\"5\" height=\"5\" rx=\"1\" />\n</svg>\n"))
-	})
-	return svgScanQrCode
 }
 
 var onceSearch sync.Once
@@ -897,18 +788,6 @@ func Settings() *ui.SVG {
 	return svgSettings
 }
 
-var onceShieldCheck sync.Once
-
-var svgShieldCheck *ui.SVG
-
-// ShieldCheck returns the Lucide shield check icon.
-func ShieldCheck() *ui.SVG {
-	onceShieldCheck.Do(func() {
-		svgShieldCheck = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\" />\n  <path d=\"m9 12 2 2 4-4\" />\n</svg>\n"))
-	})
-	return svgShieldCheck
-}
-
 var onceSlidersHorizontal sync.Once
 
 var svgSlidersHorizontal *ui.SVG
@@ -943,18 +822,6 @@ func Sparkles() *ui.SVG {
 		svgSparkles = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <path d=\"M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z\" />\n  <path d=\"M20 2v4\" />\n  <path d=\"M22 4h-4\" />\n  <circle cx=\"4\" cy=\"20\" r=\"2\" />\n</svg>\n"))
 	})
 	return svgSparkles
-}
-
-var onceSquare sync.Once
-
-var svgSquare *ui.SVG
-
-// Square returns the Lucide square icon.
-func Square() *ui.SVG {
-	onceSquare.Do(func() {
-		svgSquare = ui.MustParseSVG([]byte("<svg\n  xmlns=\"http://www.w3.org/2000/svg\"\n  width=\"24\"\n  height=\"24\"\n  viewBox=\"0 0 24 24\"\n  fill=\"none\"\n  stroke=\"currentColor\"\n  stroke-width=\"2\"\n  stroke-linecap=\"round\"\n  stroke-linejoin=\"round\"\n>\n  <rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" />\n</svg>\n"))
-	})
-	return svgSquare
 }
 
 var onceSquarePen sync.Once

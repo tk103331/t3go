@@ -9,41 +9,49 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/egoist/mygo/plugins/terminal"
 )
+
+// terminalSession is a shell attached to a thread's checkout, as the
+// platform's terminal library offers it.
+type terminalSession interface {
+	// Done is closed when the shell is gone.
+	Done() <-chan struct{}
+	// Close ends the shell.
+	Close() error
+}
 
 // terminalHub owns the open terminal sessions. Each one connects to the
 // environment's terminal WebSocket and shows through the terminal
 // plugin's view, which draws the shell itself.
 //
 // The terminal plugin needs the libghostty-vt library, which ships with
-// desktop apps; a web client has no terminal surface.
+// desktop apps; a phone has no terminal surface, and its hub is a stub.
 type terminalHub struct {
 	mu    sync.Mutex
-	terms map[string]*terminal.Terminal
+	terms map[string]terminalSession
 	conns map[string]*terminalConn
 }
 
 func newTerminalHub() *terminalHub {
-	return &terminalHub{terms: map[string]*terminal.Terminal{}, conns: map[string]*terminalConn{}}
+	return &terminalHub{terms: map[string]terminalSession{}, conns: map[string]*terminalConn{}}
 }
 
 // get returns the open terminal of one session, opening it on first use.
-func (h *terminalHub) get(sessionID string) *terminal.Terminal {
+func (h *terminalHub) get(sessionID string) terminalSession {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.terms[sessionID]
 }
 
 // open attaches a terminal to the session's WebSocket.
-func (h *terminalHub) open(sessionID, rawURL string) *terminal.Terminal {
+func (h *terminalHub) open(sessionID, rawURL string) terminalSession {
 	h.mu.Lock()
 	if t := h.terms[sessionID]; t != nil {
 		h.mu.Unlock()
 		return t
 	}
 	conn := &terminalConn{url: rawURL}
-	t, err := terminal.New(terminal.Options{Conn: conn})
+	t, err := newTerminalSession(conn)
 	if err != nil {
 		h.mu.Unlock()
 		return nil
@@ -58,7 +66,7 @@ func (h *terminalHub) open(sessionID, rawURL string) *terminal.Terminal {
 func (h *terminalHub) close() {
 	h.mu.Lock()
 	terms, conns := h.terms, h.conns
-	h.terms, h.conns = map[string]*terminal.Terminal{}, map[string]*terminalConn{}
+	h.terms, h.conns = map[string]terminalSession{}, map[string]*terminalConn{}
 	h.mu.Unlock()
 	for _, t := range terms {
 		t.Close()
@@ -251,10 +259,6 @@ func (c *terminalConn) Resize(cols, rows int) error {
 	}
 	return conn.Write(ctx, websocket.MessageText, data)
 }
-
-// UseTheme is not needed: the terminal takes the colors of the window it
-// shows in.
-func (c *terminalConn) UseTheme(theme *terminal.Theme) error { return nil }
 
 func (c *terminalConn) hangUp() {
 	c.mu.Lock()

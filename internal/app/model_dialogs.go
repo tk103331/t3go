@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -671,6 +673,7 @@ func (s *Session) openDiff() {
 }
 
 func (s *Session) loadDiff(threadID, runID string) {
+	s.diffTitle = i18n.T("Changes")
 	s.diffText = i18n.T("Loading diff…")
 	s.loadBranches(threadID)
 	s.call(func(ctx context.Context, c *client.Client) error {
@@ -690,6 +693,101 @@ func (s *Session) loadDiff(threadID, runID string) {
 			s.diffText = friendlyError(err)
 		}
 	})
+}
+
+// openCommitDiffTab shows every file one commit changed in the panel's
+// Diff tab, beside the graph the reader picked it from.
+func (s *Session) openCommitDiffTab(rev, subject, short string) {
+	if s.selected == "" || rev == "" {
+		return
+	}
+	if short == "" {
+		short = rev
+		if len(short) > 7 {
+			short = short[:7]
+		}
+	}
+	s.patchDiffKind, s.patchDiffRunID = "commit", ""
+	s.patchDiffRev, s.patchDiffSubject, s.patchDiffShort = rev, subject, short
+	s.patchDiffPatch, s.patchDiffErr, s.patchDiffBusy = "", "", false
+	s.showSurface("patch")
+}
+
+// openRunDiffTab shows one run's checkpoint diff in the panel's Diff tab.
+func (s *Session) openRunDiffTab(runID, subject, short string) {
+	if s.selected == "" || runID == "" {
+		return
+	}
+	s.patchDiffKind, s.patchDiffRunID = "run", runID
+	s.patchDiffRev = ""
+	s.patchDiffSubject, s.patchDiffShort = subject, short
+	s.patchDiffPatch, s.patchDiffErr, s.patchDiffBusy = "", "", false
+	s.showSurface("patch")
+}
+
+// loadPatchDiff reads the open commit's or run's patch for its Diff tab.
+func (s *Session) loadPatchDiff() {
+	id, kind := s.selected, s.patchDiffKind
+	if kind == "" {
+		kind = "commit"
+	}
+	if id == "" || s.patchDiffBusy {
+		return
+	}
+	if kind == "run" && s.patchDiffRunID == "" || kind == "commit" && s.patchDiffRev == "" {
+		return
+	}
+	s.patchDiffBusy, s.patchDiffErr = true, ""
+	s.call(func(ctx context.Context, c *client.Client) error {
+		var patch string
+		var err error
+		if kind == "run" {
+			patch, err = c.Diff(ctx, id, s.patchDiffRunID)
+		} else {
+			patch, err = c.CommitDiff(ctx, id, s.patchDiffRev)
+		}
+		if err != nil {
+			return err
+		}
+		s.post(func() {
+			s.patchDiffBusy = false
+			if strings.TrimSpace(patch) == "" {
+				patch = i18n.T("This change made no diff.")
+			}
+			s.patchDiffPatch = patch
+		})
+		return nil
+	}, func(err error) {
+		s.patchDiffBusy = false
+		if err != nil {
+			if kind == "run" {
+				s.patchDiffErr = friendlyError(err)
+			} else {
+				s.patchDiffErr = patchDiffError(err)
+			}
+		}
+	})
+}
+
+// setDiffSplit switches the diff viewers between side-by-side and
+// unified, and remembers the choice.
+func (s *Session) setDiffSplit(split bool) {
+	s.diffSplit = split
+	if s.store != nil {
+		_ = s.store.SetItem("diffSplit", strconv.FormatBool(split))
+	}
+	s.patchDiffsKey = ""
+	s.diffStateKey = ""
+}
+
+// patchDiffError explains an old environment, whose server has no
+// patch endpoint, apart from a real failure.
+func patchDiffError(err error) string {
+	var api *client.APIError
+	if errors.As(err, &api) && api.Status == http.StatusNotFound {
+		return i18n.T("This environment's server does not support commit diffs yet. Update T3Go on the environment.")
+	}
+	return friendlyError(err)
 }
 
 func (s *Session) createProject() {
@@ -907,6 +1005,10 @@ func (s *Session) createThreadThen(after func(proto.Thread)) {
 	installed := false
 	for _, p := range s.providers {
 		if p.ID == provider {
+			if p.Installed && !providerUsable(p) {
+				s.connErr = i18n.T("Enable this provider in Settings before creating a thread.")
+				return
+			}
 			installed = p.Installed
 		}
 	}
@@ -1131,24 +1233,7 @@ func (s *Session) prepareNewThread() {
 	s.newThreadExistingWT = ""
 	s.selectNewThreadProject(s.preferredNewThreadProject())
 	settings := s.settings
-	provider := settings.DefaultProvider
-	model := settings.DefaultModel
-	if provider == "" {
-		for _, p := range s.providers {
-			if p.Installed {
-				provider = p.ID
-				break
-			}
-		}
-	}
-	if model == "" {
-		for _, m := range s.allModels() {
-			if m.Provider == provider {
-				model = m.ID
-				break
-			}
-		}
-	}
+	provider, model := s.newThreadDefaults()
 	s.newThreadProv = provider
 	s.newThreadModel = model
 	perm := proto.PermissionMode(settings.DefaultPermission)

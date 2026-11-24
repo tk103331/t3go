@@ -58,6 +58,11 @@
   .section-head { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 28px; }
   h2 { margin: 0; font-size: clamp(28px, 4vw, 40px); line-height: 1.15; letter-spacing: -1.7px; }
   .section-head p { max-width: 440px; margin: 0; color: var(--muted); font-size: 14px; }
+  .release { margin: 0 0 14px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .release h3 { margin: 0; font-size: 21px; letter-spacing: -.5px; }
+  .release span { color: var(--muted); font-size: 13px; }
+  .release .tag { color: var(--blue-dark); background: var(--soft); border: 1px solid var(--line);
+    border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
   .downloads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
   .download-card { display: flex; flex-direction: column; min-height: 210px; padding: 22px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
   .platform { color: var(--blue-dark); font-size: 12px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
@@ -134,6 +139,74 @@
     <div class="section-head">
       <h2>选择你的客户端</h2>
       <p>桌面端负责运行项目和 Agent；手机与 Web 可以连接桌面端，也可以连接独立部署的环境。</p>
+    </div>
+    <div class="release">
+      <span class="tag">0.2.0</span>
+      <h3>MyGo 客户端</h3>
+      <span>界面原生重写版：桌面端、手机端与 Web 端共用同一套代码，设置、草稿与环境随客户端迁移。</span>
+    </div>
+    <div class="downloads">
+      <article class="download-card">
+        <span class="platform">Android</span>
+        <h3>MyGo APK</h3>
+        <p>适用于 Android ARM64 设备。安装后可扫码添加环境。</p>
+        <a class="button primary" href="/T3Go-mygo-0.2.0-android_arm64.apk" download>下载 APK</a>
+      </article>
+      <article class="download-card">
+        <span class="platform">Android</span>
+        <h3>MyGo x86_64 APK</h3>
+        <p>适用于 x86_64 Android 模拟器，不适用于大多数实体手机。</p>
+        <a class="button" href="/T3Go-mygo-0.2.0-android_x64.apk" download>下载模拟器版</a>
+      </article>
+      <article class="download-card">
+        <span class="platform">macOS</span>
+        <h3>MyGo for Apple Silicon</h3>
+        <p>Apple Silicon 版本。内置环境服务，打开即可创建项目。</p>
+        <a class="button primary" href="/T3Go-mygo-0.2.0-macos_arm64.dmg" download>下载磁盘映像</a>
+        <a class="button" href="/T3Go-mygo-0.2.0-macos_arm64.zip" download>下载 ZIP</a>
+      </article>
+      <article class="download-card">
+        <span class="platform">macOS</span>
+        <h3>MyGo for Intel</h3>
+        <p>适用于 Intel Mac。包含同一套环境服务与应用界面。</p>
+        <a class="button" href="/T3Go-mygo-0.2.0-macos_x64.dmg" download>下载磁盘映像</a>
+        <a class="button" href="/T3Go-mygo-0.2.0-macos_x64.zip" download>下载 ZIP</a>
+      </article>
+      <article class="download-card">
+        <span class="platform">Windows</span>
+        <h3>MyGo for Windows x64</h3>
+        <p>适用于主流 Intel、AMD 架构的 Windows 10 和 Windows 11。</p>
+        <a class="button" href="/T3Go-mygo-0.2.0-windows_x64.zip" download>下载 x64 版</a>
+      </article>
+      <article class="download-card">
+        <span class="platform">Windows</span>
+        <h3>MyGo for Windows ARM64</h3>
+        <p>适用于 Snapdragon 等 Windows on ARM 设备。</p>
+        <a class="button" href="/T3Go-mygo-0.2.0-windows_arm64.zip" download>下载 ARM64 版</a>
+      </article>
+      <article class="download-card">
+        <span class="platform">Linux</span>
+        <h3>MyGo for Linux x64</h3>
+        <p>适用于 x86_64 Linux 桌面。解压后运行目录中的 t3go。</p>
+        <a class="button" href="/T3Go-mygo-0.2.0-linux_x64.tar.gz" download>下载 x64 版</a>
+      </article>
+      <article class="download-card">
+        <span class="platform">Linux</span>
+        <h3>MyGo for Linux ARM64</h3>
+        <p>适用于 ARM64 Linux 桌面和开发板环境。</p>
+        <a class="button" href="/T3Go-mygo-0.2.0-linux_arm64.tar.gz" download>下载 ARM64 版</a>
+      </article>
+      <article class="download-card">
+        <span class="platform">iOS</span>
+        <h3>MyGo Simulator</h3>
+        <p>面向 Apple Silicon Mac 上的 iOS 模拟器，不适用于真机安装。</p>
+        <a class="button" href="/T3Go-mygo-0.2.0-ios_simulator.zip" download>下载模拟器版</a>
+      </article>
+    </div>
+    <div class="release">
+      <span class="tag">0.1.0</span>
+      <h3>NSGo 客户端</h3>
+      <span>上一代界面，仍然可用；新版本的功能在上面的 MyGo 客户端里。</span>
     </div>
     <div class="downloads">
       <article class="download-card">

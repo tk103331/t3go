@@ -146,6 +146,19 @@ func Diff(ctx context.Context, dir, ref string) (string, error) {
 	return run(ctx, dir, "diff", ref)
 }
 
+// CommitDiff shows one commit's patch: every file it changed, against its
+// parent, or the whole tree for a root commit.
+func CommitDiff(ctx context.Context, dir, rev string) (string, error) {
+	rev = strings.TrimSpace(rev)
+	if rev == "" {
+		return "", errors.New("no commit")
+	}
+	if _, err := run(ctx, dir, "rev-parse", "--verify", rev+"^{commit}"); err != nil {
+		return "", fmt.Errorf("unknown commit: %s", rev)
+	}
+	return run(ctx, dir, "show", "--format=", "--patch", "--no-color", rev)
+}
+
 // Branches lists local branch names.
 func Branches(ctx context.Context, dir string) ([]string, error) {
 	out, err := run(ctx, dir, "for-each-ref", "--format=%(refname:short)", "refs/heads")

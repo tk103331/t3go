@@ -5,8 +5,8 @@ T3Go 由三部分组成：
 1. **环境服务**（`internal/server`）：一个进程内的 HTTP 服务，拥有 SQLite、
    事件总线和 orchestrator。
 2. **orchestrator**（`internal/orchestrator`）：项目、线程和 run 的业务逻辑。
-3. **客户端**（`cmd/t3go-app` + `internal/client`）：NSGo UI 通过 REST 发动作，
-   通过 SSE 接收更新。
+3. **客户端**（`cmd/t3go-app` + `internal/app` + `internal/client`）：MyGo UI
+   通过 REST 发动作，通过 SSE 接收更新。
 
 CLI（`cmd/t3go`）只是环境的启动器；它和客户端可以在同一台机器，也可以分离部署。
 桌面安装包自带这个启动器和环境服务，见下文「桌面安装包」。
@@ -119,7 +119,7 @@ supervised 的 Claude 运行时，适配器写一份临时 MCP 配置并传
 是项目介绍与下载页。`t3go serve --web DIR` 在 `/` 提供首页，在 `/app/` 提供
 客户端，不列目录、不需要鉴权；目录请求解析到其中的 `index.html`。页面与 API
 同源，Go 的 js `net/http` 走浏览器 fetch，SSE 因此也能流式读取。地址和 token 保存在
-`localStorage`（键前缀 `nsgo:default:`），所以刷新后会自动重连。
+`localStorage`（键前缀 `nsgo:default:`，与 NSGo 客户端一致），所以刷新后会自动重连。
 
 ## 附件
 
@@ -157,21 +157,21 @@ CLI 的原始 JSON 差异被限制在各自的适配器内；orchestrator 只看
 - `Stream` 在断线后按 1s→15s 退避重连，并用收到的 `seq` 继续。
 - `ParsePairing` 支持 `t3go://pair?url=...&token=...`。
 
-NSGo UI（`cmd/t3go-app`）把信号和事件分开：
+MyGo UI（`internal/app`）把状态和事件分开：
 
-- HTTP 结果和事件都通过 `cx.Post` 回到 UI 循环再改信号。
-- `core.Dynamic` 负责在连接状态/选中线程变化时重建视图；列表用 `core.Each`
-  按消息/线程 ID 保持行身份。
+- HTTP 结果和事件都回到主线程再改状态；每个环境的会话各有一个 `Session`。
+- 视图每帧重建，列表按消息/线程 ID 保持行身份。
 - transcript 按 `runId` 分组，组内消息间距小，组间使用聊天气泡的节奏。
-- 宽度 ≥ 760pt 时使用 `ui.SidebarShell`；窄屏在“列表 ↔ 线程”两个页面间切换。
+- 宽度 ≥ 760pt 时是侧栏 + 会话 + Surfaces 面板；窄屏在“列表 ↔ 线程”两个页面间切换，
+  更窄（< 520pt）时用手机底栏。
 
 ## 桌面安装包
 
 桌面版不需要用户另外安装服务端：`scripts/build-app.sh` 先为同一个平台编译
-`cmd/t3go`，放进 `cmd/t3go-app/resources/`，再由 `go tool nsgo build` 打包。
-NSGo 把 `resources/` 拷进 macOS 的 `T3Go.app/Contents/Resources/`，Linux 与
+`cmd/t3go`，放进 `resources/`，再由 `go tool mygo build` 打包。MyGo 把
+`resources/` 拷进 macOS 的 `T3Go.app/Contents/Resources/`，Linux 与
 Windows 则放在可执行文件旁边；macOS 上先给这个可执行文件单独做 ad-hoc 签名，
-再让安装包整体签名。手机包用 `nsgo.yaml` 的 `mobile.exclude_resources` 排除它。
+再让安装包整体签名。手机包不带这个服务端：它们连接一个环境。
 
 启动时 `cmd/t3go-app/local_server_exec.go` 找到这个二进制，用
 `t3go serve --home <T3GO_HOME 或 ~/.t3go> --listen <地址>:<port> --quiet`

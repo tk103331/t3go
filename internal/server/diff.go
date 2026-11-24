@@ -9,6 +9,21 @@ import (
 	"github.com/tk/t3go/internal/proto"
 )
 
+// handleCommitDiff returns one commit's patch, every file it changed.
+func (s *Server) handleCommitDiff(w http.ResponseWriter, r *http.Request) {
+	rev := strings.TrimSpace(r.URL.Query().Get("rev"))
+	if rev == "" {
+		writeError(w, 400, "diff", "rev is required")
+		return
+	}
+	diff, err := s.Service.CommitDiff(r.Context(), r.PathValue("id"), rev)
+	if err != nil {
+		writeError(w, statusFor(err), "diff", err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]string{"diff": diff})
+}
+
 // handleWorkingDiff returns the checkout's changes against HEAD.
 func (s *Server) handleWorkingDiff(w http.ResponseWriter, r *http.Request) {
 	t, err := s.Store.Thread(r.Context(), r.PathValue("id"))

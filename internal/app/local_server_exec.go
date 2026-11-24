@@ -20,8 +20,10 @@ import (
 const localServerPort = 4870
 
 // bundledServerPath is the environment server inside the installed
-// package: T3Go.app/Contents/Resources/t3go on macOS, t3go beside the
-// client binary elsewhere. T3GO_SERVER_BIN overrides it.
+// package: T3Go.app/Contents/Resources/t3go-server on macOS, and
+// t3go-server beside the client binary elsewhere. The older name, t3go,
+// is still looked for, so a package built before the client was renamed
+// keeps working. T3GO_SERVER_BIN overrides both.
 func bundledServerPath() string {
 	if path := strings.TrimSpace(os.Getenv("T3GO_SERVER_BIN")); path != "" {
 		if st, err := os.Stat(path); err == nil && !st.IsDir() {
@@ -34,19 +36,28 @@ func bundledServerPath() string {
 		return ""
 	}
 	dir := filepath.Dir(exe)
-	var path string
-	switch runtime.GOOS {
-	case "darwin":
-		path = filepath.Join(dir, "..", "Resources", "t3go")
-	case "windows":
-		path = filepath.Join(dir, "t3go.exe")
-	default:
-		path = filepath.Join(dir, "t3go")
+	for _, name := range bundledServerNames() {
+		var path string
+		switch runtime.GOOS {
+		case "darwin":
+			path = filepath.Join(dir, "..", "Resources", name)
+		default:
+			path = filepath.Join(dir, name)
+		}
+		if st, err := os.Stat(path); err == nil && !st.IsDir() {
+			return path
+		}
 	}
-	if st, err := os.Stat(path); err != nil || st.IsDir() {
-		return ""
+	return ""
+}
+
+// bundledServerNames are the names the packaged environment server may
+// carry, newest first.
+func bundledServerNames() []string {
+	if runtime.GOOS == "windows" {
+		return []string{"t3go-server.exe", "t3go.exe"}
 	}
-	return path
+	return []string{"t3go-server", "t3go"}
 }
 
 // localServerHome is where the local environment server keeps its data:

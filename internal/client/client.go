@@ -383,6 +383,16 @@ func (c *Client) Diff(ctx context.Context, threadID, runID string) (string, erro
 	return out.Diff, err
 }
 
+// CommitDiff returns one commit's patch, every file it changed.
+func (c *Client) CommitDiff(ctx context.Context, threadID, rev string) (string, error) {
+	path := "/api/v1/threads/" + url.PathEscape(threadID) + "/commit-diff?rev=" + url.QueryEscape(rev)
+	var out struct {
+		Diff string `json:"diff"`
+	}
+	err := c.do(ctx, http.MethodGet, path, nil, &out)
+	return out.Diff, err
+}
+
 // EnsureTerminal starts or reuses the thread's shell.
 func (c *Client) EnsureTerminal(ctx context.Context, threadID string) (proto.TerminalSession, error) {
 	var out proto.TerminalSession
@@ -473,6 +483,24 @@ func (c *Client) File(ctx context.Context, threadID, path string) (proto.Workspa
 	endpoint := "/api/v1/threads/" + url.PathEscape(threadID) + "/file?path=" + url.QueryEscape(path)
 	err := c.do(ctx, http.MethodGet, endpoint, nil, &out)
 	return out, err
+}
+
+// CreateWorkspaceEntry adds one file or folder to a thread's checkout.
+func (c *Client) CreateWorkspaceEntry(ctx context.Context, threadID, dir, name string, directory bool) error {
+	endpoint := "/api/v1/threads/" + url.PathEscape(threadID) + "/files"
+	return c.do(ctx, http.MethodPost, endpoint, map[string]any{"path": dir, "name": name, "directory": directory}, nil)
+}
+
+// RenameWorkspaceEntry moves one file or folder inside a checkout.
+func (c *Client) RenameWorkspaceEntry(ctx context.Context, threadID, from, to string) error {
+	endpoint := "/api/v1/threads/" + url.PathEscape(threadID) + "/files/rename"
+	return c.do(ctx, http.MethodPost, endpoint, map[string]any{"from": from, "to": to}, nil)
+}
+
+// DeleteWorkspaceEntry removes one file or folder from a checkout.
+func (c *Client) DeleteWorkspaceEntry(ctx context.Context, threadID, path string) error {
+	endpoint := "/api/v1/threads/" + url.PathEscape(threadID) + "/files?path=" + url.QueryEscape(path)
+	return c.do(ctx, http.MethodDelete, endpoint, nil, nil)
 }
 
 // UploadURL is where an uploaded attachment can be read.

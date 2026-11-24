@@ -7,21 +7,61 @@ import (
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
+	"os"
 	"strings"
 
+	"github.com/egoist/mygo"
 	"github.com/makiuchi-d/gozxing"
 	"github.com/makiuchi-d/gozxing/qrcode"
+	"github.com/tk/t3go/internal/client"
 	"github.com/tk/t3go/internal/i18n"
 )
 
-// TODO(view): scanEnvironmentQR opens the system camera (NSGo's
-// TakePhoto), decodes the capture with pairingLinkFromQRImage below, and
-// fills the connection form with the pairing link. MyGo has no camera API
-// wired up yet; the view will drive it.
+// scanEnvironmentQR reads a pairing code from a picture. This client has
+// no camera of its own, so the reader picks the picture — a photograph
+// of the code another device shows — and the decoder below reads it.
 func (s *Session) scanEnvironmentQR() {
 	s.connErr = ""
-	// TODO(view): camera capture is not available in MyGo yet; enter the
-	// pairing link by hand.
+	if jsRuntime {
+		s.connErr = i18n.T("This platform has no camera. Enter the pairing link instead.")
+		return
+	}
+	s.pickPairingImage(func(data []byte, err error) {
+		if err != nil {
+			s.connErr = i18n.T("Could not open the camera: ") + err.Error()
+			return
+		}
+		link, err := pairingLinkFromQRImage(data)
+		if err != nil {
+			s.connErr = err.Error()
+			return
+		}
+		s.token = link
+		if address, _, ok := client.ParsePairing(link); ok && address != "" {
+			s.serverURL = address
+		}
+		s.connErr = ""
+	})
+}
+
+// pickPairingImage opens a picture of a pairing code and reads its
+// bytes.
+func (s *Session) pickPairingImage(done func(data []byte, err error)) {
+	go func() {
+		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+			Parent: s.win,
+			Title:  i18n.T("Choose a pairing QR code"),
+		})
+		var data []byte
+		if err == nil {
+			if len(paths) == 0 {
+				err = errors.New(i18n.T("No picture was chosen."))
+			} else {
+				data, err = os.ReadFile(paths[0])
+			}
+		}
+		s.post(func() { done(data, err) })
+	}()
 }
 
 // pairingLinkFromQRImage finds the first T3Go pair link in a captured image.

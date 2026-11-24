@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	appVersion     = "0.1.0"
+	appVersion     = "0.2.0"
 	appBuildNumber = "114"
 )
 
@@ -45,10 +45,15 @@ func goRuntimeVersion() string {
 func (s *Session) settingsProviders(c *ui.Context) {
 	t := c.Theme()
 	target := s.settingsTarget()
+	if target == nil {
+		target = s
+	}
 	providers := target.providers
 	models := target.allModels()
 	ui.Column(c).Gap(8).Children(func() {
-		settingsSectionTitle(c, i18n.T("Providers"), i18n.T("Configure ACP agents for this environment, then detect their installed models."))
+		settingsSectionTitle(c, i18n.T("Providers"), i18n.T("Use installed agent CLIs or configure ACP agents for this environment."))
+		ui.Text(c, i18n.T("Agent sign-in is managed by each provider and does not require a Relay account.")).
+			FontSize(11.5).TextColor(t.TextMuted).MaxLines(3)
 		if target.providersBusy {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Spinner(c).Size(14, 14).Label(i18n.T("Detecting providers on ") + target.envName())
@@ -80,6 +85,9 @@ func (s *Session) settingsProviders(c *ui.Context) {
 				status := "Installed"
 				color := t.Success
 				switch {
+				case provider.Source != "" && !provider.Enabled:
+					status = i18n.T("Disabled")
+					color = t.TextMuted
 				case !provider.Installed:
 					status = i18n.T("Not found on PATH")
 					color = t.Danger
@@ -128,7 +136,7 @@ func (s *Session) settingsProviders(c *ui.Context) {
 								Padding(2, 7).Radius(5).Background(t.Background).Children(func() {
 								ui.Text(c, label).FontSize(10.5).TextColor(t.TextMuted).SingleLine().MinWidth(0)
 								if model.Custom {
-									ui.Button(c, "×").Label(i18n.T("Remove " + model.Name)).Children(func() {
+									ui.Button(c, "").Label(i18n.T("Remove " + model.Name)).Children(func() {
 										ui.Icon(c, lucide.X()).FontSize(9)
 									}).Tooltip(i18n.T("Remove " + model.Name)).OnClick(func() {
 										target.removeCustomModel(provider.ID, model.ID)
@@ -189,6 +197,9 @@ func models2list(models []proto.Model) []proto.Model { return models }
 func (s *Session) settingsUsage(c *ui.Context) {
 	t := c.Theme()
 	target := s.settingsTarget()
+	if target == nil {
+		target = s
+	}
 	report := target.usageReport
 	ui.Column(c).Gap(8).Children(func() {
 		settingsSectionTitle(c, i18n.T("Usage"), i18n.T("Tokens and cost of the runs this environment recorded."))
@@ -368,7 +379,7 @@ func (s *Session) settingsAbout(c *ui.Context) {
 			}
 		})
 		ui.Text(c, i18n.T("Remote environments are managed under Environments. This page reports only the client and the T3Go server running on this machine.")).
-			FontSize(11).LineHeight(16).TextColor(t.TextMuted).MaxLines(4)
+			FontSize(11).FixedLineHeight(16).TextColor(t.TextMuted).MaxLines(4)
 		if s.manager != nil {
 			ui.Button(c, i18n.T("Manage environments")).OnClick(func() {
 				s.setSettingsSection("environments")
@@ -415,6 +426,18 @@ func (s *Session) settingsEnvironments(c *ui.Context) {
 							s.showSettings = false
 						})
 					}
+					ui.Button(c, "").Label(i18n.T("Edit alias")).Children(func() {
+						ui.Icon(c, lucide.Pencil()).FontSize(14)
+					}).Tooltip(i18n.T("Edit alias")).OnClick(func() {
+						s.openEnvironmentAlias(p.ID)
+					})
+					if s.manager.sessions[p.ID] != nil && p.AccountServer == "" {
+						ui.Button(c, "").Label(i18n.T("Update token")).Children(func() {
+							ui.Icon(c, lucide.KeyRound()).FontSize(14)
+						}).Tooltip(i18n.T("Update token")).OnClick(func() {
+							s.manager.openEnvironmentCredentials(p.ID)
+						})
+					}
 					ui.Button(c, "").Label("").Label(i18n.T("Forget environment")).Children(func() {
 						ui.Icon(c, lucide.Trash()).FontSize(14).TextColor(t.Danger)
 					}).Tooltip(i18n.T("Forget environment")).OnClick(func() {
@@ -438,10 +461,9 @@ func (s *Session) settingsEnvironments(c *ui.Context) {
 				ui.Button(c, i18n.T("Sign out of Relay")).OnClick(func() {
 					s.manager.signOutRelayAccount()
 				})
-			} else {
+			} else if s.manager != nil {
 				ui.Button(c, i18n.T("Sign in to Relay")).OnClick(func() {
-					s.showSettings = false
-					s.manager.accountOpen = true
+					s.setSettingsSection("account")
 				})
 			}
 		})
@@ -528,7 +550,7 @@ func (s *Session) settingsAccess(c *ui.Context) {
 			ui.Column(c).Gap(2).Grow(1).MinWidth(0).Children(func() {
 				ui.Text(c, i18n.T("Allow device pairing")).FontSize(13).FontWeight(600).TextColor(t.Text)
 				ui.Text(c, i18n.T("Shows a pairing link and QR code for this machine. Credentials stay in local environment storage.")).
-					FontSize(11).LineHeight(16).TextColor(t.TextMuted).MaxLines(3)
+					FontSize(11).FixedLineHeight(16).TextColor(t.TextMuted).MaxLines(3)
 			})
 			ui.Switch(c, &on).Label(i18n.T("Allow device pairing")).OnChange(func() {
 				draft := target.settingsDraft
@@ -597,7 +619,7 @@ func (s *Session) settingsAccess(c *ui.Context) {
 					ui.Text(c, i18n.T("Copy link"))
 				}).OnClick(func() { s.setClipboard(link) })
 			})
-			ui.Text(c, link).FontSize(10.5).LineHeight(15).Font("monospace").
+			ui.Text(c, link).FontSize(10.5).FixedLineHeight(15).Font("monospace").
 				TextColor(t.TextMuted).MaxLines(4).Selectable()
 		})
 		if len(target.accessQR) > 0 {
@@ -664,7 +686,7 @@ func (s *Session) relayConfigurationCard(c *ui.Context) {
 			})
 		} else {
 			ui.Text(c, i18n.T("No Relay account is signed in. Sign in once under Account, then return here to connect this machine.")).
-				FontSize(10.5).LineHeight(15).TextColor(t.TextMuted).MaxLines(3)
+				FontSize(10.5).FixedLineHeight(15).TextColor(t.TextMuted).MaxLines(3)
 		}
 		if target.relayErr != "" {
 			ui.Text(c, target.relayErr).FontSize(10.5).TextColor(t.Danger).MaxLines(4)
@@ -683,8 +705,7 @@ func (s *Session) relayConfigurationCard(c *ui.Context) {
 				ui.Icon(c, lucide.UserRound()).FontSize(15)
 				ui.Text(c, i18n.T("Open Account"))
 			}).OnClick(func() {
-				target.setSettingsSection("environments")
-				s.manager.accountOpen = true
+				s.setSettingsSection("account")
 			})
 		}
 	})
@@ -712,7 +733,7 @@ func (s *Session) lanAccessCard(c *ui.Context) {
 		Background(t.Surface).Children(func() {
 		ui.Column(c).Gap(2).Grow(1).MinWidth(0).Children(func() {
 			ui.Text(c, i18n.T("LAN direct")).FontSize(13).FontWeight(600).TextColor(t.Text)
-			ui.Text(c, detail).FontSize(11).LineHeight(16).TextColor(t.TextMuted).MaxLines(3)
+			ui.Text(c, detail).FontSize(11).FixedLineHeight(16).TextColor(t.TextMuted).MaxLines(3)
 		})
 		ui.Switch(c, &value).Label(i18n.T("Allow direct access from devices on this LAN")).OnChange(func() {
 			draft := s.settingsDraft
@@ -739,7 +760,7 @@ func (s *Session) backgroundServerCard(c *ui.Context) {
 		ui.Column(c).Gap(2).Grow(1).MinWidth(0).Children(func() {
 			ui.Text(c, i18n.T("Keep running in the background")).FontSize(13).FontWeight(600).TextColor(t.Text)
 			ui.Text(c, i18n.T("Paired devices and agent runs reach this machine through its server. Closing T3Go stops that server unless it is kept running here.")).
-				FontSize(11).LineHeight(16).TextColor(t.TextMuted).MaxLines(4)
+				FontSize(11).FixedLineHeight(16).TextColor(t.TextMuted).MaxLines(4)
 		})
 		ui.Switch(c, &value).Label(i18n.T("Keep the local environment server running in the background")).OnChange(func() {
 			s.manager.setBackgroundServer(value)

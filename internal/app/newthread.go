@@ -13,29 +13,43 @@ import (
 // newThreadPage is the workspace's new-thread screen: a hero, the first
 // message's composer, and the choices that shape the thread.
 func (s *Session) newThreadPage(c *ui.Context) {
+	_, height := c.Size()
+	// A scroll child's percentage height has no viewport to resolve
+	// against. Give the welcome group room to center in a tall window,
+	// while letting a short window scroll all of its controls.
+	minHeight := max(float32(0), min(height-windowTitleBarHeight(c)-48, 720))
 	ui.Column(c).Fill().Padding(24, 28).Children(func() {
 		ui.Scroll(c).Grow(1).FillWidth().Children(func() {
-			ui.Column(c).WidthPercent(100).MinHeightPercent(100).
-				Center().Padding(0, 0, 32, 0).Children(func() {
-				ui.Column(c).WidthPercent(100).MaxWidth(900).Gap(18).Children(func() {
+			ui.Column(c).WidthPercent(100).MinHeight(minHeight).
+				Center().Children(func() {
+				ui.Column(c).WidthPercent(100).MaxWidth(800).Gap(24).Children(func() {
 					s.newThreadHero(c)
-					s.composerCard(c, composerSpec{
-						Draft:          &s.newThreadPrompt,
-						Label:          i18n.T("New thread message"),
-						Placeholder:    i18n.T("Ask anything. @ files, $ skills, / commands"),
-						EditorMinLines: 4,
-						AllowEmpty:     true,
-						SendDisabled:   s.threadBusy,
-						OnSend: func() {
-							s.createPreparedThread(strings.TrimSpace(s.newThreadPrompt) != "")
-						},
-						Attachments: s.newThreadAttachmentChips,
-						Accessory:   func() { s.pickNewThreadAttachments() },
-						Controls:    s.newThreadControls,
-						OnDropFiles: s.attachNewThreadPaths,
-						OnPaste:     s.pasteInto,
+					ui.Column(c).FillWidth().Gap(10).Children(func() {
+						s.newThreadContext(c)
+						s.composerCard(c, composerSpec{
+							Draft:          &s.newThreadPrompt,
+							Label:          i18n.T("New thread message"),
+							Placeholder:    i18n.T("Ask anything. @ files, $ skills, / commands"),
+							EditorMinLines: 3,
+							AllowEmpty:     true,
+							SendDisabled:   s.threadBusy || s.newThreadProj == "",
+							SendLabel:      i18n.T("Create thread"),
+							OnSend: func() {
+								s.createPreparedThread(strings.TrimSpace(s.newThreadPrompt) != "")
+							},
+							Attachments: s.newThreadAttachmentChips,
+							Accessory:   func() { s.pickNewThreadAttachments() },
+							Controls:    s.newThreadControls,
+							// The page's content room decides whether the
+							// agent, model and permission pills share the
+							// Create thread row or take one above it.
+							ContentInset:     80,
+							ContentMaxWidth:  800,
+							ControlsMinWidth: s.newThreadControlsMinWidth(),
+							OnDropFiles:      s.attachNewThreadPaths,
+							OnPaste:          s.pasteInto,
+						})
 					})
-					s.newThreadContext(c)
 					if s.connErr != "" {
 						errorNote(c, s.connErr)
 					}
@@ -60,64 +74,75 @@ func (s *Session) newThreadHero(c *ui.Context) {
 	if project != "" {
 		subtitle = i18n.T("Start a new thread in ") + project + "."
 	}
-	ui.Column(c).AlignItems(ui.Center).Gap(5).Padding(0, 0, 4, 0).Children(func() {
+	ui.Column(c).AlignItems(ui.Center).Gap(6).Children(func() {
 		ui.Row(c).AlignItems(ui.Baseline).Center().Gap(0).Wrap().Children(func() {
-			ui.Text(c, i18n.T("What should we build in")).FontSize(28).FontWeight(600).
+			ui.Text(c, i18n.T("What should we build in")).FontSize(22).FontWeight(600).
 				TextAlign(ui.Center).TextColor(t.Text)
-			brandWordmark(c, 30).MarginStart(8)
-			ui.Text(c, "?").FontSize(28).FontWeight(600).TextColor(t.Text)
+			brandWordmark(c, 24).MarginStart(8)
+			ui.Text(c, "?").FontSize(22).FontWeight(600).TextColor(t.Text)
 		})
-		text(c, subtitle, 13.5, t.TextMuted)
+		text(c, subtitle, 12.5, t.TextMuted).TextAlign(ui.Center).MaxLines(2)
 	})
 }
 
-// newThreadContext is the row of choices under the composer: the project
-// a thread starts in, and, for a Git project, where it checks out.
+// newThreadContext keeps project, checkout and branch in one wrapping
+// workspace bar immediately above the message.
 func (s *Session) newThreadContext(c *ui.Context) {
-	t := c.Theme()
 	projectID := s.newThreadProj
 	projectLabel := i18n.T("Choose project")
 	gitProject := false
-	ui.Row(c).Wrap().AlignItems(ui.Center).Gap(8).Children(func() {
-		ui.Button(c, "").Label(i18n.T("Project: ") + projectLabel).Children(func() {
-			ui.Icon(c, lucide.Folder()).FontSize(14)
-			ui.Text(c, projectLabel).SingleLine().MaxWidth(220)
-		}).PopoverMenuButton(func(m *ui.Menu) {
-			for _, project := range s.projects {
-				project := project
-				if project.ID == projectID {
-					projectLabel = project.Name
-					gitProject = project.IsGit
+	for _, project := range s.projects {
+		if project.ID == projectID {
+			projectLabel = project.Name
+			gitProject = project.IsGit
+			break
+		}
+	}
+	ui.Column(c).FillWidth().Gap(6).Children(func() {
+		ui.Row(c).FillWidth().Wrap().AlignItems(ui.Center).Gap(6).Children(func() {
+			toolbarButton(c, "").Label(i18n.T("Project: ")+projectLabel).
+				TextColor(c.Theme().Text).Border(1, c.Theme().Border).Radius(8).
+				MaxWidthPercent(100).MinWidth(0).Tooltip(i18n.T("Project: ") + projectLabel).Children(func() {
+				ui.Icon(c, lucide.Folder()).FontSize(14)
+				ui.Text(c, projectLabel).FontSize(12).SingleLine().MinWidth(0).MaxWidth(160)
+				ui.Icon(c, lucide.ChevronDown()).FontSize(10)
+			}).PopoverMenuButton(func(m *ui.Menu) {
+				for _, project := range s.projects {
+					project := project
+					if m.Item(project.Name).Checked(s.newThreadProj == project.ID).Chosen() {
+						s.selectNewThreadProject(project.ID)
+					}
 				}
-				if m.Item(project.Name).Checked(s.newThreadProj == project.ID).Chosen() {
-					s.selectNewThreadProject(project.ID)
+				m.Separator()
+				if m.Item(i18n.T("New project")).Chosen() {
+					s.openNewProjectForThread()
 				}
-			}
-			m.Separator()
-			if m.Item(i18n.T("New project")).Chosen() {
-				s.openNewProjectForThread()
+			})
+			if gitProject {
+				s.newThreadWorktreeChoice(c)
 			}
 		})
 		if gitProject {
-			s.newThreadWorktreeChoice(c)
+			s.newThreadWorkspaceNote(c)
 		}
 	})
-	_ = t
 }
 
 // newThreadWorktreeChoice picks where a new Git thread checks out: the
 // project's checkout, a fresh worktree, or one that exists already.
 func (s *Session) newThreadWorktreeChoice(c *ui.Context) {
-	t := c.Theme()
 	worktreeLabel := i18n.T("Current checkout")
 	if s.newThreadWT {
 		worktreeLabel = i18n.T("New worktree")
 	} else if s.newThreadExistingWT != "" {
 		worktreeLabel = i18n.T("Previous worktree")
 	}
-	ui.Button(c, "").Label(i18n.T("Worktree: ") + worktreeLabel).Children(func() {
+	toolbarButton(c, "").Label(i18n.T("Worktree: ")+worktreeLabel).
+		Border(1, c.Theme().Border).Radius(8).MaxWidthPercent(100).MinWidth(0).
+		Tooltip(i18n.T("The selected branch will be checked out in the project.")).Children(func() {
 		ui.Icon(c, lucide.GitFork()).FontSize(14)
-		ui.Text(c, worktreeLabel).SingleLine().MaxWidth(200)
+		ui.Text(c, worktreeLabel).FontSize(12).SingleLine().MinWidth(0).MaxWidth(160)
+		ui.Icon(c, lucide.ChevronDown()).FontSize(10)
 	}).PopoverMenuButton(func(m *ui.Menu) {
 		if m.Item(i18n.T("Current checkout")).Checked(!s.newThreadWT && s.newThreadExistingWT == "").Chosen() {
 			s.newThreadWT, s.newThreadExistingWT = false, ""
@@ -140,11 +165,17 @@ func (s *Session) newThreadWorktreeChoice(c *ui.Context) {
 			}
 		}
 	})
-	ui.Column(c).Grow(1).MinWidth(220).Children(func() {
-		ui.Combobox(c, &s.newThreadBase, s.branchNames()).Label(i18n.T("Branch")).
-			Placeholder(i18n.T("Choose a branch")).
-			Disabled(s.newThreadExistingWT != "" || s.newThreadBranchesBusy)
-	})
+	ui.Combobox(c, &s.newThreadBase, s.branchNames()).Label(i18n.T("Branch")).
+		Width(180).MaxWidthPercent(100).MinWidth(0).MinHeight(controlMinHeight(c)).
+		Placeholder(i18n.T("Choose a branch")).
+		Tooltip(i18n.T("The selected branch will be checked out in the project.")).
+		Disabled(s.newThreadExistingWT != "" || s.newThreadBranchesBusy)
+}
+
+// Show guidance when the choice needs attention. The normal checkout's
+// explanation stays available on the controls without occupying a row.
+func (s *Session) newThreadWorkspaceNote(c *ui.Context) {
+	t := c.Theme()
 	status, statusColor := "", t.TextMuted
 	switch {
 	case s.newThreadBranchesBusy:
@@ -156,13 +187,13 @@ func (s *Session) newThreadWorktreeChoice(c *ui.Context) {
 	case s.newThreadExistingWT != "":
 		status = i18n.T("This thread will reuse the selected worktree.")
 	case !s.newThreadWT:
-		status = i18n.T("The selected branch will be checked out in the project.")
+		return
 	default:
 		status = i18n.T("The new worktree branch is named from the thread title.")
 	}
 	ui.Row(c).AlignItems(ui.Center).Gap(5).Children(func() {
 		ui.Icon(c, lucide.GitBranch()).FontSize(14).TextColor(statusColor)
-		text(c, status, 10.5, statusColor)
+		text(c, status, 11.5, statusColor).Grow(1).MinWidth(0).MaxLines(3)
 	})
 }
 
@@ -175,77 +206,50 @@ func (s *Session) branchNames() []string {
 	return names
 }
 
+// newThreadControlsMinWidth estimates the room the agent, model and
+// permission pills need beside the paperclip and the Create thread
+// button, so the page can put them on their own row when it is narrower.
+func (s *Session) newThreadControlsMinWidth() float32 {
+	labelWidth := func(label string) float32 { return float32(len([]rune(label))) * 7.2 }
+	const pill = float32(16 + 13 + 10 + 12)
+	const attach, send, gaps = float32(30), float32(32), float32(24)
+	need := labelWidth(s.newThreadAgentLabel()) + labelWidth(s.newThreadModelLabel()) +
+		labelWidth(string(s.newThreadPerm)) + 3*pill + attach + send + gaps
+	return max(460, need)
+}
+
 // newThreadControls are the agent, model and permission pickers under the
 // new thread's composer.
 func (s *Session) newThreadControls(c *ui.Context) {
-	ui.Row(c).WidthPercent(100).MinWidth(0).AlignItems(ui.Center).Gap(2).Children(func() {
-		ui.Spacer(c)
-		ui.Button(c, "").Label("").Label(i18n.T("Agent") + " " + s.newThreadAgentLabel()).Children(func() {
-			ui.Icon(c, lucide.Bot()).FontSize(14)
-			ui.Text(c, s.newThreadAgentLabel()).SingleLine().MaxWidth(180)
+	ui.Row(c).FillWidth().MinWidth(0).Wrap().AlignItems(ui.Center).Gap(2).Children(func() {
+		toolbarButton(c, "").Label(i18n.T("Agent") + " " + s.newThreadAgentLabel()).MaxWidthPercent(100).MinWidth(0).Children(func() {
+			ui.Icon(c, lucide.Bot()).FontSize(13)
+			ui.Text(c, s.newThreadAgentLabel()).FontSize(11.5).SingleLine().MaxWidth(110)
+			ui.Icon(c, lucide.ChevronDown()).FontSize(10)
 		}).PopoverMenuButton(func(m *ui.Menu) {
 			for _, candidate := range s.providers {
 				candidate := candidate
 				label := candidate.Name
 				if !candidate.Installed {
 					label += i18n.T(" (missing)")
+				} else if !providerUsable(candidate) {
+					label += i18n.T(" (disabled)")
 				}
-				if m.Item(label).Checked(s.newThreadProv == candidate.ID).Disabled(!candidate.Installed).Chosen() {
+				if m.Item(label).Checked(s.newThreadProv == candidate.ID).Disabled(!providerUsable(candidate)).Chosen() {
 					s.newThreadProv = candidate.ID
-					modelID := ""
-					for _, model := range s.allModels() {
-						if model.Provider == candidate.ID {
-							modelID = model.ID
-							break
-						}
-					}
-					s.newThreadModel = modelID
+					s.newThreadModel = s.defaultProviderModel(candidate.ID)
 				}
 			}
 		})
-		ui.Button(c, "").Label("").Label(i18n.T("Model")).Children(func() {
-			ui.Icon(c, lucide.Cpu()).FontSize(14)
-			ui.Text(c, shortModel(s.newThreadModelLabel())).SingleLine().MaxWidth(220)
-		}).PopoverMenuButton(func(m *ui.Menu) {
-			for _, model := range s.allModels() {
-				model := model
-				label := model.Name
-				if model.Provider != s.newThreadProv {
-					label += " · " + model.Provider
-				}
-				if m.Item(label).Checked(s.newThreadModel == model.ID && s.newThreadProv == model.Provider).Chosen() {
-					s.newThreadModel, s.newThreadProv = model.ID, model.Provider
-				}
-			}
+		modelButton := toolbarButton(c, "").Label(i18n.T("Model")).Tooltip(s.newThreadModelLabel()).MaxWidthPercent(100).MinWidth(0).Children(func() {
+			ui.Icon(c, lucide.Cpu()).FontSize(13)
+			ui.Text(c, shortModel(s.newThreadModelLabel())).FontSize(11.5).SingleLine().MinWidth(0).MaxWidth(140)
+			ui.Icon(c, lucide.ChevronDown()).FontSize(10)
 		})
-		ui.Button(c, "").Label("").Label(i18n.T("Permission")).Children(func() {
-			ui.Icon(c, lucide.KeyRound()).FontSize(14)
-			ui.Text(c, string(s.newThreadPerm)).SingleLine()
-		}).PopoverMenuButton(func(m *ui.Menu) {
-			for _, permission := range []proto.PermissionMode{proto.PermissionSupervised, proto.PermissionAcceptEdits,
-				proto.PermissionAuto, proto.PermissionFullAccess} {
-				permission := permission
-				if m.Item(string(permission)).Checked(s.newThreadPerm == permission).Chosen() {
-					s.newThreadPerm = permission
-				}
-			}
+		s.modelPicker(c, modelButton, s.newThreadProv, s.newThreadModel, func(model proto.Model) {
+			s.newThreadModel, s.newThreadProv = model.ID, model.Provider
 		})
-		ui.Button(c, "").Label("").Label(i18n.T("Worktree")).Children(func() {
-			ui.Icon(c, lucide.GitBranch()).FontSize(14)
-			ui.Text(c, s.newThreadWorktreeLabel()).SingleLine().MaxWidth(200)
-		}).PopoverMenuButton(func(m *ui.Menu) {
-			if m.Item(i18n.T("The project's checkout")).Checked(!s.newThreadWT && s.newThreadExistingWT == "").Chosen() {
-				s.newThreadWT, s.newThreadExistingWT = false, ""
-			}
-			if s.newThreadWT {
-				if m.Item(i18n.T("Worktree: ") + s.newThreadWorktreeLabel()).Checked(true).Chosen() {
-					s.newThreadWT = true
-				}
-				if m.Item(i18n.T("New worktree…")).Chosen() {
-					s.openNewBranch()
-				}
-			}
-		})
+		s.configOptions(c, []configOption{s.newThreadPermissionOption()})
 	})
 }
 
@@ -267,15 +271,4 @@ func (s *Session) newThreadModelLabel() string {
 		}
 	}
 	return "Model"
-}
-
-// newThreadWorktreeLabel says where a new thread checks out.
-func (s *Session) newThreadWorktreeLabel() string {
-	if s.newThreadExistingWT != "" {
-		return s.newThreadExistingWT
-	}
-	if s.newThreadWT {
-		return i18n.T("New worktree")
-	}
-	return i18n.T("Checkout")
 }

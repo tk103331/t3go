@@ -54,6 +54,9 @@ type Session struct {
 	showCredentials      bool
 	credentialToken      string
 	credentialError      string
+	aliasOpen            bool
+	aliasEnvID           string
+	aliasValue           string
 	connectionRecovered  bool
 	recoveryNoticeCancel func() bool
 	appliedAccent        string
@@ -153,6 +156,8 @@ type Session struct {
 	// the open thread
 	selected         string
 	detail           proto.ThreadDetail
+	detailLoadSeq    int
+	detailEventSeq   int
 	messages         []proto.Message
 	running          bool
 	draft            string
@@ -201,6 +206,7 @@ type Session struct {
 	pendingRestore        string
 	showRestore           bool
 	diffText              string
+	diffTitle             string
 	workingDiff           string
 	workingFiles          []proto.DiffFile
 	diffSplit             bool
@@ -287,24 +293,33 @@ type Session struct {
 	agentCommandsThread string
 	agentCommandsBusy   bool
 
-	rightOpen    bool
-	rightWidth   float32
-	surface      string
-	filesPath    string
-	filesEntries []proto.WorkspaceEntry
-	fileSelected string
-	file         proto.WorkspaceFile
-	rightErr     string
-	rightBusy    bool
-	pullRequest  proto.PullRequest
-	prDetail     string
-	graph        []proto.GraphCommit
-	browserURL   string
-	browserInput string
-	browserNote  string
-	browserBack  bool
-	browserNext  bool
-	browserWeb   *mygo.WebView
+	rightOpen     bool
+	rightWidth    float32
+	surface       string
+	filesPath     string
+	filesEntries  []proto.WorkspaceEntry
+	fileSelected  string
+	filesSelected string
+	// fileEntryMode is the open file-tree dialog: a new file or folder,
+	// a rename, or a delete.
+	fileEntryOpen   bool
+	fileEntryMode   string
+	fileEntryName   string
+	fileEntryTarget string
+	fileEntryBusy   bool
+	fileEntryErr    string
+	file            proto.WorkspaceFile
+	rightErr        string
+	rightBusy       bool
+	pullRequest     proto.PullRequest
+	prDetail        string
+	graph           []proto.GraphCommit
+	browserURL      string
+	browserInput    string
+	browserNote     string
+	browserBack     bool
+	browserNext     bool
+	browserWeb      *mygo.WebView
 
 	terminalSession proto.TerminalSession
 	terminals       []proto.TerminalSession
@@ -345,6 +360,29 @@ type Session struct {
 	deviceBitmapCache *ui.Bitmap
 	deviceBitmapKey   string
 
+	// commitDiff backs the Diff tab the commit graph opens: the commit,
+	// its patch, and the per-file viewers built from it.
+	patchDiffKind    string
+	patchDiffRunID   string
+	patchDiffRev     string
+	patchDiffSubject string
+	patchDiffShort   string
+	patchDiffPatch   string
+	patchDiffBusy    bool
+	patchDiffErr     string
+	patchDiffs       []*editor.DiffState
+	patchDiffsKey    string
+	// graphQuery filters the commit graph; graphSelected marks the row
+	// the reader chose.
+	graphQuery    string
+	graphSelected string
+	// diffStateIndex is the file the inline diff viewer shows.
+	diffStateIndex int
+	// fileTab backs a file opened from the Files tree in its own tab.
+	fileTabPath string
+	fileTab     proto.WorkspaceFile
+	fileTabBusy bool
+	fileTabErr  string
 	// diffState is the diff viewer's state for the patch diffStateKey,
 	// kept across frames.
 	diffState    *editor.DiffState
@@ -426,6 +464,12 @@ func newSession(win *mygo.Window, shared appStorage, manager *Manager, profile c
 	}
 	if raw, ok := s.store.GetItem("rightOpen"); ok {
 		s.rightOpen = raw != "false"
+	}
+	s.diffSplit = true
+	if raw, ok := s.store.GetItem("diffSplit"); ok {
+		s.diffSplit = raw != "false"
+	} else {
+		_ = s.store.SetItem("diffSplit", "true")
 	}
 	s.restoreEnvironmentData()
 	if raw, ok := s.store.GetItem("rightWidth"); ok {

@@ -31,8 +31,15 @@ type inboxProject struct {
 // footer's actions.
 func sidebar(c *ui.Context, s *Session) {
 	t := c.Theme()
-	ui.Column(c).Fill().Background(t.Background).Children(func() {
-		ui.Row(c).Padding(6, 10, 2, 10).Children(func() {
+	ui.Column(c).Fill().Background(t.Surface).Children(func() {
+		ui.Row(c).Height(windowTitleBarHeight(c)).Shrink(0).AlignItems(ui.Center).
+			Padding(6, 12, 6, c.TitleBar().Left+12).DragWindow().Children(func() {
+			brandWordmark(c, 21)
+			ui.Spacer(c)
+			iconBtn(c, lucide.MessageSquarePlus(), i18n.T("New thread"), s.openNewThread).
+				Tooltip(i18n.T("New thread") + " · ⌘N")
+		})
+		ui.Row(c).Padding(0, 10, 8, 10).Children(func() {
 			ui.SearchField(c, &s.sidebarQuery).Label(i18n.T("Search threads")).
 				Placeholder(i18n.T("Search threads")).Grow(1)
 		})
@@ -152,7 +159,7 @@ func (s *Session) sidebarInbox(c *ui.Context) {
 	s.sidebarRows = s.buildSidebarRows(sections)
 	ui.List(c, &s.sidebarList, len(s.sidebarRows), func(i int) {
 		s.sidebarRow(c, i)
-	}).Grow(1).FillWidth().Gap(1).Padding(4, 6).Justify(ui.Start)
+	}).Grow(1).FillWidth().Gap(3).Padding(4, 8).Justify(ui.Start)
 }
 
 // inboxRow is one line of the sidebar: a header, a thread, or a project.
@@ -229,7 +236,7 @@ func (s *Session) sidebarRow(c *ui.Context, i int) {
 	switch {
 	case row.header:
 		head := ui.Row(c).AlignItems(ui.Center).Gap(6).FillWidth().
-			Padding(6, 4).Background(t.Background)
+			Padding(9, 6, 5, 6).Background(t.Surface)
 		head.Children(func() {
 			arrow := ui.Icon(c, lucide.ChevronDown()).FontSize(11).TextColor(t.TextMuted)
 			if row.status != "" && s.statusSectionCollapsed(row.status) {
@@ -285,7 +292,16 @@ func (s *Session) threadRow(c *ui.Context, entry inboxThread) {
 		titleColor = t.TextMuted
 	}
 	row := ui.Row(c).AlignItems(ui.Center).Gap(6).FillWidth().MinWidth(0).
-		Padding(4, 8).Radius(7)
+		Padding(8, 10).Radius(8)
+	active := s == owner
+	if s.manager != nil {
+		active = s.manager.active == owner
+	}
+	if active && owner.selected == thread.ID && !owner.showNewThread {
+		row.Background(t.Accent.Alpha(0.09))
+	} else if row.Hovered() {
+		row.Background(t.SurfaceHover)
+	}
 	row.Children(func() {
 		ui.Column(c).Gap(1).Grow(1).MinWidth(0).Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Gap(6).MinWidth(0).Children(func() {
@@ -387,7 +403,10 @@ func (s *Session) projectRow(c *ui.Context, entry inboxProject) {
 	t := c.Theme()
 	owner, project := entry.owner, entry.project
 	row := ui.Row(c).AlignItems(ui.Center).Gap(7).FillWidth().MinWidth(0).
-		Padding(4, 8).Radius(7)
+		Padding(6, 10).Radius(8)
+	if row.Hovered() {
+		row.Background(t.SurfaceHover)
+	}
 	row.Children(func() {
 		ui.Icon(c, lucide.Folder()).FontSize(14).TextColor(t.TextMuted)
 		ui.Text(c, project.Name).FontSize(12.5).FontWeight(500).TextColor(t.Text).
@@ -395,20 +414,23 @@ func (s *Session) projectRow(c *ui.Context, entry inboxProject) {
 		ui.Text(c, projectEnvironmentLabel(owner)).FontSize(10).TextColor(t.TextMuted).
 			SingleLine().MinWidth(0)
 		ui.Spacer(c)
-		ui.Button(c, "⋯").Label(i18n.T("Project actions")).PopoverMenuButton(func(m *ui.Menu) {
-			if m.Item(i18n.T("New thread…")).Chosen() {
-				owner.inEnvironment(func() { owner.openNewThreadIn(project.ID) })()
-			}
-			if m.Item(i18n.T("Rename project…")).Chosen() {
-				owner.inEnvironment(func() { owner.askRenameProject(project) })()
-			}
-			if m.Item(i18n.T("Delete project")).Danger().Chosen() {
-				owner.inEnvironment(func() { owner.askDeleteProject(project) })()
-			}
-		})
+		iconBtn(c, lucide.Ellipsis(), i18n.T("Project actions"), nil).Shrink(0).
+			PopoverMenuButton(func(m *ui.Menu) { owner.projectMenu(m, project) })
 	})
 	if row.RowClicked() {
 		s.selectSidebarThread(owner.sidebarID("project:" + project.ID))
+	}
+}
+
+func (s *Session) projectMenu(m *ui.Menu, project proto.Project) {
+	if m.Item(i18n.T("New thread…")).Chosen() {
+		s.inEnvironment(func() { s.openNewThreadIn(project.ID) })()
+	}
+	if m.Item(i18n.T("Rename project…")).Chosen() {
+		s.inEnvironment(func() { s.askRenameProject(project) })()
+	}
+	if m.Item(i18n.T("Delete project")).Danger().Chosen() {
+		s.inEnvironment(func() { s.askDeleteProject(project) })()
 	}
 }
 
@@ -424,9 +446,9 @@ func projectEnvironmentLabel(owner *Session) string {
 
 // sidebarFooter is the row of actions under the inbox.
 func (s *Session) sidebarFooter(c *ui.Context) {
-	ui.Row(c).AlignItems(ui.Center).Gap(4).WidthPercent(100).Padding(6, 4).Children(func() {
+	ui.Row(c).AlignItems(ui.Center).Gap(4).WidthPercent(100).Padding(10, 8).
+		BorderWidth(1, 0, 0, 0).BorderColor(c.Theme().Border).Children(func() {
 		iconBtn(c, lucide.FolderPlus(), i18n.T("New project"), s.openNewProject)
-		iconBtn(c, lucide.MessageSquarePlus(), i18n.T("New thread"), s.openNewThread)
 		ui.Spacer(c)
 		archived := lucide.Archive()
 		label := "Archived"

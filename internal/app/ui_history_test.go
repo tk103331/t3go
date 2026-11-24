@@ -92,8 +92,9 @@ func TestUIRunHistory(t *testing.T) {
 	tester.wait(t, 10*time.Second, func() bool {
 		tester.post.drain()
 		tester.tt.Frame()
-		return session.showDiff && strings.Contains(session.diffText, "changed by the agent")
-	}, "the run's diff to load")
+		return session.surface == "patch" && !session.patchDiffBusy &&
+			strings.Contains(session.patchDiffPatch, "changed by the agent")
+	}, "the run's diff tab to load")
 	tester.pump()
 	// The diff viewer is a pair of text fields: its lines live in their
 	// accessibility values, not in the plain texts.
@@ -104,6 +105,6 @@ func TestUIRunHistory(t *testing.T) {
 				values = append(values, a.Value)
 			}
 		}
-		t.Fatalf("the diff dialog does not show the change: %q", values)
+		t.Fatalf("the diff tab does not show the change: %q", values)
 	}
 }

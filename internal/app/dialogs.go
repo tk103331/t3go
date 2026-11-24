@@ -12,40 +12,54 @@ import (
 	"github.com/tk/t3go/internal/proto"
 )
 
-// dialogPanel is the card a dialog draws its content in.
+// modal leaves the content's spacing to dialogPanel. MyGo's default
+// Modal also pads its panel, which would inset every form twice.
+func modal(c *ui.Context, open *bool, build func()) {
+	ui.DialogBase(c, open, func(backdrop, panel ui.Element) {
+		width, height := c.Size()
+		backdrop.Background(ui.RGBA(0, 0, 0, 0.4))
+		panel.MaxWidth(width-32).MaxHeight(height-32).Radius(14).
+			Background(c.Theme().Background).Shadow(0, 10, 30, 0, ui.RGBA(0, 0, 0, 0.25))
+		build()
+	})
+}
+
+// dialogPanel scrolls a form when a small viewport cannot fit its fields.
 func dialogPanel(c *ui.Context, width float32) ui.Element {
 	t := c.Theme()
-	w, _ := c.Size()
+	w, h := c.Size()
 	if w > 0 && width > w-32 {
 		width = w - 32
 	}
-	return ui.Column(c).Width(width).MaxWidthPercent(92).Gap(10).Padding(20).
+	return ui.Scroll(c).Width(width).MaxWidthPercent(100).MaxHeight(h - 32).Gap(10).Padding(20).
 		Radius(14).Background(t.Background)
 }
 
 // dialogFooter is the row of buttons under a dialog's content.
 func dialogFooter(c *ui.Context, build func()) {
-	ui.Row(c).Gap(8).Justify(ui.End).Children(build)
+	ui.Row(c).Gap(8).Wrap().Justify(ui.End).Children(build)
 }
 
 // newProjectDialog registers a directory the agent can work in.
 func newProjectDialog(c *ui.Context, s *Session) {
-	ui.Modal(c, &s.showNewProject, func() {
+	modal(c, &s.showNewProject, func() {
 		t := c.Theme()
 		dialogPanel(c, 520).Children(func() {
 			text(c, i18n.T("New project"), 16, t.Text, 600)
 			ui.Text(c, i18n.T("Register a directory the agent can work in. The folder must already exist.")).
 				FontSize(12.5).TextColor(t.TextMuted)
-			// TODO(view): the environment selector the multi-environment
-			// client shows here.
+			s.projectEnvironmentSelector(c)
 			ui.Field(c, i18n.T("Project name"), func() {
-				ui.TextInput(c, &s.newProjectName).Placeholder(i18n.T("Defaults to the folder's name"))
+				ui.TextInput(c, &s.newProjectName).Placeholder(i18n.T("Defaults to the folder's name")).MinHeight(controlMinHeight(c))
 			})
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Row(c).Gap(8).Wrap().AlignItems(ui.End).Children(func() {
 				ui.Field(c, i18n.T("Project path"), func() {
-					ui.TextInput(c, &s.newProjectPath).Placeholder("/path/to/project")
-				}).Grow(1)
-				ui.Button(c, "").Label(i18n.T("Browse…")).Children(func() {
+					// Enter in the path adds the project, as the old
+					// client did.
+					path := ui.TextInput(c, &s.newProjectPath).Placeholder("/path/to/project").MinHeight(controlMinHeight(c))
+					path.OnSubmit(func() { s.createProject() })
+				}).Grow(1).MinWidth(160)
+				ui.Button(c, "").Label(i18n.T("Browse…")).MinHeight(controlMinHeight(c)).Children(func() {
 					ui.Icon(c, lucide.FolderOpen()).FontSize(15)
 					ui.Text(c, i18n.T("Browse…"))
 				}).Tooltip(i18n.T("Browse…")).OnClick(func() { s.browseProject() })
@@ -55,10 +69,10 @@ func newProjectDialog(c *ui.Context, s *Session) {
 				errorNote(c, s.connErr)
 			}
 			dialogFooter(c, func() {
-				if ui.Button(c, i18n.T("Cancel")).Clicked() {
+				if ui.Button(c, i18n.T("Cancel")).MinHeight(controlMinHeight(c)).Clicked() {
 					s.showNewProject = false
 				}
-				b := ui.PrimaryButton(c, "").Label(i18n.T("Add project")).Children(func() {
+				b := ui.PrimaryButton(c, "").Label(i18n.T("Add project")).MinHeight(controlMinHeight(c)).Children(func() {
 					ui.Icon(c, lucide.FolderPlus()).FontSize(15)
 					ui.Text(c, i18n.T("Add project"))
 				})
@@ -97,7 +111,7 @@ func approvalDialog(c *ui.Context, s *Session) {
 			if raw, err := json.MarshalIndent(request.Input, "", "  "); err == nil && len(request.Input) > 0 {
 				ui.Scroll(c).MaxHeight(280).Children(func() {
 					ui.Column(c).Padding(10).Radius(8).Background(t.Surface).Children(func() {
-						ui.Text(c, string(raw)).FontSize(11.5).LineHeight(16).
+						ui.Text(c, string(raw)).FontSize(11.5).FixedLineHeight(16).
 							Font("monospace").TextColor(t.Text).Selectable()
 					})
 				})
@@ -129,7 +143,7 @@ func renameDeleteDialogs(c *ui.Context, s *Session) {
 	t := c.Theme()
 	if s.pendingRename.Name != "" {
 		s.renameOpen = true
-		ui.Modal(c, &s.renameOpen, func() {
+		modal(c, &s.renameOpen, func() {
 			dialogPanel(c, 380).Children(func() {
 				text(c, i18n.T("Rename"), 16, t.Text, 600)
 				ui.Field(c, i18n.T("Name"), func() {
@@ -149,7 +163,7 @@ func renameDeleteDialogs(c *ui.Context, s *Session) {
 	}
 	if s.pendingDelete.Name != "" {
 		s.deleteOpen = true
-		ui.Modal(c, &s.deleteOpen, func() {
+		modal(c, &s.deleteOpen, func() {
 			dialogPanel(c, 400).Children(func() {
 				text(c, i18n.T("Delete"), 16, t.Text, 600)
 				ui.Text(c, i18n.T("Delete %s? This cannot be undone.", s.pendingDelete.Name)).
@@ -228,7 +242,7 @@ func (s *Session) paletteItems() []paletteItem {
 // paletteDialog searches the environment's threads, messages and
 // actions, with the arrows and Enter choosing from the list.
 func paletteDialog(c *ui.Context, s *Session) {
-	ui.Modal(c, &s.showPalette, func() {
+	modal(c, &s.showPalette, func() {
 		t := c.Theme()
 		query := strings.ToLower(strings.TrimSpace(s.paletteQuery))
 		var items []paletteItem
@@ -285,7 +299,7 @@ func paletteDialog(c *ui.Context, s *Session) {
 
 // branchesDialog lists the thread's branches and switches among them.
 func branchesDialog(c *ui.Context, s *Session) {
-	ui.Modal(c, &s.showBranches, func() {
+	modal(c, &s.showBranches, func() {
 		t := c.Theme()
 		dialogPanel(c, 420).Children(func() {
 			text(c, i18n.T("Branches"), 16, t.Text, 600)
@@ -299,7 +313,7 @@ func branchesDialog(c *ui.Context, s *Session) {
 						if current {
 							text(c, i18n.T("Current"), 10.5, t.Accent)
 						}
-					}).Padding(6, 8).Radius(6)
+					}).Padding(6, 8).MinHeight(controlMinHeight(c)).Radius(6)
 					if !current && row.Clicked() {
 						s.switchBranch(branch.Name)
 						s.showBranches = false
@@ -323,7 +337,7 @@ func branchesDialog(c *ui.Context, s *Session) {
 
 // runsDialog lists the thread's runs, with each one's diff.
 func runsDialog(c *ui.Context, s *Session) {
-	ui.Modal(c, &s.showRuns, func() {
+	modal(c, &s.showRuns, func() {
 		t := c.Theme()
 		dialogPanel(c, 560).Children(func() {
 			text(c, i18n.T("Run history"), 16, t.Text, 600)
@@ -368,12 +382,17 @@ func runModelLabel(run proto.Run) string {
 // diffDialog shows one run's checkpoint diff, or the thread's working
 // changes, in the diff viewer, with the checkout's git controls.
 func diffDialog(c *ui.Context, s *Session) {
-	ui.Modal(c, &s.showDiff, func() {
+	modal(c, &s.showDiff, func() {
 		t := c.Theme()
 		dialogPanel(c, 860).Children(func() {
+			title := s.diffTitle
+			if title == "" {
+				title = i18n.T("Changes")
+			}
 			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
-				text(c, i18n.T("Changes"), 16, t.Text, 600)
+				text(c, title, 16, t.Text, 600).SingleLine().MaxWidth(520)
 				ui.Spacer(c)
+				s.diffLayoutChoice(c)
 				if s.diffDiscard != "" {
 					path := s.diffDiscard
 					ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
@@ -492,7 +511,7 @@ func (s *Session) gitControls(c *ui.Context) {
 			}
 		})
 		if s.gitNote != "" {
-			ui.Text(c, s.gitNote).FontSize(11.5).LineHeight(16).TextColor(t.TextMuted)
+			ui.Text(c, s.gitNote).FontSize(11.5).FixedLineHeight(16).TextColor(t.TextMuted)
 		}
 		if s.gitPR != "" {
 			ui.Text(c, s.gitPR).FontSize(11.5).TextColor(t.Accent).SingleLine()
@@ -516,7 +535,7 @@ func editMessageDialog(c *ui.Context, s *Session) {
 		return
 	}
 	s.editOpen = true
-	ui.Modal(c, &s.editOpen, func() {
+	modal(c, &s.editOpen, func() {
 		t := c.Theme()
 		dialogPanel(c, 520).Children(func() {
 			text(c, i18n.T("Edit message"), 16, t.Text, 600)
@@ -533,7 +552,7 @@ func editMessageDialog(c *ui.Context, s *Session) {
 
 // promptArgsDialog fills the arguments a skill or command asks for.
 func promptArgsDialog(c *ui.Context, s *Session) {
-	ui.Modal(c, &s.showPromptArgs, func() {
+	modal(c, &s.showPromptArgs, func() {
 		t := c.Theme()
 		dialogPanel(c, 460).Children(func() {
 			text(c, s.promptName, 16, t.Text, 600)
@@ -562,7 +581,7 @@ func promptArgsDialog(c *ui.Context, s *Session) {
 // customModelDialog adds a model id the environment's CLIs accept but do
 // not list.
 func customModelDialog(c *ui.Context, s *Session) {
-	ui.Modal(c, &s.showCustomModel, func() {
+	modal(c, &s.showCustomModel, func() {
 		t := c.Theme()
 		dialogPanel(c, 440).Children(func() {
 			text(c, i18n.T("Custom model"), 16, t.Text, 600)
@@ -590,15 +609,12 @@ func customModelDialog(c *ui.Context, s *Session) {
 
 // dirsDialog lists the folders of the environment's machine, for the
 // project path a new project names.
-//
-// TODO(view): the breadcrumb bar and the new-folder button land with the
-// surface's port.
 func dirsDialog(c *ui.Context, s *Session) {
-	ui.Modal(c, &s.showDirs, func() {
+	modal(c, &s.showDirs, func() {
 		t := c.Theme()
 		dialogPanel(c, 520).Children(func() {
 			text(c, i18n.T("Choose a folder"), 16, t.Text, 600)
-			faint(c, s.dirs.Path, 11)
+			s.dirsBreadcrumb(c)
 			if s.dirsBusy {
 				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 					ui.Spinner(c).Label(i18n.T("Loading folders"))
@@ -612,7 +628,7 @@ func dirsDialog(c *ui.Context, s *Session) {
 					parentRow := clickableRow(c, i18n.T("Parent folder"), func() {
 						ui.Icon(c, lucide.ArrowLeft()).FontSize(13).TextColor(t.TextMuted)
 						faint(c, "..", 12.5)
-					}).Padding(6, 8).Radius(6)
+					}).Padding(6, 8).MinHeight(controlMinHeight(c)).Radius(6)
 					if parentRow.Clicked() {
 						s.loadDirs(s.dirs.Parent)
 					}
@@ -622,18 +638,86 @@ func dirsDialog(c *ui.Context, s *Session) {
 					entryRow := clickableRow(c, entry.Name, func() {
 						ui.Icon(c, lucide.Folder()).FontSize(13).TextColor(t.TextMuted)
 						ui.Text(c, entry.Name).FontSize(12.5).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
-					}).Padding(6, 8).Radius(6)
+					}).Padding(6, 8).MinHeight(controlMinHeight(c)).Radius(6)
 					if entryRow.Clicked() {
 						s.loadDirs(entry.Path)
 					}
 				}
 			})
+			s.newDirForm(c)
 			dialogFooter(c, func() {
-				if ui.Button(c, i18n.T("Cancel")).Clicked() {
+				if ui.Button(c, i18n.T("Cancel")).MinHeight(controlMinHeight(c)).Clicked() {
 					s.closeDirs()
 				}
-				ui.PrimaryButton(c, i18n.T("Use this folder")).OnClick(s.useDirs)
+				ui.PrimaryButton(c, i18n.T("Use this folder")).MinHeight(controlMinHeight(c)).OnClick(s.useDirs)
 			})
+		})
+	})
+}
+
+// dirsBreadcrumb is the path of the folder on screen, with a way back
+// to each of its parents.
+func (s *Session) dirsBreadcrumb(c *ui.Context) {
+	path := strings.TrimSpace(s.dirs.Path)
+	if path == "" {
+		return
+	}
+	t := c.Theme()
+	root := "/"
+	if !strings.HasPrefix(path, "/") {
+		root = ""
+	}
+	ui.ScrollHorizontal(c).FillWidth().Children(func() {
+		ui.Row(c).AlignItems(ui.Center).Gap(1).Children(func() {
+			prefix := root
+			for i, part := range strings.Split(strings.Trim(path, "/"), "/") {
+				if part == "" {
+					continue
+				}
+				if i > 0 {
+					faint(c, "/", 11)
+				}
+				prefix = strings.TrimRight(prefix, "/") + "/" + part
+				target := prefix
+				ui.Button(c, part).FontSize(11.5).Padding(2, 4).
+					TextColor(t.TextMuted).OnClick(func() { s.loadDirs(target) })
+			}
+		})
+	})
+}
+
+// newDirForm names a folder to create in the directory on screen.
+func (s *Session) newDirForm(c *ui.Context) {
+	if !s.showNewDir {
+		ui.Row(c).Gap(8).Wrap().AlignItems(ui.Center).Children(func() {
+			ui.Button(c, "").Label(i18n.T("New folder")).MinHeight(controlMinHeight(c)).Children(func() {
+				ui.Icon(c, lucide.FolderPlus()).FontSize(14)
+				ui.Text(c, i18n.T("New folder"))
+			}).OnClick(func() {
+				s.showNewDir = true
+				s.newDirName = ""
+				s.newDirErr = ""
+			})
+			faint(c, i18n.T("Create a folder in the selected directory."), 11)
+		})
+		return
+	}
+	ui.Column(c).Gap(6).Children(func() {
+		ui.Field(c, i18n.T("Folder name"), func() {
+			ui.TextInput(c, &s.newDirName).Placeholder(i18n.T("Folder name"))
+		})
+		if s.newDirErr != "" {
+			errorNote(c, s.newDirErr)
+		}
+		ui.Row(c).Gap(8).Children(func() {
+			if ui.Button(c, i18n.T("Cancel")).Clicked() {
+				s.closeNewDir()
+			}
+			create := ui.PrimaryButton(c, i18n.T("Create folder"))
+			if s.newDirBusy {
+				create.Disabled(true)
+			}
+			create.OnClick(s.createDir)
 		})
 	})
 }
@@ -641,7 +725,7 @@ func dirsDialog(c *ui.Context, s *Session) {
 // devicesDialog lists the simulators the environment machine has, with
 // their screens.
 func devicesDialog(c *ui.Context, s *Session) {
-	ui.Modal(c, &s.showDevices, func() {
+	modal(c, &s.showDevices, func() {
 		t := c.Theme()
 		dialogPanel(c, 560).Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Gap(8).Children(func() {
@@ -714,7 +798,7 @@ func (s *Session) deviceBitmap() *ui.Bitmap {
 
 // restoreDialog asks before a run's checkpoint takes the files back.
 func restoreDialog(c *ui.Context, s *Session) {
-	ui.Modal(c, &s.showRestore, func() {
+	modal(c, &s.showRestore, func() {
 		t := c.Theme()
 		dialogPanel(c, 460).Children(func() {
 			text(c, i18n.T("Restore this run?"), 16, t.Text, 600)
@@ -735,41 +819,50 @@ func restoreDialog(c *ui.Context, s *Session) {
 }
 
 // settingsDialog is the client's settings.
-//
-// TODO(view): the sections fill in one by one; this first pass carries
-// the section list, General and Appearance.
 func settingsDialog(c *ui.Context, s *Session) {
-	ui.Modal(c, &s.showSettings, func() {
+	modal(c, &s.showSettings, func() {
 		t := c.Theme()
-		ui.Row(c).Gap(0).Children(func() {
+		width, height := c.Size()
+		dialogHeight := min(620, height-64)
+		ui.Row(c).Width(min(920, width-64)).Height(dialogHeight).Gap(0).
+			Radius(14).Clip().Border(1, t.Border).Background(t.Background).Children(func() {
 			// The section list, as the old settings dialog showed it.
-			ui.Column(c).Width(190).MaxWidthPercent(30).Gap(2).Padding(14).
-				Radius(14).Background(t.Background).Children(func() {
-				text(c, i18n.T("Settings"), 16, t.Text, 600).Margin(0, 0, 6, 0)
-				for _, section := range settingsSections() {
-					selected := s.settingsSection == section.key
-					row := clickableRow(c, section.label, func() {
-						ui.Icon(c, section.icon()).FontSize(14).TextColor(t.TextMuted)
-						ui.Text(c, section.label).FontSize(12.5).
-							TextColor(t.Text).SingleLine()
-					}).Padding(6, 8).Radius(7)
-					if selected {
-						row.Background(t.Surface)
+			ui.Column(c).Width(200).FillHeight().Gap(12).Padding(16, 12).
+				BorderWidth(0, 1, 0, 0).BorderColor(t.Border).Background(t.Surface).Children(func() {
+				text(c, i18n.T("Settings"), 16, t.Text, 600).Margin(0, 8, 4, 8)
+				ui.Scroll(c).Grow(1).FillWidth().Children(func() {
+					for _, section := range settingsSections() {
+						selected := s.settingsSection == section.key
+						color := t.TextMuted
+						if selected {
+							color = t.Accent
+						}
+						row := clickableRow(c, section.label, func() {
+							ui.Icon(c, section.icon()).FontSize(15).TextColor(color)
+							ui.Text(c, section.label).FontSize(12.5).
+								TextColor(color).SingleLine()
+						}).MinHeight(36).Padding(8, 10).Radius(7)
+						if selected {
+							row.Background(t.Accent.Alpha(0.1))
+						}
+						if row.Clicked() {
+							s.setSettingsSection(section.key)
+						}
 					}
-					if row.Clicked() {
-						s.setSettingsSection(section.key)
-					}
-				}
+				})
 			})
 			// The section's page.
-			ui.Column(c).Width(560).MaxWidthPercent(70).Gap(12).Padding(20).
-				Radius(14).Background(t.Background).Children(func() {
-				ui.Row(c).AlignItems(ui.Center).Children(func() {
-					text(c, s.settingsSectionLabel(), 16, t.Text, 600).Grow(1)
+			ui.Column(c).Grow(1).MinWidth(0).FillHeight().Gap(0).
+				Background(t.Background).Children(func() {
+				ui.Row(c).MinHeight(64).Padding(16, 24).AlignItems(ui.Center).
+					BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+					text(c, s.settingsSectionLabel(), 18, t.Text, 600).Grow(1)
 					iconBtn(c, lucide.X(), i18n.T("Close settings"), func() { s.closeSettings() })
 				})
-				ui.Scroll(c).MaxHeight(440).Children(func() {
-					s.settingsSectionView(c)
+				ui.Scroll(c).Grow(1).FillWidth().Children(func() {
+					ui.Column(c).FillWidth().Gap(16).Padding(24).Children(func() {
+						s.settingsSectionView(c)
+					})
 				})
 				if s.settingsSaveErr != "" {
 					errorNote(c, s.settingsSaveErr)
@@ -790,6 +883,7 @@ type settingsSection struct {
 func settingsSections() []settingsSection {
 	return []settingsSection{
 		{key: "general", label: i18n.T("General"), icon: lucide.Settings},
+		{key: "account", label: i18n.T("Account"), icon: lucide.UserRound},
 		{key: "providers", label: i18n.T("Providers"), icon: lucide.Cpu},
 		{key: "usage", label: i18n.T("Usage"), icon: lucide.ChartColumn},
 		{key: "worktrees", label: i18n.T("Worktrees"), icon: lucide.GitFork},
@@ -816,15 +910,19 @@ func (s *Session) settingsSectionLabel() string {
 func (s *Session) settingsSectionView(c *ui.Context) {
 	switch s.settingsSection {
 	case "general":
-		s.settingsGeneral(c)
+		// The environment's own name and defaults, as the old client's
+		// environment-defaults page had them.
+		s.settingsTargetPage(c, true, func(target *Session) { target.settingsGeneral(c) })
+	case "account":
+		s.settingsAccount(c)
 	case "appearance":
 		s.settingsAppearance(c)
 	case "providers":
-		s.settingsProviders(c)
+		s.settingsTargetPage(c, true, func(target *Session) { target.settingsProviders(c) })
 	case "usage":
-		s.settingsUsage(c)
+		s.settingsTargetPage(c, true, func(target *Session) { target.settingsUsage(c) })
 	case "worktrees":
-		s.settingsWorktrees(c)
+		s.settingsTargetPage(c, true, func(target *Session) { target.settingsWorktrees(c) })
 	case "environments":
 		s.settingsEnvironments(c)
 	case "background":
@@ -880,10 +978,10 @@ func (s *Session) settingsAppearance(c *ui.Context) {
 					swatch = ui.Hex(choice.hex)
 				}
 				swatchName := choice.name
-				b := clickableRow(c, "Accent "+choice.name, func() {
+				b := toolbarButton(c, "").Label("Accent "+choice.name).Children(func() {
 					ui.Box(c).Size(13, 13).Radius(7).Background(swatch)
 					faint(c, swatchName, 12)
-				}).Padding(4, 8).Radius(6).Border(1, c.Theme().Border)
+				}).Padding(6, 10).Radius(7).Border(1, c.Theme().Border)
 				if s.appearance.Accent == choice.hex {
 					b.Background(c.Theme().Surface)
 				}

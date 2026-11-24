@@ -50,8 +50,15 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
   （stage/discard，MyGo diff viewer 渲染 patch）；终端（MyGo 终端插件，Ghostty VT，
   经 WebSocket 连接环境的 PTY））、运行历史与逐次 diff、分支切换、设置（General 与
   外观：语言/明暗主题/强调色）。
-- MyGo 客户端仍在对齐 NSGo 版本的功能；尚未迁移的界面见 `internal/app` 中的
-  `TODO(view)` 注释。语音听写暂不可用（MyGo 暂无语音识别接口）。
+- MyGo 客户端已覆盖 NSGo 客户端的界面能力：桌面端、移动端与 Web 端共用
+  `internal/app` 的视图（Web 端为同一份代码的 WASM 构建），多环境管理、Surfaces
+  面板、手机端 Git 控件与提交表、环境 token 更新与环境别名、文件夹面包屑与新建
+  文件夹、提交图泳道、配对二维码（从图片读取）均已补齐。MyGo 没有语音识别接口，
+  语音听写仍未迁移。
+- 发布：`scripts/release-mygo.sh` 构建各平台的 MyGo 客户端并打包成 `release/`，
+  产物名为 `T3Go-mygo-<版本>-<平台>.<格式>`，与服务器上的 NSGo 版（`T3Go-<版本>-…`）
+  并存而不互相覆盖；`scripts/upload-mygo.sh` 把它们上传到下载站点的 web 目录，
+  校验和写在 `SHA256SUMS-mygo`。
 - 测试：store、orchestrator（fake provider）、provider 流解析、HTTP/SSE/WS、Go 客户端
 
 尚未实现（有意留到后续）：

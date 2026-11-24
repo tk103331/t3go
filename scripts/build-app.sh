@@ -20,19 +20,19 @@ output=${2:-dist}
 resources=resources
 
 case "$target" in
-  macos_arm64) server_os=darwin; server_arch=arm64; server_name=t3go ;;
-  macos_x64) server_os=darwin; server_arch=amd64; server_name=t3go ;;
-  windows_arm64) server_os=windows; server_arch=arm64; server_name=t3go.exe ;;
-  windows_x64) server_os=windows; server_arch=amd64; server_name=t3go.exe ;;
-  linux_arm64) server_os=linux; server_arch=arm64; server_name=t3go ;;
-  linux_x64) server_os=linux; server_arch=amd64; server_name=t3go ;;
+  macos_arm64) server_os=darwin; server_arch=arm64; server_name=t3go-server ;;
+  macos_x64) server_os=darwin; server_arch=amd64; server_name=t3go-server ;;
+  windows_arm64) server_os=windows; server_arch=arm64; server_name=t3go-server.exe ;;
+  windows_x64) server_os=windows; server_arch=amd64; server_name=t3go-server.exe ;;
+  linux_arm64) server_os=linux; server_arch=arm64; server_name=t3go-server ;;
+  linux_x64) server_os=linux; server_arch=amd64; server_name=t3go-server ;;
   # A phone talks to an environment; it never runs one.
   android_arm64|android_x64|ios|ios_simulator) server_os=; server_arch=; server_name= ;;
   *) echo "unknown target: $target" >&2; exit 2 ;;
 esac
 
 mkdir -p "$resources"
-rm -f "$resources/t3go" "$resources/t3go.exe"
+rm -f "$resources/t3go" "$resources/t3go.exe" "$resources/t3go-server" "$resources/t3go-server.exe"
 # A phone talks to an environment; it never runs one. MyGo copies the
 # resources directory into every platform's app.
 if [ -n "$server_os" ]; then
@@ -47,13 +47,17 @@ fi
 
 echo "building the client for $target"
 case "$target" in
-  ios|ios_simulator) platform="ios/simulator" ;;
-  android*) platform="android/${target#android_}" ;;
+  ios) platform="ios/arm64" ;;
+  ios_simulator) platform="ios/simulator" ;;
+  android_arm64) platform="android/arm64" ;;
+  android_x64) platform="android/amd64" ;;
   macos_arm64) platform="darwin/arm64" ;;
-  macos_x64) platform="darwin/x64" ;;
+  macos_x64) platform="darwin/amd64" ;;
   windows_arm64) platform="windows/arm64" ;;
-  windows_x64) platform="windows/x64" ;;
+  windows_x64) platform="windows/amd64" ;;
   linux_arm64) platform="linux/arm64" ;;
-  linux_x64) platform="linux/x64" ;;
+  linux_x64) platform="linux/amd64" ;;
 esac
-go tool mygo build -platform "$platform" -out "$output"
+# The Windows installer needs NSIS; the download page offers the
+# executable in a zip, as the NSGo release did.
+go tool mygo build -platform "$platform" -o "$output" -skip-installer

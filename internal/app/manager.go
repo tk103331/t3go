@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -223,11 +224,19 @@ func (m *Manager) start() {
 	for _, p := range m.profiles {
 		m.sessions[p.ID] = m.newSession(p)
 	}
-	m.app = m.sessions[m.current]
-	if m.app == nil {
-		for _, p := range m.profiles {
-			m.app, m.current = m.sessions[p.ID], p.ID
-			break
+	// A client pointed at an environment from outside (scripts/dev.sh, a
+	// test harness) talks to that one, not to a saved environment whose
+	// address may no longer answer.
+	if strings.TrimSpace(os.Getenv("T3GO_SERVER")) != "" {
+		m.current = ""
+		m.app = m.newSession(client.EnvironmentProfile{})
+	} else {
+		m.app = m.sessions[m.current]
+		if m.app == nil {
+			for _, p := range m.profiles {
+				m.app, m.current = m.sessions[p.ID], p.ID
+				break
+			}
 		}
 	}
 	if m.app == nil {
@@ -759,6 +768,58 @@ func (s *Session) updateCredentials() {
 	profile := s.profile
 	profile.Token = token
 	s.connectProfile(profile)
+}
+
+// openEnvironmentAlias names an environment of this client.
+func (s *Session) openEnvironmentAlias(id string) {
+	if s.manager == nil {
+		return
+	}
+	profile := s.manager.find(id)
+	if profile.ID == "" {
+		return
+	}
+	s.aliasEnvID = id
+	s.aliasValue = profile.Alias
+	s.aliasOpen = true
+}
+
+// closeEnvironmentAlias leaves the alias editor.
+func (s *Session) closeEnvironmentAlias() {
+	s.aliasOpen = false
+	s.aliasEnvID = ""
+	s.aliasValue = ""
+}
+
+// saveEnvironmentAlias keeps the name the user gave an environment.
+func (s *Session) saveEnvironmentAlias() {
+	if s.manager == nil || s.aliasEnvID == "" {
+		s.closeEnvironmentAlias()
+		return
+	}
+	s.manager.setAlias(s.aliasEnvID, strings.TrimSpace(s.aliasValue))
+	s.closeEnvironmentAlias()
+}
+
+// setAlias names an environment of this client and keeps the change.
+func (m *Manager) setAlias(id, alias string) {
+	profile := m.find(id)
+	if profile.ID == "" {
+		return
+	}
+	profile.Alias = alias
+	m.update(profile)
+}
+
+// openEnvironmentCredentials opens the token dialog of an environment,
+// activating it so the dialog has a session to draw in.
+func (m *Manager) openEnvironmentCredentials(id string) {
+	session := m.sessions[id]
+	if session == nil {
+		return
+	}
+	m.activate(id)
+	session.openCredentials()
 }
 
 // savedEnvironments is the storage record the client keeps.

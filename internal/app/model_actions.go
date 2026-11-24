@@ -184,8 +184,9 @@ func (s *Session) disconnect() {
 	if s.manager != nil {
 		s.openSettings()
 		s.setSettingsSection(i18n.T("environments"))
-		// TODO(view): the environments management view owns the forget
-		// flow (the forgetEnvironment signal in the old client).
+		// The environments management view owns the forget flow: the
+		// Environments section of the settings lists every environment
+		// with a way to forget it.
 		return
 	}
 	// Files the user attached but never sent go with the connection.
@@ -682,6 +683,9 @@ func (s *Session) refreshProviders() {
 }
 
 func (s *Session) applyEvent(e proto.Event) {
+	if s.selected != "" && e.ThreadID == s.selected {
+		s.detailEventSeq++
+	}
 	switch e.Type {
 	case proto.EventThreadCreated, proto.EventThreadUpdated:
 		t, ok := decodeData[proto.Thread](e.Data)

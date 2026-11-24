@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -61,7 +62,7 @@ func (s *Session) pullRequestSurface(c *ui.Context) {
 			})
 		}
 		if pr.URL != "" {
-			ui.Text(c, pr.Title).FontSize(13).FontWeight(600).LineHeight(18).TextColor(t.Text).MaxLines(3)
+			ui.Text(c, pr.Title).FontSize(13).FontWeight(600).FixedLineHeight(18).TextColor(t.Text).MaxLines(3)
 			faint(c, fmt.Sprintf("#%d · %s", pr.Number, strings.ToLower(pr.State)), 11.5)
 			ui.Text(c, pr.HeadBranch+" → "+pr.BaseBranch).FontSize(11.5).Font("monospace").
 				TextColor(t.TextMuted).SingleLine()
@@ -82,7 +83,7 @@ func (s *Session) pullRequestSurface(c *ui.Context) {
 			}
 			ui.Text(c, i18n.T("No open pull request")).FontSize(13).FontWeight(600).TextColor(t.Text)
 			ui.Text(c, i18n.T("Commit and push this branch, then open a pull request with GitHub CLI.")).
-				FontSize(12).LineHeight(17).TextColor(t.TextMuted).MaxLines(3)
+				FontSize(12).FixedLineHeight(17).TextColor(t.TextMuted).MaxLines(3)
 			if detail != "" {
 				faint(c, detail, 11)
 			}
@@ -125,7 +126,7 @@ func (s *Session) linkedPullRequests(c *ui.Context) {
 				}
 				ui.Column(c).Gap(3).Padding(7, 9).Radius(7).Background(t.Surface).Children(func() {
 					ui.Row(c).AlignItems(ui.Center).Gap(4).Children(func() {
-						ui.Text(c, pr.Title).FontSize(12).FontWeight(600).LineHeight(16).
+						ui.Text(c, pr.Title).FontSize(12).FontWeight(600).FixedLineHeight(16).
 							TextColor(t.Text).MaxLines(2).Grow(1)
 						iconBtn(c, lucide.ChevronRight(), i18n.T("Details"), func() {
 							s.openPullRequest(pr.Number)
@@ -170,7 +171,7 @@ func (s *Session) pullRequestDetail(c *ui.Context) {
 		})
 		ui.Scroll(c).Grow(1).Gap(8).Children(func() {
 			ui.Column(c).Gap(8).Children(func() {
-				ui.Text(c, pr.Title).FontSize(13).FontWeight(600).LineHeight(18).TextColor(t.Text).MaxLines(3)
+				ui.Text(c, pr.Title).FontSize(13).FontWeight(600).FixedLineHeight(18).TextColor(t.Text).MaxLines(3)
 				meta := strings.ToLower(pr.State)
 				if pr.Draft {
 					meta += i18n.T(" · draft")
@@ -190,7 +191,7 @@ func (s *Session) pullRequestDetail(c *ui.Context) {
 				}
 				if detail.Body != "" {
 					ui.Column(c).Padding(8).Radius(6).Background(t.Surface).Children(func() {
-						ui.Text(c, detail.Body).FontSize(11).LineHeight(16).TextColor(t.TextMuted).
+						ui.Text(c, detail.Body).FontSize(11).FixedLineHeight(16).TextColor(t.TextMuted).
 							MaxLines(8).Selectable()
 					})
 				}
@@ -235,7 +236,7 @@ func (s *Session) pullRequestDetail(c *ui.Context) {
 						}
 						ui.Column(c).Gap(2).Padding(7).Radius(6).Background(t.Surface).Children(func() {
 							ui.Text(c, label).FontSize(10).TextColor(t.TextMuted).SingleLine()
-							ui.Text(c, comment.Body).FontSize(11).LineHeight(16).TextColor(t.Text).
+							ui.Text(c, comment.Body).FontSize(11).FixedLineHeight(16).TextColor(t.Text).
 								MaxLines(6).Selectable()
 						})
 					}
@@ -360,7 +361,7 @@ func (s *Session) sideChatSurface(c *ui.Context) {
 							ui.Row(c).Justify(ui.End).Children(func() {
 								ui.Column(c).MaxWidthPercent(88).Padding(6, 9).Radius(8).
 									Background(t.Surface).Children(func() {
-									ui.Text(c, message.Content).FontSize(11.5).LineHeight(16).
+									ui.Text(c, message.Content).FontSize(11.5).FixedLineHeight(16).
 										TextColor(t.Text).Selectable()
 								})
 							})
@@ -390,30 +391,11 @@ func (s *Session) sideChatSurface(c *ui.Context) {
 			ui.TextArea(c, &s.sideDraft).Label(i18n.T("Side question")).
 				Placeholder(i18n.T("Ask a side question…")).Lines(1, 6)
 			ui.Row(c).AlignItems(ui.Center).Gap(4).Children(func() {
-				ui.Button(c, "").Label("").Label(i18n.T("Side chat model")).Children(func() {
+				modelButton := ui.Button(c, "").Label(i18n.T("Side chat model")).Children(func() {
 					ui.Text(c, shortModel(thread.Model)).FontSize(10.5).TextColor(t.TextMuted).SingleLine().MaxWidth(140)
-				}).PopoverMenuButton(func(m *ui.Menu) {
-					for _, model := range s.allModels() {
-						model := model
-						label := model.Name
-						if model.Provider != thread.Provider {
-							label += " · " + model.Provider
-						}
-						if m.Item(label).Checked(thread.Model == model.ID && thread.Provider == model.Provider).Chosen() {
-							s.setSideModel(model)
-						}
-					}
 				})
-				ui.Button(c, string(thread.Permission)).Label(i18n.T("Side chat permission")).
-					PopoverMenuButton(func(m *ui.Menu) {
-						for _, permission := range []proto.PermissionMode{proto.PermissionSupervised,
-							proto.PermissionAcceptEdits, proto.PermissionAuto, proto.PermissionFullAccess} {
-							permission := permission
-							if m.Item(string(permission)).Checked(thread.Permission == permission).Chosen() {
-								s.setSidePermission(permission)
-							}
-						}
-					})
+				s.modelPicker(c, modelButton, thread.Provider, thread.Model, s.setSideModel)
+				s.configOptions(c, []configOption{s.sideChatPermissionOption(thread)})
 				ui.Spacer(c)
 				iconBtn(c, lucide.Paperclip(), i18n.T("Attach files"), s.pickSideAttachments)
 				if s.sideRunning {
@@ -608,9 +590,8 @@ func (s *Session) browserSurface(c *ui.Context) {
 			iconBtn(c, lucide.ChevronLeft(), i18n.T("Back"), func() { page.GoBack() })
 			iconBtn(c, lucide.ChevronRight(), i18n.T("Forward"), func() { page.GoForward() })
 			iconBtn(c, lucide.RefreshCw(), i18n.T("Reload"), func() { page.Reload() })
-			ui.Field(c, i18n.T("Address"), func() {
-				ui.TextInput(c, &s.browserInput).Placeholder("https://example.com")
-			}).Grow(1)
+			ui.TextInput(c, &s.browserInput).Label(i18n.T("Address")).
+				Placeholder("https://example.com").Grow(1).MinHeight(controlMinHeight(c))
 			iconBtn(c, lucide.ArrowRight(), i18n.T("Go"), func() { s.goBrowser(s.browserInput) })
 		})
 		if s.browserNote != "" {
@@ -660,50 +641,263 @@ func (s *Session) browserWebView() *mygo.Page {
 }
 
 // graphSurface draws the repository's commits beside their revision
-// graph.
-//
-// TODO(view): the lanes the NSGo commit graph drew land with a custom
-// painter; the commits, their refs and their order are here already.
+// graph: a lane for every branch the history takes, with the commit
+// that owns each of them.
 func (s *Session) graphSurface(c *ui.Context) {
 	t := c.Theme()
 	if s.selected == "" {
 		surfaceNotice(c, i18n.T("Pick a thread to see its commit graph."))
 		return
 	}
-	ui.Column(c).Fill().Padding(10).Children(func() {
-		surfaceHeader(c, i18n.T("%d commits", len(s.graph)), func() {
-			s.loadGraph(s.selected)
+	commits := s.graph
+	query := strings.ToLower(strings.TrimSpace(s.graphQuery))
+	if query != "" {
+		filtered := make([]proto.GraphCommit, 0, len(commits))
+		for _, commit := range commits {
+			if strings.Contains(strings.ToLower(commit.Subject), query) ||
+				strings.Contains(strings.ToLower(commit.Hash), query) ||
+				strings.Contains(strings.ToLower(commit.Author), query) {
+				filtered = append(filtered, commit)
+			}
+		}
+		commits = filtered
+	}
+	rows, lanes := graphLanes(commits)
+	wide := max(s.rightPanelWidth(c), 280) >= 520
+	ui.Column(c).Fill().Padding(10).Gap(8).Children(func() {
+		ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
+			ui.SearchField(c, &s.graphQuery).Label(i18n.T("Search commits")).
+				Placeholder(i18n.T("Text or hash")).Grow(1).MinHeight(controlMinHeight(c))
+			iconBtn(c, lucide.RefreshCw(), i18n.T("Refresh commits"), func() { s.loadGraph(s.selected) })
+		})
+		ui.Row(c).AlignItems(ui.Center).Gap(6).Children(func() {
+			faint(c, i18n.T("%d commits", len(commits)), 10.5)
+			ui.Spacer(c)
+			if query != "" {
+				faint(c, i18n.T("Filtered"), 10.5)
+			}
 		})
 		if s.rightErr != "" {
 			errorNote(c, s.rightErr)
 		}
-		ui.Scroll(c).Grow(1).Gap(2).Children(func() {
+		if len(commits) == 0 {
 			if len(s.graph) == 0 {
 				faint(c, i18n.T("No commits yet."), 12)
+			} else {
+				faint(c, i18n.T("No commits match."), 12)
 			}
-			for _, commit := range s.graph {
+			return
+		}
+		ui.Scroll(c).Grow(1).Gap(0).Children(func() {
+			for i, commit := range commits {
 				commit := commit
-				ui.Row(c).AlignItems(ui.Center).Gap(6).Padding(3, 4).Children(func() {
-					ui.Box(c).Size(8, 8).Radius(4).Background(t.Accent)
-					ui.Text(c, commit.Short).FontSize(10.5).Font("monospace").TextColor(t.TextMuted).SingleLine()
-					ui.Text(c, commit.Subject).FontSize(11.5).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
-					for _, ref := range commit.Refs {
-						ref := ref
-						name := ref.Name
-						if ref.Current {
-							name = name + " ·" + i18n.T("current")
-						}
-						ui.Row(c).AlignItems(ui.Center).Gap(2).Padding(1, 5).Radius(5).
-							Background(t.Surface).Children(func() {
-							ui.Icon(c, lucide.GitBranch()).FontSize(9).TextColor(t.TextMuted)
-							ui.Text(c, name).FontSize(9.5).TextColor(t.TextMuted).SingleLine().MaxWidth(120)
-						})
+				merge := len(commit.Parents) > 1
+				color := t.Text
+				if merge {
+					color = t.TextMuted
+				}
+				row := clickableRow(c, commit.Subject, func() {
+					graphLaneGutter(c, rows[i], lanes)
+					if wide {
+						ui.Text(c, commit.Subject).FontSize(12).TextColor(color).SingleLine().Grow(1).MinWidth(0)
+						graphRefChips(c, commit)
+						faint(c, commit.Author, 10.5)
+						faint(c, graphCommitDate(commit.Date), 10.5)
+						return
 					}
-					faint(c, commit.Author, 9.5)
-				})
+					ui.Column(c).Grow(1).MinWidth(0).Gap(1).Children(func() {
+						ui.Row(c).AlignItems(ui.Center).Gap(4).Children(func() {
+							ui.Text(c, commit.Subject).FontSize(12).TextColor(color).SingleLine().Grow(1).MinWidth(0)
+							graphRefChips(c, commit)
+						})
+						ui.Row(c).AlignItems(ui.Center).Gap(5).Children(func() {
+							faint(c, commit.Author, 10)
+							faint(c, "·", 10)
+							faint(c, graphCommitDate(commit.Date), 10)
+						})
+					})
+				}).Gap(8).Padding(0, 6).MinHeight(34).Radius(6).
+					Tooltip(commit.Subject + " · " + commit.Short + " · " + i18n.T("Double-click for the diff"))
+				if s.graphSelected == commit.Hash {
+					row.Background(t.Surface)
+				} else if row.Hovered() {
+					row.Background(t.SurfaceHover)
+				}
+				if row.Clicked() {
+					s.graphSelected = commit.Hash
+				}
+				if row.DoubleClicked() {
+					s.openCommitDiffTab(commit.Hash, commit.Subject, commit.Short)
+				}
 			}
 		})
 	})
+}
+
+// graphRefChips draws the branches and tags that name a commit.
+func graphRefChips(c *ui.Context, commit proto.GraphCommit) {
+	t := c.Theme()
+	for _, ref := range commit.Refs {
+		ref := ref
+		name := ref.Name
+		if ref.Current {
+			name = name + " ·" + i18n.T("current")
+		}
+		ui.Row(c).AlignItems(ui.Center).Gap(2).Padding(1, 5).Radius(5).
+			Background(t.Surface).Shrink(0).Children(func() {
+			ui.Icon(c, lucide.GitBranch()).FontSize(9).TextColor(t.TextMuted)
+			ui.Text(c, name).FontSize(9.5).TextColor(t.TextMuted).SingleLine().MaxWidth(120)
+		})
+	}
+}
+
+// graphCommitDate writes a commit's date as the graph lists it.
+func graphCommitDate(date time.Time) string {
+	if date.IsZero() {
+		return ""
+	}
+	return date.Format("2006/1/2 15:04")
+}
+
+// rightPanelWidth is the surfaces panel's width, the room the graph has.
+func (s *Session) rightPanelWidth(c *ui.Context) float32 {
+	width, _ := c.Size()
+	_, _, panel := s.desktopPaneWidths(width)
+	return panel
+}
+
+// graphLane is one branch of the history the graph draws: the commit it
+// waits for, the row it starts at, and the row it ends at.
+type graphLane struct {
+	expect string
+	start  int
+	end    int
+	// origin is the lane of the commit that opened this lane as another
+	// parent, so the graph can draw the diagonal that joins them.
+	origin int
+}
+
+// graphRow is one commit of the graph: the lane it belongs to, and the
+// lanes that pass it.
+type graphRow struct {
+	lane     int
+	lanes    []bool
+	incoming []graphIncoming
+}
+
+// graphIncoming is a lane joined from the row above: from the commit's
+// lane to the lane it opened.
+type graphIncoming struct {
+	from, to int
+}
+
+// graphLanes lays the commits out in lanes: a commit takes the lane that
+// waited for it, and its other parents open lanes of their own.
+func graphLanes(commits []proto.GraphCommit) ([]graphRow, int) {
+	var lanes []graphLane
+	rows := make([]graphRow, 0, len(commits))
+	for index, commit := range commits {
+		own := -1
+		for i, lane := range lanes {
+			if lane.expect == commit.Hash {
+				own = i
+				break
+			}
+		}
+		if own < 0 {
+			lanes = append(lanes, graphLane{expect: commit.Hash, start: index, end: -1})
+			own = len(lanes) - 1
+		}
+		row := graphRow{lane: own}
+		for _, lane := range lanes {
+			row.lanes = append(row.lanes, lane.start <= index && (lane.end < 0 || lane.end >= index))
+		}
+		rows = append(rows, row)
+		// The lane the commit sits in waits for its first parent; the
+		// others open lanes of their own.
+		if len(commit.Parents) > 0 {
+			lanes[own].expect = commit.Parents[0]
+			for _, parent := range commit.Parents[1:] {
+				lanes = append(lanes, graphLane{expect: parent, start: index + 1, end: -1, origin: own})
+			}
+		} else {
+			lanes[own].expect = ""
+			lanes[own].end = index
+		}
+	}
+	// The lanes a row names may be fewer than the lanes the graph has:
+	// a lane that starts later has no place in the rows before it.
+	for i := range rows {
+		for len(rows[i].lanes) < len(lanes) {
+			rows[i].lanes = append(rows[i].lanes, false)
+		}
+	}
+	// A lane opened for another parent joins the row below from the
+	// commit that opened it.
+	for i, lane := range lanes {
+		if lane.start > 0 && lane.start < len(rows) {
+			rows[lane.start].incoming = append(rows[lane.start].incoming, graphIncoming{from: lane.origin, to: i})
+		}
+	}
+	return rows, len(lanes)
+}
+
+// graphLaneGutter draws the lanes of one commit: a dot in the lane the
+// commit owns, lines in the lanes that pass it, and diagonals joining the
+// lanes a merge opens below.
+func graphLaneGutter(c *ui.Context, row graphRow, lanes int) {
+	t := c.Theme()
+	const laneW = 12
+	const height = 34
+	colors := []ui.Color{t.Accent, t.Success, t.Warning, t.Danger, t.TextMuted}
+	ui.Box(c).Width(float32(lanes*laneW) + 4).Height(height).Shrink(0).
+		Draw(func(p *ui.Painter, r ui.Rect) {
+			center := func(i int) float32 { return r.X + 2 + float32(i)*laneW + laneW/2 }
+			color := func(i int) ui.Color { return colors[i%len(colors)] }
+			mid := r.Y + r.H/2
+			top, bottom := r.Y-1, r.Y+r.H+1
+			started := map[int]bool{}
+			for _, link := range row.incoming {
+				started[link.to] = true
+				graphSlant(p, center(link.from), top, center(link.to), mid, 2, color(link.to))
+				p.Line(center(link.to), mid, center(link.to), bottom, 2, color(link.to))
+			}
+			for i := 0; i < lanes; i++ {
+				if started[i] {
+					continue
+				}
+				if i == row.lane {
+					p.Line(center(i), top, center(i), bottom, 2, color(i))
+					continue
+				}
+				if i < len(row.lanes) && row.lanes[i] {
+					p.Line(center(i), top, center(i), bottom, 2, color(i).Alpha(0.7))
+				}
+			}
+			p.Fill(ui.Rect{X: center(row.lane) - 4, Y: mid - 4, W: 8, H: 8}, color(row.lane), 4)
+		})
+}
+
+// graphSlant draws a diagonal, which Painter.Line cannot: small squares
+// follow the segment so a branch visibly joins the lane it opens.
+func graphSlant(p *ui.Painter, x0, y0, x1, y1, width float32, c ui.Color) {
+	dx, dy := x1-x0, y1-y0
+	steps := int(max(absf(dx), absf(dy)))
+	if steps < 1 {
+		steps = 1
+	}
+	for i := 0; i <= steps; i++ {
+		t := float32(i) / float32(steps)
+		x, y := x0+dx*t, y0+dy*t
+		p.Fill(ui.Rect{X: x - width/2, Y: y - width/2, W: width, H: width}, c, width/2)
+	}
+}
+
+func absf(v float32) float32 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 // jsRuntime reports a browser build, where web views and the terminal

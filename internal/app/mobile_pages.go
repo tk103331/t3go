@@ -400,9 +400,13 @@ func (s *Session) mobileSettingsPage(c *ui.Context) {
 	ui.Scroll(c).Fill().Children(func() {
 		ui.Column(c).Padding(18).Gap(22).Children(func() {
 			ui.Column(c).Radius(24).Background(t.Surface).Children(func() {
+				row(i18n.T("Account"), i18n.T("Use one Relay account to find your computers across networks."),
+					lucide.UserRound(), func() { s.openMobileSettingsSection("account") })
 				row(i18n.T("Environments"), i18n.T("%d saved · manage connections and names", count),
 					lucide.Network(), func() { s.openMobileSettingsSection("environments") })
 				row(i18n.T("Appearance"), i18n.T("Theme and accent on this client"),
+					lucide.Sparkles(), func() { s.openMobileSettingsSection("appearance") })
+				row(i18n.T("General"), i18n.T("The environment's name and defaults for new threads."),
 					lucide.Settings(), func() { s.openMobileSettingsSection("general") })
 				row(i18n.T("Providers"), i18n.T("CLI status, models and sign in by environment"),
 					lucide.Bot(), func() { s.openMobileSettingsSection("providers") })
