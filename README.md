@@ -1,7 +1,7 @@
 # T3Go
 
 用 Go 重写的 [T3 Code](https://github.com/pingdotgg/t3code) 服务端，以及基于
-[NSGo](https://github.com/oneo-me/nsgo) 的多端原生客户端。
+[MyGo](https://github.com/egoist/mygo) 的多端原生客户端（桌面、移动、Web 共用同一份 UI 代码）。
 
 一个 T3Go 环境（environment）管理项目目录、线程、运行记录，并把 Claude Code、
 Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP 取快照、发动作，
@@ -16,18 +16,13 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
 - Provider CLI 适配：`claude`、`codex`、`opencode`，含模型列表与版本探测
 - Git：工作区状态、每个 run 的 checkpoint（`git stash create` + 隐藏 ref）、run diff、worktree、提交/推送、经本机 `gh` 创建或复用 PR、分支列表与切换
 - HTTP REST API、SSE 事件流、WebSocket 事件流、Bearer token 鉴权、CORS
-- Web 客户端：同一份 NSGo 代码用 `GOOS=js GOARCH=wasm` 构建，由 `t3go serve --web` 直接提供
+- Web 客户端：与桌面端同一份 MyGo 代码用 `GOOS=js GOARCH=wasm` 构建（WebGL 2 绘制），由 `t3go serve --web` 直接提供
 - `t3go` CLI：`serve`、`pair`、`relay`、`doctor`、`version`
 - 多环境管理：在设置中管理连接，侧栏同时展示多个环境的项目与会话，
   新建项目可选目标环境；持久化身份、环境别名与默认环境、按环境隔离草稿和排队消息；
   局域网直连优先、中继回退、出站反向隧道，使用说明见
   [docs/environments-and-relay.md](docs/environments-and-relay.md)
-- 设备授权：每台配对设备使用独立 Token，可单独撤销（`t3go pair --device`、
-  `t3go devices`、`t3go devices revoke`，桌面端 Settings → Access 的 Paired devices
-  可直接配对与撤销）；撤销会立即切断该设备已建立的事件流，环境 Token 与
-  其他设备不受影响
 - Relay 账号：移动端、桌面端和 Web 端可注册或登录，登录后自动发现该账号拥有的
-  环境（列表按在线优先排序，逐项显示直连地址或短 ID，可移除失效登记）
   环境并保存 Relay 路线。账号访问由 Relay 验证环境归属后生成短时 HMAC 签名，
   用户 Token 不转发给电脑；局域网直连和本机使用仍可完全脱离账号。
 - 设置支持独立选择目标环境：Providers 显示各环境检测状态，可切换或单独检测，
@@ -38,23 +33,42 @@ Codex CLI、OpenCode 作为本地 agent 进程跑起来。客户端通过 HTTP �
   未收录的文案回退为英文。
 - 安卓端首页聚合各环境会话：Completed 置顶且无标题，Working 与显式 Settled 分组，
   展示项目缩写、所属机器和更新时间；Settle 仅由用户手动触发。底部可进入会话、PR、用量、设置，
-  项目管理从文件夹或筛选菜单进入；新建会话为独立页面：环境选择紧贴输入框，
-  项目与 checkout 各占半行，分支与说明各占整行；输入首条消息后创建并发送，
-  各环境的待发送草稿独立保留。
+  项目管理从文件夹或筛选菜单进入；新建会话为独立页面，可选择环境、项目与 checkout，
+  输入首条消息后创建并发送，各环境的待发送草稿独立保留。
 - 手机端 PR 页汇总项目会话当前 checkout 关联的 PR，支持环境和状态筛选；
   用量页按环境汇总 Cost / Tokens、每日图表和 provider 占比（服务端尚不提供账号配额）；
   设置为分组列表与详情页；会话顶部提供文件、分支和终端入口，支持系统返回。
 - 交互式权限审批：supervised 模式下 Claude Code 通过本地 MCP 询问 T3Go 客户端，允许/拒绝工具调用
-- NSGo 客户端：连接页、项目/线程侧栏（线程预览与相对时间、运行/失败/未读状态、每线程草稿与 Draft 标记、固定线程、搜索、可折叠项目并记住状态）、右侧 Surfaces 面板（可拖动宽度、多 Tab；Browser 内嵌网页；Preview 列出本机开发服务器并一键打开；Linked pull requests；Device 列出 iOS 模拟器与 Android 模拟器、启动/关闭并自动刷新截图（可暂停）；Side chat 隐藏线程继承主线程近况、独立问答，支持模型/权限选择、附件与拖放；文件浏览与预览：Markdown 渲染、图片、JSON/文本、代码语法高亮（Chroma）、二进制外开；文件列表、文件内容、Preview 列表、终端与 Git graph 均可滚动，滚动条由 App 统一的样式绘制（滚动时出现）；带行号和颜色标记的代码 Diff（文件列表、stage/discard、split view）、Git graph（点击提交查看该提交的 diff）、Pull request；内置终端（PTY/ConPTY + xterm.js，无额外工具栏、明暗主题跟随、滚动条、退出提示与一键重启、重开回放））、聊天流（日期分隔、消息时间与复制、代码块复制、编辑/重试/分叉、run 用量页脚、思考/工具卡片与工具变更文件摘要、聊天内相对图片）、Composer 上下文（`@file` 提及与文件 chip、工作区 Skills/自定义命令、MCP prompts（含参数输入）与斜杠命令、粘贴图片/文件、图片附件缩略图、每线程附件草稿、内联 model/permission/plan 选择、plan 完成提示、上下文余量（provider 报告的窗口优先，其次模型目录））、新建/重命名/删除项目与线程（新建项目校验目录并自动命名；移动端浏览连接主机的目录）、新建线程可选项目、provider、模型、权限、worktree 分支与 base ref、线程归档与筛选、命令面板（线程、消息全文搜索、动作）与快捷键、记住侧栏宽度与显隐、设置（加宽布局；General/Providers/Usage/Worktrees/Shortcuts/About 分区；环境名、默认 provider/model/权限、主题与强调色、provider 状态（各 agent 显示自己的官方图标，内置的随包分发，其余按 ACP Registry 的 icon URL 懒加载并缓存在本地）、登录状态与模型、自定义模型、一键安装/登录命令（在终端中执行）、worktree 列表、按天与 provider 的 token/成本统计）、运行历史、逐次 diff 与回滚到 checkpoint（先自动备份当前文件）、顶部分支工具栏（切换/新建/pull）、Open in editor（Zed/VS Code/Cursor/Finder）、Changes 对话框（提交/推送/PR/切分支）、运行中排队发送、附件（选择或拖入文件并随消息发送）、语音听写、审批对话框、断线重连提示、窄屏布局、失败与提示统一用浮层 toast（同一失败只占一条，动作清空即收起）
-- 测试：store、orchestrator（fake provider）、provider 流解析、HTTP/SSE/WS、Go 客户端、NSGo UI 集成
+- 客户端（MyGo，`internal/app`）：连接页、多环境管理（保存的配置沿用旧客户端的
+  storage.json，草稿、固定、外观等数据无缝迁移）、项目/线程侧栏收件箱（Running/Settled
+  分组、线程预览与相对时间、草稿标记、搜索、可折叠分区）、聊天流（日期分隔、消息时间与
+  复制、编辑/重试/分叉、run 用量页脚、思考/工具卡片、Markdown 流式渲染由 MyGo 的
+  markdown.Stream 提供、聊天内图片）、Composer（附件 chip、粘贴图片、模型/权限/plan
+  选择、排队消息管理、plan 完成提示）、新建线程页（项目、provider、模型、权限、
+  worktree 与分支选择）、命令面板（线程与消息搜索）、审批对话框、右侧 Surfaces 面板
+  （文件浏览与预览：Markdown/图片/JSON/代码高亮（MyGo 代码编辑器只读态）；工作区 Diff
+  （stage/discard，MyGo diff viewer 渲染 patch）；终端（MyGo 终端插件，Ghostty VT，
+  经 WebSocket 连接环境的 PTY））、运行历史与逐次 diff、分支切换、设置（General 与
+  外观：语言/明暗主题/强调色）。
+- MyGo 客户端已覆盖 NSGo 客户端的界面能力：桌面端、移动端与 Web 端共用
+  `internal/app` 的视图（Web 端为同一份代码的 WASM 构建），多环境管理、Surfaces
+  面板、手机端 Git 控件与提交表、环境 token 更新与环境别名、文件夹面包屑与新建
+  文件夹、提交图泳道、配对二维码（从图片读取）均已补齐。MyGo 没有语音识别接口，
+  语音听写仍未迁移。
+- 发布：`scripts/release-mygo.sh` 构建各平台的 MyGo 客户端并打包成 `release/`，
+  产物名为 `T3Go-mygo-<版本>-<平台>.<格式>`，与服务器上的 NSGo 版（`T3Go-<版本>-…`）
+  并存而不互相覆盖；`scripts/upload-mygo.sh` 把它们上传到下载站点的 web 目录，
+  校验和写在 `SHA256SUMS-mygo`。
+- 测试：store、orchestrator（fake provider）、provider 流解析、HTTP/SSE/WS、Go 客户端
 
 尚未实现（有意留到后续）：
 
-- 非 Apple 平台的语音听写（NSGo 目前只在 macOS/iOS 识别）
+- 非 Apple 平台的语音听写（MyGo 客户端暂无语音识别接口，NSGo 版本的该功能待
+  MyGo 原生模块方案）
 - 上游 T3 Code 协议的完整兼容：已实现发现、配置、生命周期和线程列表，线程
   详情/发送/事件投影尚未完成，见 [docs/upstream-compat.md](docs/upstream-compat.md)
 - Codex / OpenCode 的交互式审批（两者目前按各自的沙箱/自动策略运行）
-- 平台安全凭证存储、局域网自动发现、多副本中继
+- 环境的单设备授权与撤销、平台安全凭证存储、局域网自动发现、多副本中继
 
 排队消息按环境保存在客户端，重新打开后暂停，需明确恢复；发送结果不明的消息
 保留原请求 ID，可查询服务端回执或明确重试同一请求，同一线程内不会重复创建 run。
@@ -260,7 +274,8 @@ OpenCode 没有等价的非交互审批入口，按上表的沙箱/自动策略�
 
 ```
 cmd/t3go/            CLI（serve/pair/doctor/version）
-cmd/t3go-app/        NSGo 客户端
+cmd/t3go-app/        MyGo 客户端入口（视图在 internal/app）
+internal/app/        客户端：数据层（internal/client 之上的会话状态）与 MyGo 视图
 internal/proto/      客户端与服务端共享类型
 internal/store/      SQLite schema、查询
 internal/events/     事件总线、重放、剪枝
@@ -308,32 +323,17 @@ go run ./cmd/t3go-app
 桌面端也接受 `T3GO_SERVER` / `T3GO_TOKEN` 环境变量直接连接，适合脚本或
 IDE 调试配置。
 
-iOS 模拟器：
+iOS 模拟器（移动端构建配置迁移到 MyGo 的 `mygo.json` 时恢复）：
 
 ```sh
-export SIMCTL_CHILD_T3GO_SERVER=http://127.0.0.1:4870
-export SIMCTL_CHILD_T3GO_TOKEN=$(cat .dev/t3go/token)
-go tool nsgo dev -target ios_simulator ./cmd/t3go-app
+# go tool mygo dev -platform ios/simulator ./cmd/t3go-app
 ```
 
 Android 模拟器（Apple Silicon）：
 
 ```sh
-brew install --cask android-commandlinetools
-brew install openjdk@21
-export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
-export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
-export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
-yes | sdkmanager "platform-tools" "emulator" "platforms;android-35" \
-  "system-images;android-35;google_apis;arm64-v8a"
-echo no | avdmanager create avd -n t3go \
-  -k "system-images;android-35;google_apis;arm64-v8a"
-emulator -avd t3go &
-go tool nsgo dev -target android ./cmd/t3go-app
+# 移动端构建同样待迁移到 MyGo 的构建配置；模拟器的准备步骤不变。
 ```
-
-Android 模拟器通过 `http://10.0.2.2:4870` 访问本机环境，token 在
-`.dev/t3go/token`，两者填进 App 的连接页即可。
 
 ## 开发与测试
 
@@ -343,11 +343,7 @@ go vet ./...
 gofmt -l .
 ```
 
-UI 集成测试用 `nsgotest` 在无头环境里启动真实 server，验证连接、侧栏、线程
-transcript 的渲染，命令面板（线程、消息全文搜索、动作）与快捷键，运行中排队并自动发送，运行历史里某次 run
-的 diff，附件随消息发送，断线后的重连提示，新建线程时选项目与 worktree 分支，
-设置默认 provider/model/权限后新线程继承，以及重命名、归档、删除线程和项目
-后服务端状态的变化。
+UI 集成测试（MyGo 客户端的 `ui.NewTester` 版本）正在逐步补齐。
 
 ## 已知限制
 
@@ -358,7 +354,7 @@ transcript 的渲染，命令面板（线程、消息全文搜索、动作）与
 - 流式文本每 200ms 落一次库；token 级 delta 也会写事件表，长回复会产生较多写入。
 - checkpoint 使用 `git stash create`，只覆盖 Git 项目；非 Git 项目没有 diff。
 - 删除项目会删除其线程记录和 worktree 引用，不会删除用户目录本身。
-- NSGo 仍处于早期，API 可能随版本变化；本仓库锁定了一个伪版本。
+- MyGo 仍处于早期；本仓库的客户端锁定了 MyGo 的一个提交（`go.mod`）。
 - 网页版由服务端同源提供，使用浏览器 `localStorage` 保存地址和 token；附件用系统文件选择器添加。
 - 语音听写只在系统提供识别器时显示（macOS/iOS），其他平台不出现麦克风按钮。
 - 审批目前只覆盖 Claude Code；一次 run 结束时未回答的审批自动拒绝。

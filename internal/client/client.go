@@ -494,6 +494,24 @@ func (c *Client) File(ctx context.Context, threadID, path string) (proto.Workspa
 	return out, err
 }
 
+// CreateWorkspaceEntry adds one file or folder to a thread's checkout.
+func (c *Client) CreateWorkspaceEntry(ctx context.Context, threadID, dir, name string, directory bool) error {
+	endpoint := "/api/v1/threads/" + url.PathEscape(threadID) + "/files"
+	return c.do(ctx, http.MethodPost, endpoint, map[string]any{"path": dir, "name": name, "directory": directory}, nil)
+}
+
+// RenameWorkspaceEntry moves one file or folder inside a checkout.
+func (c *Client) RenameWorkspaceEntry(ctx context.Context, threadID, from, to string) error {
+	endpoint := "/api/v1/threads/" + url.PathEscape(threadID) + "/files/rename"
+	return c.do(ctx, http.MethodPost, endpoint, map[string]any{"from": from, "to": to}, nil)
+}
+
+// DeleteWorkspaceEntry removes one file or folder from a checkout.
+func (c *Client) DeleteWorkspaceEntry(ctx context.Context, threadID, path string) error {
+	endpoint := "/api/v1/threads/" + url.PathEscape(threadID) + "/files?path=" + url.QueryEscape(path)
+	return c.do(ctx, http.MethodDelete, endpoint, nil, nil)
+}
+
 // UploadURL is where an uploaded attachment can be read.
 func (c *Client) UploadURL(id string) string {
 	return c.BaseURL + "/api/v1/uploads/" + url.PathEscape(id) + "?token=" + url.QueryEscape(c.Token)
