@@ -177,6 +177,8 @@ var zh = map[string]string{
 	"New folder":                            "新建文件夹",
 	"Search commits":                        "搜索提交",
 	"Single column":                         "单栏",
+	"Wrap":                                  "自动换行",
+	"Find in file":                          "在文件中查找",
 	"Single":                                "单栏",
 	"Split":                                 "双栏",
 	"Two columns":                           "双栏",

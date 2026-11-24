@@ -383,6 +383,14 @@ type Session struct {
 	fileTab     proto.WorkspaceFile
 	fileTabBusy bool
 	fileTabErr  string
+	// fileWrap wraps long lines in the file viewer, kept across opens;
+	// fileView is the open code file's editor, kept so its selection and
+	// find bar survive a frame.
+	fileWrap     bool
+	fileView     *editor.State
+	fileViewPath string
+	fileViewText string
+	fileViewWrap bool
 	// diffState is the diff viewer's state for the patch diffStateKey,
 	// kept across frames.
 	diffState    *editor.DiffState
@@ -470,6 +478,12 @@ func newSession(win *mygo.Window, shared appStorage, manager *Manager, profile c
 		s.diffSplit = raw != "false"
 	} else {
 		_ = s.store.SetItem("diffSplit", "true")
+	}
+	s.fileWrap = true
+	if raw, ok := s.store.GetItem("fileWrap"); ok {
+		s.fileWrap = raw != "false"
+	} else {
+		_ = s.store.SetItem("fileWrap", "true")
 	}
 	s.restoreEnvironmentData()
 	if raw, ok := s.store.GetItem("rightWidth"); ok {

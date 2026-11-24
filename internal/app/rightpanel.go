@@ -217,6 +217,8 @@ func (s *Session) filesSurface(c *ui.Context) {
 				})
 				ui.Text(c, s.fileSelected).FontSize(12).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
 				faint(c, humanSize(file.Size), 10.5)
+				s.fileFindButton(c, s.fileSelected)
+				s.fileWrapButton(c)
 				iconBtn(c, lucide.ExternalLink(), i18n.T("Open file"), func() {
 					c.OpenURL(s.rawFileURL(s.fileSelected))
 				})
@@ -349,6 +351,42 @@ func (s *Session) filePreview(c *ui.Context, path string, file proto.WorkspaceFi
 	}
 }
 
+// setFileWrap switches the file viewer's soft wrap, and remembers it.
+func (s *Session) setFileWrap(wrap bool) {
+	if s.fileWrap == wrap {
+		return
+	}
+	s.fileWrap = wrap
+	if s.store != nil {
+		_ = s.store.SetItem("fileWrap", strconv.FormatBool(wrap))
+	}
+	s.fileView = nil
+}
+
+// fileFindButton opens the editor's find bar for the open code file.
+func (s *Session) fileFindButton(c *ui.Context, path string) {
+	if editor.LanguageFor(path) == nil {
+		return
+	}
+	iconBtn(c, lucide.Search(), i18n.T("Find in file"), func() {
+		if s.fileView != nil {
+			s.fileView.Find("")
+		}
+	})
+}
+
+// fileWrapButton toggles soft wrap in the file viewer.
+func (s *Session) fileWrapButton(c *ui.Context) {
+	t := c.Theme()
+	b := toolbarButton(c, "").Label(i18n.T("Wrap")).Padding(2, 6).MinHeight(22).Shrink(0).Children(func() {
+		ui.Text(c, i18n.T("Wrap")).FontSize(10.5)
+	})
+	if s.fileWrap {
+		b.Background(t.Accent.Alpha(0.12)).TextColor(t.Accent)
+	}
+	b.OnClick(func() { s.setFileWrap(!s.fileWrap) })
+}
+
 // fileTabSurface is the tab a file opened from the Files tree shows.
 func (s *Session) fileTabSurface(c *ui.Context) {
 	t := c.Theme()
@@ -375,6 +413,8 @@ func (s *Session) fileTabSurface(c *ui.Context) {
 			ui.Icon(c, lucide.FileText()).FontSize(12).TextColor(t.TextMuted)
 			ui.Text(c, s.fileTabPath).FontSize(12).TextColor(t.Text).SingleLine().Grow(1).MinWidth(0)
 			faint(c, humanSize(s.fileTab.Size), 10.5)
+			s.fileFindButton(c, s.fileTabPath)
+			s.fileWrapButton(c)
 			iconBtn(c, lucide.ExternalLink(), i18n.T("Open file"), func() {
 				c.OpenURL(s.rawFileURL(s.fileTabPath))
 			})
@@ -385,16 +425,20 @@ func (s *Session) fileTabSurface(c *ui.Context) {
 }
 
 // fileContent shows one file: code highlighted in the editor, which
-// fills the room and scrolls itself, or plain text in a scroll.
+// fills the room and scrolls itself, or plain text in a scroll. The
+// editor state is kept so selections and the find bar survive frames.
 func (s *Session) fileContent(c *ui.Context, path, content string) {
 	if strings.EqualFold(filepath.Ext(path), ".json") {
 		content = prettyFileJSON(content)
 	}
 	if language := editor.LanguageFor(path); language != nil && len(content) < 400_000 {
-		buf := editor.NewBuffer(strings.TrimSuffix(content, "\n"))
-		buf.SetLanguage(language)
-		state := &editor.State{Buffer: buf, ReadOnly: true, SoftWrap: true}
-		editor.View(c, state).Grow(1).FillWidth().MinHeight(0)
+		if s.fileView == nil || s.fileViewPath != path || s.fileViewText != content || s.fileViewWrap != s.fileWrap {
+			buf := editor.NewBuffer(strings.TrimSuffix(content, "\n"))
+			buf.SetLanguage(language)
+			s.fileView = &editor.State{Buffer: buf, ReadOnly: true, SoftWrap: s.fileWrap}
+			s.fileViewPath, s.fileViewText, s.fileViewWrap = path, content, s.fileWrap
+		}
+		editor.View(c, s.fileView).Grow(1).FillWidth().MinHeight(0)
 		return
 	}
 	t := c.Theme()

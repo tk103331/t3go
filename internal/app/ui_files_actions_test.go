@@ -227,6 +227,66 @@ func TestUIFilesCodeTabShowsSource(t *testing.T) {
 	}
 }
 
+// The file tab keeps its editor across frames, so a selection survives,
+// and offers find and line wrapping.
+func TestUIFileTabSelectionWrapAndFind(t *testing.T) {
+	repo := gitRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, "main.go"),
+		[]byte("package main\n\nfunc main() {\n\tprintln(\"hello\")\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tester, session, _ := filesActionsEnvWithRepo(t, repo)
+	session.openFileTab("main.go")
+	tester.wait(t, 15*time.Second, func() bool {
+		tester.post.drain()
+		tester.tt.Frame()
+		return session.surface == "file" && session.fileView != nil && !session.fileTabBusy
+	}, "the file editor")
+	tester.pump()
+
+	// A selection made in the editor is still there a frame later, as the
+	// state is not rebuilt under it.
+	session.fileView.Select(0, len("package"))
+	tester.pump()
+	if got := session.fileView.SelectedText(); got != "package" {
+		t.Fatalf("the selection did not survive: %q", got)
+	}
+
+	// Find opens the editor's find bar, and searches the file.
+	if err := tester.tt.Click(i18n.T("Find in file")); err != nil {
+		t.Fatal(err)
+	}
+	tester.pump()
+	if !tester.tt.HasText("Find") {
+		t.Fatalf("the find bar did not open: %v", tester.tt.Texts())
+	}
+	session.fileView.Find("main")
+	tester.pump()
+	if count, _ := session.fileView.FindMatches(); count == 0 {
+		t.Fatal("finding a word in the file found no matches")
+	}
+
+	// Wrap toggles the editor's soft wrap and rebuilds it once.
+	view := session.fileView
+	if err := tester.tt.Click(i18n.T("Wrap")); err != nil {
+		t.Fatal(err)
+	}
+	tester.wait(t, 5*time.Second, func() bool {
+		tester.tt.Frame()
+		return !session.fileWrap
+	}, "line wrapping to turn off")
+	if session.fileView == view {
+		t.Fatal("turning wrap off did not rebuild the editor")
+	}
+	if err := tester.tt.Click(i18n.T("Wrap")); err != nil {
+		t.Fatal(err)
+	}
+	tester.wait(t, 5*time.Second, func() bool {
+		tester.tt.Frame()
+		return session.fileWrap
+	}, "line wrapping to turn back on")
+}
+
 // clickDialogButton clicks the button a dialog labels, where its title
 // carries the same words as a text element.
 func clickDialogButton(t *testing.T, tester *Tester, name string) {
