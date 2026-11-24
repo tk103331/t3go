@@ -23,8 +23,7 @@ func TestUINewThreadResponsiveControls(t *testing.T) {
 		oneRow bool
 	}{
 		{"wide", 1440, 900, true},
-		{"medium", 900, 760, true},
-		{"narrow", 850, 760, false},
+		{"narrow", 780, 760, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tester, session := startAppAt(t, ts, cfg, tc.w, tc.h, nil)

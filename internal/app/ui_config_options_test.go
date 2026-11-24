@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -173,6 +174,13 @@ func TestUIThreadConfigOptionsIntegration(t *testing.T) {
 	}, "connect")
 	session.selectThread(thread.ID)
 	tester.wait(t, 15*time.Second, func() bool { return session.detail.Thread.ID == thread.ID }, "thread")
+	tester.pump()
+	// More than the short-menu threshold, so the model button opens its
+	// search picker instead of the native menu.
+	for i := 0; i < 12; i++ {
+		session.models = append(session.models, proto.Model{ID: fmt.Sprintf("extra-%d", i),
+			Name: fmt.Sprintf("Extra %d", i), Provider: "side-fake"})
+	}
 	tester.pump()
 	if !tester.tt.HasText(i18n.T("Config")) {
 		t.Fatalf("the phone composer has no config pill: %v", tester.tt.Texts())

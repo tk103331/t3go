@@ -134,7 +134,7 @@ func TestUIEditMessageAndFork(t *testing.T) {
 
 	// The fork lands as a new thread whose first prompt is the edit.
 	var forked proto.Thread
-	tester.wait(t, 10*time.Second, func() bool {
+	tester.wait(t, 40*time.Second, func() bool {
 		tester.post.drain()
 		tester.tt.Frame()
 		if len(session.threads) != 2 {

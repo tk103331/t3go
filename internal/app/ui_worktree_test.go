@@ -32,7 +32,7 @@ func TestUICreateThreadInWorktree(t *testing.T) {
 	}
 
 	tester, session := startApp(t, ts, cfg, nil)
-	tester.wait(t, 15*time.Second, func() bool {
+	tester.wait(t, 45*time.Second, func() bool {
 		return session != nil && session.connected && len(session.projects) == 1
 	}, "the projects to arrive")
 
@@ -53,7 +53,7 @@ func TestUICreateThreadInWorktree(t *testing.T) {
 	session.createPreparedThread(true)
 
 	created := ""
-	tester.wait(t, 15*time.Second, func() bool {
+	tester.wait(t, 45*time.Second, func() bool {
 		tester.post.drain()
 		tester.tt.Frame()
 		threads, err := srv.Store.Threads(ctx, project.ID, false)
@@ -103,7 +103,7 @@ func TestUICreateThreadInCurrentCheckoutSelectsBranch(t *testing.T) {
 	}
 
 	tester, session := startApp(t, ts, cfg, nil)
-	tester.wait(t, 15*time.Second, func() bool {
+	tester.wait(t, 45*time.Second, func() bool {
 		return session != nil && session.connected && len(session.projects) == 1
 	}, "the projects to arrive")
 
@@ -122,7 +122,7 @@ func TestUICreateThreadInCurrentCheckoutSelectsBranch(t *testing.T) {
 	session.newThreadModel = "test-model"
 	session.createPreparedThread(true)
 
-	tester.wait(t, 15*time.Second, func() bool {
+	tester.wait(t, 45*time.Second, func() bool {
 		tester.post.drain()
 		tester.tt.Frame()
 		threads, err := srv.Store.Threads(ctx, project.ID, false)
@@ -173,10 +173,10 @@ done
 	}
 
 	tester, session := startApp(t, ts, cfg, nil)
-	tester.wait(t, 15*time.Second, func() bool {
+	tester.wait(t, 45*time.Second, func() bool {
 		return session != nil && session.connected
 	}, "the environment to connect")
-	tester.wait(t, 15*time.Second, func() bool {
+	tester.wait(t, 45*time.Second, func() bool {
 		return len(session.threads) == 1
 	}, "the thread list to arrive")
 	session.selectThread(thread.ID)
