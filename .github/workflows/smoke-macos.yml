@@ -1,8 +1,0 @@
-name: Smoke macOS
-on:
-  workflow_dispatch:
-jobs:
-  smoke:
-    runs-on: macos-latest
-    steps:
-      - run: uname -m
