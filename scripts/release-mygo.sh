@@ -22,6 +22,9 @@ if java_home=$(/usr/libexec/java_home -v 17 2>/dev/null); then
 fi
 
 mkdir -p "$release"
+# Start clean: an older version's artifacts and checksums must not ride
+# along into this release or its upload.
+rm -f "$release"/T3Go-mygo-* "$release"/SHA256SUMS
 
 # package copies a built file into the release under its published name.
 package() {
@@ -72,7 +75,7 @@ package "$out/linux-amd64/t3go-${version}-linux-amd64.tar.gz" "$prefix-linux_x64
 package "$out/linux-arm64/t3go-${version}-linux-arm64.tar.gz" "$prefix-linux_arm64.tar.gz"
 
 cd "$release"
-shasum -a 256 ./* > SHA256SUMS
+shasum -a 256 ./T3Go-mygo-"${version}"-* > SHA256SUMS
 cd ..
 echo "release ready in $release:"
 ls -la "$release"
