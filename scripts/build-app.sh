@@ -58,6 +58,31 @@ case "$target" in
   linux_arm64) platform="linux/arm64" ;;
   linux_x64) platform="linux/amd64" ;;
 esac
+# macOS follows the platform's icon grid: a transparent margin around a
+# smaller rounded square (scripts/make-macos-icon.swift). Phones keep the
+# square icon, which their launchers mask themselves.
+icon=cmd/t3go-app/assets/Icon.png
+macos_icon=cmd/t3go-app/assets/Icon-macos.png
+icon_backup=
+restore_icon() {
+  if [ -n "$icon_backup" ]; then
+    cp "$icon_backup" "$icon"
+    rm -f "$icon_backup"
+    icon_backup=
+  fi
+}
+trap restore_icon EXIT INT TERM
+case "$target" in
+  macos_*)
+    if [ -f "$macos_icon" ]; then
+      icon_backup=$(mktemp "${TMPDIR:-/tmp}/t3go-icon.XXXXXX")
+      cp "$icon" "$icon_backup"
+      cp "$macos_icon" "$icon"
+    fi
+    ;;
+esac
 # The Windows installer needs NSIS; the download page offers the
 # executable in a zip, as the NSGo release did.
 go tool mygo build -platform "$platform" -o "$output" -skip-installer
+restore_icon
+trap - EXIT INT TERM
