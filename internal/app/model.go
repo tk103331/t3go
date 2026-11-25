@@ -198,6 +198,7 @@ type Session struct {
 	newThreadPrompt       string
 	newThreadVisited      map[*Session]bool
 	showDiff              bool
+	updates               updateState
 	mobileDiffMode        string
 	mobileCommitOpen      bool
 	mobileCommitNewBranch bool

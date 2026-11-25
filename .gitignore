@@ -41,3 +41,10 @@ cmd/t3go-app/resources/t3go-server.exe
 /dist-mygo/
 /release/
 /.mygo/
+
+# mygo build stages the environment server here
+/resources/
+
+# update signing keys
+mygo-update.key
+update-keys/

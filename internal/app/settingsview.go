@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	appVersion     = "0.3.1"
+	appVersion     = "0.3.2"
 	appBuildNumber = "114"
 )
 
@@ -378,6 +378,7 @@ func (s *Session) settingsAbout(c *ui.Context) {
 					FontSize(11.5).TextColor(t.TextMuted)
 			}
 		})
+		s.updateCard(c)
 		ui.Text(c, i18n.T("Remote environments are managed under Environments. This page reports only the client and the T3Go server running on this machine.")).
 			FontSize(11).FixedLineHeight(16).TextColor(t.TextMuted).MaxLines(4)
 		if s.manager != nil {

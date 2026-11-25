@@ -81,8 +81,17 @@ case "$target" in
     fi
     ;;
 esac
+# -upload publishes the installers and signed update manifests of an
+# installed app to the GitHub release of this version, as a draft that the
+# release workflow then publishes. Only desktop builds have installers and
+# update archives: phones are installed from a store or a file, without an
+# update feed of their own.
+upload=
+if [ "${MYGO_UPLOAD:-}" = "1" ] && [ -n "$server_os" ]; then
+  upload="-upload"
+fi
 # The Windows installer needs NSIS; the download page offers the
 # executable in a zip, as the NSGo release did.
-go tool mygo build -platform "$platform" -o "$output" -skip-installer
+go tool mygo build -platform "$platform" -o "$output" -skip-installer $upload
 restore_icon
 trap - EXIT INT TERM

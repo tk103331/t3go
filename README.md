@@ -222,16 +222,25 @@ script or IDE, and `T3GO_CLIENT_DATA` for an isolated client data directory.
 
 ## Release
 
-1. Set the version in three places so the app, package names and download page
-   agree:
+1. Set the version where it is written, so that the app, package names, the
+   download page and the update notes agree:
    - `mygo.json` (`version`)
    - `internal/app/settingsview.go` (`appVersion`)
    - `web/index.html` (the MyGo artifact links and tag)
+   - `CHANGELOG.md` (its `## X.Y.Z` section, which the app also shows)
 2. Commit, tag `vX.Y.Z`, and push the tag.
 3. The [release workflow](.github/workflows/release-mygo.yml) runs on the tag:
    it tests the merge, checks the tag matches `mygo.json`, builds every platform
    with `scripts/release-mygo.sh`, and creates a GitHub Release with the
    artifacts and `SHA256SUMS` for `T3Go-mygo-X.Y.Z-*`.
+
+The desktop apps update themselves through MyGo's signed updates: the workflow
+signs each platform's update archive with `MYGO_UPDATER_PRIVATE_KEY` (an Ed25519
+key kept in the repository secrets) and uploads `update-<target>.json` next to
+it. Installed apps check and install updates under Settings → About;
+development builds carry no update feed and update by rebuilding. The private
+key lives only in `~/.config/t3go/update-keys/` on the machine that made it and
+in the GitHub secret; never commit it.
 
 Build and package locally with:
 

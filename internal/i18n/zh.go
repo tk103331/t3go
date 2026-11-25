@@ -897,4 +897,16 @@ var zh = map[string]string{
 	"The environment is offline. Start its server or reconnect it, then try again.":  "环境当前离线。请启动它的服务器或重新连接后再试。",
 	"That email or password is not right.":                                           "邮箱或密码不正确。",
 	"Too many sign-in attempts. Try again in a few minutes.":                         "登录尝试次数过多，请几分钟后再试。",
+
+	// Settings → About client updates.
+	"Client updates":                "客户端更新",
+	"Check for updates":             "检查更新",
+	"Checking for updates":          "正在检查更新",
+	"Checking for updates…":         "正在检查更新…",
+	"You're up to date.":            "已是最新版本。",
+	"T3Go %s is available.":         "T3Go %s 可用。",
+	"Install update":                "安装更新",
+	"Installing update…":            "正在安装更新…",
+	"Update installed. Restarting…": "更新已安装，正在重启…",
+	"Updates are available in installed builds. Development builds update by rebuilding.": "更新适用于已安装的版本；开发构建请重新构建。",
 }

@@ -75,6 +75,10 @@ jobs:
           fi
 
       - name: Build every platform
+        env:
+          MYGO_UPLOAD: "1"
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: ./scripts/release-mygo.sh
 
       - name: Publish the GitHub release
@@ -82,13 +86,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" release/* --clobber
-          else
-            gh release create "$TAG" release/* \
-              --title "T3Go $TAG" \
-              --generate-notes
+          # Build uploads the native installers and signed update manifests
+          # to a draft of this tag; add the download page's artifacts, then
+          # publish it so installed apps see the update.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --title "T3Go $TAG" --generate-notes
           fi
+          gh release upload "$TAG" release/* --clobber
+          gh release edit "$TAG" --draft=false --latest
 
       - name: Keep the artifacts on the workflow run
         uses: actions/upload-artifact@v4

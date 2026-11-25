@@ -209,14 +209,21 @@ UI 测试使用 MyGo 的 `ui.NewTester`。一条命令启动完整本地栈：
 
 ## 发布
 
-1. 同步三个位置的版本号，确保应用、包名和下载页一致：
+1. 同步版本号，确保应用、包名、下载页与更新说明一致：
    - `mygo.json`（`version`）
    - `internal/app/settingsview.go`（`appVersion`）
    - `web/index.html`（MyGo 产物链接与 tag）
+   - `CHANGELOG.md`（`## X.Y.Z` 段落，也是应用内显示的更新说明）
 2. 提交，打标签 `vX.Y.Z`，推送标签。
 3. [发布工作流](.github/workflows/release-mygo.yml) 在标签上运行：测试、
    校验标签与 `mygo.json` 一致、用 `scripts/release-mygo.sh` 构建全部平台，
    并创建 GitHub Release，附带 `T3Go-mygo-X.Y.Z-*` 产物与 `SHA256SUMS`。
+
+桌面端通过 MyGo 的签名更新自更新：工作流用 `MYGO_UPDATER_PRIVATE_KEY`
+（Ed25519 私钥，存在仓库 Secret 中）签名各平台的更新包，并随 Release 上传
+`update-<target>.json`。安装版在“设置 → 关于”检查并安装更新；开发构建不带
+更新源，需要重新构建。私钥只存在于本机 `~/.config/t3go/update-keys/` 与
+GitHub Secret，切勿提交。
 
 本地构建与打包：
 
