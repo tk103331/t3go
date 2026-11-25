@@ -1,7 +1,7 @@
 {
   "name": "T3Go",
   "identifier": "dev.nsgo.t3go",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "main": "./cmd/t3go-app",
   "icon": "cmd/t3go-app/assets/Icon.png",
   "ios": {
